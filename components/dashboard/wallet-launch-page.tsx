@@ -21,11 +21,31 @@ export function WalletLaunchPage() {
     if (manifest) {
       manifest.href = `/manifests/${activeWallet}.webmanifest`;
     }
+
+    const selectedLabel = walletOptions.find((option) => option.id === activeWallet)?.label ?? "Wallet";
+    document.title = `${selectedLabel} · Larpz Wallet`;
+    const appleTitle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"]');
+    if (appleTitle) {
+      appleTitle.content = selectedLabel;
+    }
+
+    const appleIcon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (appleIcon) {
+      appleIcon.href = activeWallet === "ghost" ? "/assets/logo_m.png" : `/icons/wallets/${activeWallet}.svg`;
+    }
   }, [activeWallet]);
 
   const chooseWallet = (wallet: WalletThemeId) => {
     setActiveWallet(wallet);
     setWalletTheme(wallet);
+
+    // Keep the chooser visible, but make the current page the selected wallet
+    // URL. Safari's Add to Home Screen action saves the current URL instead of
+    // consistently using the dynamically-selected manifest start_url.
+    const walletUrl = new URL("/wallet", window.location.origin);
+    walletUrl.searchParams.set("wallet", wallet);
+    window.history.replaceState(window.history.state, "", walletUrl);
+
     window.dispatchEvent(new Event("wallet-theme-change"));
   };
 
