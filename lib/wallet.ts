@@ -186,6 +186,10 @@ export function getWalletTheme(): WalletThemeId {
   return exists ? (value as WalletThemeId) : defaultWalletTheme;
 }
 
+export function isWalletThemeId(value: string | null | undefined): value is WalletThemeId {
+  return walletThemes.some((theme) => theme.id === value);
+}
+
 export function setWalletTheme(themeId: WalletThemeId) {
   const exists = walletThemes.some((theme) => theme.id === themeId);
   if (!exists) {

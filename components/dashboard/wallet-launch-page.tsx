@@ -1,14 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Check, Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
 
 import { getWalletTheme, setWalletTheme } from "@/lib/wallet";
 import type { WalletThemeId } from "@/config/wallets";
-
-type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void> };
 
 const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featured?: boolean }[] = [
   { id: "ghost", label: "Download Now", icon: Download, featured: true },
@@ -17,20 +14,7 @@ const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featu
 ];
 
 export function WalletLaunchPage() {
-  const router = useRouter();
   const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => getWalletTheme());
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installing, setInstalling] = useState<WalletThemeId | null>(null);
-
-  useEffect(() => {
-    const handleInstall = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    window.addEventListener("beforeinstallprompt", handleInstall);
-    return () => window.removeEventListener("beforeinstallprompt", handleInstall);
-  }, []);
 
   useEffect(() => {
     const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
@@ -39,24 +23,10 @@ export function WalletLaunchPage() {
     }
   }, [activeWallet]);
 
-  const openWallet = async (wallet: WalletThemeId) => {
+  const chooseWallet = (wallet: WalletThemeId) => {
     setActiveWallet(wallet);
     setWalletTheme(wallet);
     window.dispatchEvent(new Event("wallet-theme-change"));
-    setInstalling(wallet);
-
-    if (installPrompt) {
-      try {
-        await installPrompt.prompt();
-      } catch {
-        // The native prompt can be dismissed before it resolves.
-      }
-      setInstallPrompt(null);
-    }
-
-    // iOS does not expose beforeinstallprompt. The page still opens the wallet
-    // after the tap, while the browser Share menu can be used to install it.
-    router.push("/wallet");
   };
 
   return (
@@ -89,21 +59,28 @@ export function WalletLaunchPage() {
               <button
                 key={id}
                 type="button"
-                onClick={() => openWallet(id)}
-                disabled={installing !== null}
-                className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-lg transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-80 ${
+                aria-pressed={activeWallet === id}
+                onClick={() => chooseWallet(id)}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold shadow-lg transition hover:-translate-y-0.5 ${
                   featured
-                    ? "bg-[#8e9dff] text-white shadow-[#1721a2]/30 hover:bg-[#9eabff]"
-                    : "bg-[#2433c7]/80 text-white/90 shadow-[#1721a2]/25 hover:bg-[#3447dc]"
+                    ? activeWallet === id
+                      ? "border-white/40 bg-[#9eabff] text-white shadow-[#1721a2]/40"
+                      : "border-transparent bg-[#8e9dff] text-white shadow-[#1721a2]/30 hover:bg-[#9eabff]"
+                    : activeWallet === id
+                      ? "border-white/35 bg-[#3447dc] text-white shadow-[#1721a2]/40"
+                      : "border-transparent bg-[#2433c7]/80 text-white/90 shadow-[#1721a2]/25 hover:bg-[#3447dc]"
                 }`}
               >
                 <Icon className="h-4 w-4" />
-                {installing === id ? "Opening..." : label}
+                {label}
+                {activeWallet === id ? <Check className="h-4 w-4" /> : null}
               </button>
             ))}
           </div>
 
-          <p className="mt-8 max-w-[250px] text-[11px] leading-5 text-white/40">On iPhone, tap Share then Add to Home Screen. On Android, Chrome will show the install prompt.</p>
+          <p className="mt-8 max-w-[250px] text-[11px] leading-5 text-white/50">
+            Select a wallet, then tap Share → Add to Home Screen. The shortcut will open this wallet&apos;s own interface.
+          </p>
         </section>
       </div>
     </main>
