@@ -35,8 +35,8 @@ export function MarketingNavbar() {
         <Link href="/#pricing" onClick={() => setOpen(false)}>Pricing</Link>
         <Link href="/buy" onClick={() => setOpen(false)}>Buy</Link>
         <Link href="/#reviews" onClick={() => setOpen(false)}>Reviews</Link>
-        <Link href="/login" className="btn btn-primary nav-dashboard-btn" style={{ marginTop: "12px" }} onClick={() => setOpen(false)}>
-          Login
+        <Link href="/activate" className="btn btn-primary nav-dashboard-btn" style={{ marginTop: "12px" }} onClick={() => setOpen(false)}>
+          Activate License
         </Link>
       </div>
 
@@ -57,8 +57,8 @@ export function MarketingNavbar() {
                 {link.label}
               </Link>
             ))}
-            <Link href="/login" className="btn btn-primary nav-dashboard-btn" style={{ marginLeft: "8px", color: "#FFFFFF" }}>
-              Login
+            <Link href="/activate" className="btn btn-primary nav-dashboard-btn" style={{ marginLeft: "8px", color: "#FFFFFF" }}>
+              Activate License
             </Link>
           </div>
 

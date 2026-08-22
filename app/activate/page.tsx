@@ -124,10 +124,10 @@ export default function ActivatePage() {
             <>
               <div className="login-success">{message}</div>
               <div className="mt-4 rounded-xl border border-[#a08dff55] bg-[#a08dff1f] p-4 text-center text-sm text-[#ded5ff]">
-                Your wallet is inside the dashboard. Continue to Login, then open the Dashboard to start customizing it.
+                Your license is active. Choose a wallet style to continue.
               </div>
-              <Link href={user ? "/dashboard" : "/login"} className="btn btn-primary mt-4 w-full">
-                {user ? "Open My Wallet" : "Continue to Login"}
+              <Link href="/wallet-launch" className="btn btn-primary mt-4 w-full">
+                Choose a Wallet
               </Link>
             </>
           ) : null}

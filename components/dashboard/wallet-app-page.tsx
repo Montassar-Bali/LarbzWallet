@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   Settings,
-  Shield,
   SlidersHorizontal,
   Sparkles,
   Shuffle,
@@ -64,8 +63,9 @@ export function WalletAppPage() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    setTokens(getTokens());
     document.documentElement.dataset.walletTheme = getWalletTheme();
+    const timeoutId = window.setTimeout(() => setTokens(getTokens()), 0);
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const total = useMemo(() => tokens.reduce((sum, token) => sum + token.balance * token.price, 0), [tokens]);

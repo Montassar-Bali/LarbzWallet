@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     logoutUser();
     setUser(null);
-    router.push("/login");
+    router.push("/activate");
   }, [router]);
 
   const value = useMemo(

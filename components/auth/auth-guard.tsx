@@ -22,7 +22,7 @@ export function AuthGuard({ children, requireAdmin }: AuthGuardProps) {
     }
 
     if (!user) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace(`/activate?next=${encodeURIComponent(pathname)}`);
       return;
     }
 
