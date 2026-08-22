@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check, Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
 
+import { WalletAppRoute } from "@/components/wallet/wallet-app-route";
 import { getWalletTheme, setWalletTheme } from "@/lib/wallet";
 import type { WalletThemeId } from "@/config/wallets";
 
@@ -13,8 +15,10 @@ const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featu
   { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
 ];
 
-export function WalletLaunchPage() {
+export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
+  const router = useRouter();
   const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => getWalletTheme());
+  const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
     const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
@@ -22,7 +26,7 @@ export function WalletLaunchPage() {
       manifest.href = `/manifests/${activeWallet}.webmanifest`;
     }
 
-    const walletUrl = new URL("/wallet", window.location.origin);
+    const walletUrl = new URL("/wallet-launch", window.location.origin);
     walletUrl.searchParams.set("wallet", activeWallet);
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (canonical) {
@@ -42,19 +46,39 @@ export function WalletLaunchPage() {
     }
   }, [activeWallet]);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+    const updateStandalone = () => {
+      const iosStandalone = "standalone" in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+      setStandalone(mediaQuery.matches || iosStandalone);
+    };
+
+    updateStandalone();
+    mediaQuery.addEventListener?.("change", updateStandalone);
+    mediaQuery.addListener?.(updateStandalone);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", updateStandalone);
+      mediaQuery.removeListener?.(updateStandalone);
+    };
+  }, []);
+
   const chooseWallet = (wallet: WalletThemeId) => {
     setActiveWallet(wallet);
     setWalletTheme(wallet);
 
-    // Keep the chooser visible, but make the current page the selected wallet
-    // URL. Safari's Add to Home Screen action saves the current URL instead of
-    // consistently using the dynamically-selected manifest start_url.
-    const walletUrl = new URL("/wallet", window.location.origin);
+    // The route changes without leaving this chooser UI. Safari saves this
+    // wallet-specific URL when the user chooses Add to Home Screen.
+    const walletUrl = new URL("/wallet-launch", window.location.origin);
     walletUrl.searchParams.set("wallet", wallet);
-    window.history.replaceState(window.history.state, "", walletUrl);
+    router.replace(`${walletUrl.pathname}${walletUrl.search}`, { scroll: false });
 
     window.dispatchEvent(new Event("wallet-theme-change"));
   };
+
+  if (standalone && initialWallet) {
+    return <WalletAppRoute initialTheme={initialWallet} />;
+  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#2639df] text-white" style={{ background: "linear-gradient(180deg, #1f2cbd 0%, #2938dc 48%, #2d42f0 100%)" }}>
