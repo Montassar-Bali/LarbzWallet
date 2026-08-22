@@ -31,7 +31,7 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
         window.removeEventListener("storage", onStoreChange);
       };
     },
-    getCurrentWalletTheme,
+    () => initialTheme ?? getCurrentWalletTheme(),
     () => initialTheme ?? defaultWalletTheme,
   );
 

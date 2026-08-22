@@ -7,7 +7,7 @@ import { Check, Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "
 
 import { WalletAppRoute } from "@/components/wallet/wallet-app-route";
 import { getWalletTheme, setWalletTheme } from "@/lib/wallet";
-import type { WalletThemeId } from "@/config/wallets";
+import { walletInstallPaths, type WalletThemeId } from "@/config/wallets";
 
 const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featured?: boolean }[] = [
   { id: "ghost", label: "Download Now", icon: Download, featured: true },
@@ -17,7 +17,7 @@ const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featu
 
 export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
   const router = useRouter();
-  const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => getWalletTheme());
+  const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => initialWallet ?? getWalletTheme());
   const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
@@ -26,8 +26,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
       manifest.href = `/manifests/${activeWallet}.webmanifest`;
     }
 
-    const walletUrl = new URL("/wallet-launch", window.location.origin);
-    walletUrl.searchParams.set("wallet", activeWallet);
+    const walletUrl = new URL(walletInstallPaths[activeWallet], window.location.origin);
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (canonical) {
       canonical.href = walletUrl.href;
@@ -67,11 +66,9 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
     setActiveWallet(wallet);
     setWalletTheme(wallet);
 
-    // The route changes without leaving this chooser UI. Safari saves this
-    // wallet-specific URL when the user chooses Add to Home Screen.
-    const walletUrl = new URL("/wallet-launch", window.location.origin);
-    walletUrl.searchParams.set("wallet", wallet);
-    router.replace(`${walletUrl.pathname}${walletUrl.search}`, { scroll: false });
+    // Each wallet has a real path so Safari saves the selected wallet instead
+    // of falling back to the site's root when making a Home Screen shortcut.
+    router.replace(walletInstallPaths[wallet], { scroll: false });
 
     window.dispatchEvent(new Event("wallet-theme-change"));
   };

@@ -49,3 +49,11 @@ export const walletThemes: WalletTheme[] = [
 ];
 
 export const defaultWalletTheme: WalletThemeId = "ghost";
+
+// Keep each install on a distinct path. iOS can preserve the current path
+// more reliably than a query string when creating a Home Screen shortcut.
+export const walletInstallPaths: Record<WalletThemeId, string> = {
+  ghost: "/download-wallet",
+  ledger: "/ledger-wallet",
+  trust: "/trust-wallet",
+};
