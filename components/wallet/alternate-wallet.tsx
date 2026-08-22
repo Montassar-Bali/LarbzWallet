@@ -72,7 +72,7 @@ const designs: Record<AlternateWalletId, WalletDesign> = {
   trust: {
     name: "Trust Wallet",
     subtitle: "Wallet 1",
-    logo: "/icons/wallets/trust.svg",
+    logo: "/icons/wallets/trust.png",
     background: "#06162b",
     surface: "#0d2947",
     softSurface: "#09203a",

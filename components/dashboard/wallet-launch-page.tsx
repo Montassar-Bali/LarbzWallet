@@ -51,7 +51,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
         ? "/assets/logo_m.png"
         : activeWallet === "ledger"
           ? "/icons/wallets/ledger.png"
-          : "/icons/wallets/trust.svg";
+          : "/icons/wallets/trust.png";
     }
   }, [activeWallet]);
 
