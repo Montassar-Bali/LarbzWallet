@@ -22,6 +22,13 @@ export function WalletLaunchPage() {
       manifest.href = `/manifests/${activeWallet}.webmanifest`;
     }
 
+    const walletUrl = new URL("/wallet", window.location.origin);
+    walletUrl.searchParams.set("wallet", activeWallet);
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (canonical) {
+      canonical.href = walletUrl.href;
+    }
+
     const selectedLabel = walletOptions.find((option) => option.id === activeWallet)?.label ?? "Wallet";
     document.title = `${selectedLabel} · Larpz Wallet`;
     const appleTitle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"]');
