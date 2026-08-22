@@ -15,6 +15,12 @@ const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featu
   { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
 ];
 
+const homeScreenNames: Record<WalletThemeId, string> = {
+  ghost: "Larpz Wallet",
+  ledger: "Ledger Wallet",
+  trust: "Trust Wallet",
+};
+
 export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
   const router = useRouter();
   const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => initialWallet ?? getWalletTheme());
@@ -32,7 +38,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
       canonical.href = walletUrl.href;
     }
 
-    const selectedLabel = walletOptions.find((option) => option.id === activeWallet)?.label ?? "Wallet";
+    const selectedLabel = homeScreenNames[activeWallet];
     document.title = `${selectedLabel} · Larpz Wallet`;
     const appleTitle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"]');
     if (appleTitle) {
@@ -41,7 +47,11 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
 
     const appleIcon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
     if (appleIcon) {
-      appleIcon.href = activeWallet === "ghost" ? "/assets/logo_m.png" : `/icons/wallets/${activeWallet}.svg`;
+      appleIcon.href = activeWallet === "ghost"
+        ? "/assets/logo_m.png"
+        : activeWallet === "ledger"
+          ? "/icons/wallets/ledger.png"
+          : "/icons/wallets/trust.svg";
     }
   }, [activeWallet]);
 
