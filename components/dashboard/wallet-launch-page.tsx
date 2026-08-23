@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check, Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
 
@@ -22,7 +21,6 @@ const homeScreenNames: Record<WalletThemeId, string> = {
 };
 
 export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
-  const router = useRouter();
   const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => initialWallet ?? getWalletTheme());
   const [standalone, setStandalone] = useState(false);
 
@@ -76,9 +74,9 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
     setActiveWallet(wallet);
     setWalletTheme(wallet);
 
-    // Each wallet has a real path so Safari saves the selected wallet instead
-    // of falling back to the site's root when making a Home Screen shortcut.
-    router.replace(walletInstallPaths[wallet], { scroll: false });
+    // Load the route as a new document so Safari reads this wallet's static
+    // title, icon, and manifest before opening Add to Home Screen.
+    window.location.assign(walletInstallPaths[wallet]);
 
     window.dispatchEvent(new Event("wallet-theme-change"));
   };
