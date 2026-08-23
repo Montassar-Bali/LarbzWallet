@@ -3,7 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 
 import { AlternateWallet } from "@/components/wallet/alternate-wallet";
-import { DownloadWallet } from "@/components/wallet/download-wallet";
+import { DownloadWalletWithSplash } from "@/components/wallet/download-wallet-splash";
 import { TrustWallet } from "@/components/wallet/trust-wallet";
 import type { WalletThemeId } from "@/config/wallets";
 import { defaultWalletTheme } from "@/config/wallets";
@@ -43,7 +43,7 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
   }, [initialTheme]);
 
   if (themeId === "ghost") {
-    return <DownloadWallet />;
+    return <DownloadWalletWithSplash />;
   }
 
   if (themeId === "trust") {
