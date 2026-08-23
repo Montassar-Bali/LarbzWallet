@@ -588,9 +588,9 @@ export function DownloadWallet() {
   const currentToken = selectedToken;
 
   return (
-    <main className="download-wallet-app min-h-[100svh] bg-black font-sans text-white">
-      <div className="relative mx-auto h-[100svh] w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/50">
-        <div className="relative h-full overflow-y-auto">
+    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-black font-sans text-white">
+      <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/50">
+        <div className="relative h-full overflow-y-auto overscroll-contain">
           {view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} actionsOpen={actionsOpen} total={total} totalChange={totalChange} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onToken={(token) => { setSelectedToken(token); setView("token-detail"); }} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
