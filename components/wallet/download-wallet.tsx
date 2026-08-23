@@ -337,7 +337,7 @@ function HomeView({
         </section>
       )}
 
-      <div className="absolute inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+18px)] z-20 flex items-center gap-3">
+      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+18px)] left-1/2 z-20 flex -translate-x-1/2 items-center gap-3" style={{ width: "min(calc(100vw - 32px), 528px)" }}>
         <label className="flex min-w-0 flex-1 items-center gap-4 rounded-full bg-[#242426] px-6 py-4 text-[18px] text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Ph4ntom" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
         <button type="button" onClick={onActions} aria-label="Open wallet actions" className={`grid h-[66px] w-[66px] shrink-0 place-items-center rounded-full bg-[#a295f3] text-black shadow-[0_6px_30px_rgba(162,149,243,.35)] transition hover:scale-105 ${actionsOpen ? "rotate-45" : ""}`}><Plus className="h-9 w-9" /></button>
       </div>
@@ -364,7 +364,7 @@ function ActionMenu({ onAction }: { onAction: (action: Action) => void }) {
     { label: "Buy", icon: WalletCards },
     { label: "Trade", icon: Shuffle },
   ];
-  return <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+100px)] right-5 z-30 flex flex-col items-end gap-4">{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-4 text-[20px] font-medium"><span>{label}</span><span className="grid h-[60px] w-[60px] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-7 w-7" /></span></button>)}</div>;
+  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-4" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-4 text-[20px] font-medium"><span>{label}</span><span className="grid h-[60px] w-[60px] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-7 w-7" /></span></button>)}</div>;
 }
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
