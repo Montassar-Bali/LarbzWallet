@@ -288,6 +288,70 @@ function TokenEditor({
   );
 }
 
+function BuyPanel({
+  tokens,
+  onClose,
+  onBuy,
+}: {
+  tokens: Token[];
+  onClose: () => void;
+  onBuy: (token: Token, amount: number) => void;
+}) {
+  const [tokenId, setTokenId] = useState(tokens[0]?.id ?? "");
+  const [amount, setAmount] = useState("1");
+  const [error, setError] = useState("");
+  const selectedToken = tokens.find((token) => token.id === tokenId) ?? tokens[0];
+  const quantity = Number(amount);
+  const estimatedValue = selectedToken && Number.isFinite(quantity) ? selectedToken.price * quantity : 0;
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedToken) {
+      setError("Add a token before buying it.");
+      return;
+    }
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError("Enter an amount greater than zero.");
+      return;
+    }
+
+    onBuy(selectedToken, quantity);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/65 p-3 sm:items-center">
+      <section className="max-h-[92svh] w-full max-w-[500px] overflow-y-auto rounded-[2rem] border border-white/15 bg-[#293b68] p-5 shadow-2xl sm:p-6" aria-label="Buy simulated asset">
+        <div className="flex items-center justify-between">
+          <div><h2 className="text-lg font-bold text-white">Buy</h2><p className="mt-1 text-xs text-white/50">Simulated purchase · no payment is processed.</p></div>
+          <button type="button" onClick={onClose} aria-label="Close buy panel" className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+        </div>
+
+        {tokens.length === 0 ? (
+          <div className="mt-6 rounded-2xl bg-[#415782] p-4 text-sm text-white/70">Add a token in Manage before opening a simulated purchase.</div>
+        ) : (
+          <form onSubmit={submit} className="mt-5 space-y-4">
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#b7c5ed]/70">Asset</p>
+              <select value={selectedToken?.id ?? ""} onChange={(event) => setTokenId(event.target.value)} className="w-full rounded-xl bg-[#415782] px-3 py-3 text-sm font-semibold text-white outline-none">
+                {tokens.map((token) => <option key={token.id} value={token.id}>{token.name} ({token.symbol}) · {formatMoney(token.price)}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#b7c5ed]/70">Amount</p><span className="text-xs text-white/45">Current: {selectedToken?.balance.toLocaleString() ?? "0"}</span></div>
+              <input autoFocus inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => { setAmount(event.target.value); setError(""); }} className="w-full rounded-xl bg-[#415782] px-3 py-3 text-lg text-white outline-none placeholder:text-white/35" placeholder="0" />
+              <div className="mt-2 flex gap-2">{["0.1", "1", "10"].map((preset) => <button key={preset} type="button" onClick={() => setAmount(preset)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/15">+{preset}</button>)}</div>
+            </div>
+            <div className="rounded-2xl bg-[#415782] px-4 py-3 text-sm"><div className="flex items-center justify-between text-white/55"><span>Estimated value</span><span className="font-semibold text-white">{formatMoney(estimatedValue)}</span></div><div className="mt-2 flex items-center justify-between text-white/55"><span>New balance</span><span className="font-semibold text-white">{selectedToken ? (selectedToken.balance + (Number.isFinite(quantity) ? quantity : 0)).toLocaleString() : "0"} {selectedToken?.symbol}</span></div></div>
+            {error ? <p className="rounded-xl bg-rose-400/15 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
+            <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#a9a0ff] px-4 py-3.5 text-sm font-bold text-[#29264c] hover:bg-[#c0baff]"><ShoppingBag className="h-4 w-4" /> Buy {selectedToken?.symbol}</button>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export function DownloadWallet() {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("Home");
@@ -295,6 +359,7 @@ export function DownloadWallet() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingToken, setEditingToken] = useState<WalletToken | null>(null);
+  const [buyOpen, setBuyOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [cashVisible, setCashVisible] = useState(true);
   const [tokenQuery, setTokenQuery] = useState("");
@@ -371,6 +436,13 @@ export function DownloadWallet() {
     notify(`${token.name} deleted from your simulated wallet.`);
   };
 
+  const handleBuyToken = (token: Token, amount: number) => {
+    const saved = saveToken({ ...token, balance: token.balance + amount });
+    setTokens((current) => current.map((item) => item.id === saved.id ? decorateToken(saved) : item));
+    setBuyOpen(false);
+    notify(`${amount.toLocaleString()} ${token.symbol} added to your simulated wallet.`);
+  };
+
   return (
     <main className="min-h-screen bg-[#050711] text-white">
       <div className="relative mx-auto flex min-h-screen max-w-[560px] flex-col overflow-hidden border-x border-white/[0.05] bg-[#0b1020] shadow-[0_0_100px_rgba(7,11,30,0.6)]">
@@ -418,10 +490,11 @@ export function DownloadWallet() {
           <button type="button" onClick={() => setActionsOpen((value) => !value)} aria-label="Open wallet actions" className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#a9a0ff] text-[#211d43] shadow-lg shadow-[#a9a0ff]/20 transition hover:scale-105"><Plus className={`h-6 w-6 transition ${actionsOpen ? "rotate-45" : ""}`} /></button>
         </div>
 
-        {actionsOpen ? <div className="absolute bottom-[5.4rem] right-5 z-30 space-y-2 sm:bottom-[6.3rem] sm:right-7">{actionItems.map(({ label, icon: Icon, tone }) => <button key={label} type="button" onClick={() => { setActionsOpen(false); notify(`${label} opened in simulation mode`); }} className="flex items-center gap-3 text-sm font-semibold text-white drop-shadow-lg"><span>{label}</span><span className={`grid h-10 w-10 place-items-center rounded-full shadow-xl ${tone}`}><Icon className="h-5 w-5" /></span></button>)}</div> : null}
+        {actionsOpen ? <div className="absolute bottom-[5.4rem] right-5 z-30 space-y-2 sm:bottom-[6.3rem] sm:right-7">{actionItems.map(({ label, icon: Icon, tone }) => <button key={label} type="button" onClick={() => { setActionsOpen(false); if (label === "Buy") { setBuyOpen(true); } else { notify(`${label} opened in simulation mode`); } }} className="flex items-center gap-3 text-sm font-semibold text-white drop-shadow-lg"><span>{label}</span><span className={`grid h-10 w-10 place-items-center rounded-full shadow-xl ${tone}`}><Icon className="h-5 w-5" /></span></button>)}</div> : null}
         {drawerOpen ? <SideDrawer onClose={() => setDrawerOpen(false)} onSettings={() => { setDrawerOpen(false); setSettingsOpen(true); }} /> : null}
         {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} tokens={tokens} onEditToken={openEditToken} onAddToken={openAddToken} onDeleteToken={handleDeleteToken} /> : null}
         {editorOpen ? <TokenEditor key={editingToken?.id ?? "new-token"} token={editingToken} onClose={() => { setEditorOpen(false); setEditingToken(null); }} onSave={handleSaveToken} /> : null}
+        {buyOpen ? <BuyPanel tokens={tokens} onClose={() => setBuyOpen(false)} onBuy={handleBuyToken} /> : null}
         {toast ? <div className="absolute bottom-24 left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/10 bg-[#27314b] px-4 py-2 text-xs text-white/85 shadow-xl">{toast}</div> : null}
       </div>
     </main>
