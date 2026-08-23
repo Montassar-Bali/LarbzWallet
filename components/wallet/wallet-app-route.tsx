@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import { AlternateWallet } from "@/components/wallet/alternate-wallet";
 import { DownloadWallet } from "@/components/wallet/download-wallet";
+import { TrustWallet } from "@/components/wallet/trust-wallet";
 import type { WalletThemeId } from "@/config/wallets";
 import { defaultWalletTheme } from "@/config/wallets";
 import { getWalletTheme, isWalletThemeId, setWalletTheme } from "@/lib/wallet";
@@ -43,6 +44,10 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
 
   if (themeId === "ghost") {
     return <DownloadWallet />;
+  }
+
+  if (themeId === "trust") {
+    return <TrustWallet />;
   }
 
   return <AlternateWallet themeId={themeId} />;
