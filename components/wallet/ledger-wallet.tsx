@@ -172,7 +172,7 @@ function IconButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex size-11 items-center justify-center rounded-full border border-white/8 bg-white/[0.08] text-white/85 transition hover:bg-white/[0.15] active:scale-95"
+      className="flex size-[clamp(2.75rem,12vw,3.25rem)] items-center justify-center rounded-full border border-white/8 bg-white/[0.08] text-white/85 transition hover:bg-white/[0.15] active:scale-95"
     >
       <Icon size={20} strokeWidth={1.9} />
     </button>
@@ -192,7 +192,7 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-[104px] min-w-0 flex-col items-center justify-center gap-2 rounded-xl bg-[#171717] px-2 py-3 text-[clamp(0.74rem,3.2vw,1rem)] font-semibold text-white transition hover:bg-[#242424] active:scale-[0.98]"
+      className="flex min-h-[clamp(5.5rem,23vw,6.5rem)] min-w-0 flex-col items-center justify-center gap-2 rounded-xl bg-[#171717] px-1.5 py-2 text-[clamp(0.72rem,3.3vw,1rem)] font-semibold text-white transition hover:bg-[#242424] active:scale-[0.98]"
     >
       <Icon size={23} strokeWidth={1.7} />
       <span className="truncate">{label}</span>
@@ -202,7 +202,7 @@ function ActionButton({
 
 function MarketCard({ symbol, change, mood = false, viewAll = false }: { symbol: string; change: string; mood?: boolean; viewAll?: boolean }) {
   return (
-    <div className="flex h-[104px] min-w-[104px] snap-start flex-col items-center justify-center rounded-2xl bg-[#171717] px-3 text-center">
+    <div className="flex h-[clamp(6rem,25vw,6.5rem)] min-w-[clamp(6rem,25vw,6.5rem)] snap-start flex-col items-center justify-center rounded-2xl bg-[#171717] px-3 text-center">
       {viewAll ? (
         <>
           <span className="mb-2 flex size-9 items-center justify-center rounded-full bg-[#383838] text-white/70"><ChevronRight size={18} /></span>
@@ -546,7 +546,7 @@ function HomeScreen({
 }) {
   const visibleTokens = useMemo(() => {
     const order = ["ETH", "TRX", "BTC", "SOL", "USDC", "USDT", "BNB"];
-    return [...tokens].filter((token) => token.balance > 0).sort((a, b) => {
+    return [...tokens].sort((a, b) => {
       const aOrder = order.indexOf(a.symbol);
       const bOrder = order.indexOf(b.symbol);
       if (aOrder === -1 && bOrder === -1) return b.balance * b.price - a.balance * a.price;
@@ -559,7 +559,7 @@ function HomeScreen({
   const change = total === 0 ? 0 : visibleTokens.reduce((sum, token) => sum + token.change24h * token.balance * token.price, 0) / Math.max(total, 1);
 
   return (
-    <main className="relative space-y-6 overflow-hidden px-4 pb-8 pt-[max(1rem,env(safe-area-inset-top))] sm:px-7">
+    <main className="relative space-y-6 overflow-hidden px-4 pb-28 pt-[max(1rem,env(safe-area-inset-top))] sm:px-7">
       <div className="pointer-events-none absolute inset-x-[-26%] top-0 h-[430px] opacity-90" style={{ backgroundImage: "radial-gradient(circle at 78% 19%, rgba(236, 58, 171, .28), transparent 35%), radial-gradient(circle at 38% 42%, rgba(139, 54, 172, .22), transparent 53%), radial-gradient(circle, rgba(255, 108, 191, .36) 1px, transparent 1.4px)", backgroundSize: "auto, auto, 8px 8px" }} />
       <section className="relative px-1 pb-1 pt-1">
         <div className="relative flex items-center justify-between px-1">
@@ -567,13 +567,18 @@ function HomeScreen({
           <div className="flex gap-2">
             <IconButton icon={Compass} label="Explore" onClick={() => onNotice("Market explorer is simulated in this wallet.")} />
             <IconButton icon={Bell} label="Notifications" onClick={() => onNotice("No new simulated notifications.")} />
-          <IconButton icon={Settings} label="Edit portfolio" onClick={onEdit} />
+            <IconButton icon={Settings} label="Edit portfolio" onClick={onEdit} />
           </div>
         </div>
 
         <div className="relative px-1 pb-3 pt-9 text-center">
+          <div className="relative mb-4 flex justify-center">
+            <span className="rounded-full border border-[#a995f2]/25 bg-[#a995f2]/10 px-2.5 py-1 text-[0.58rem] font-bold tracking-[0.14em] text-[#c9bbff]">
+              SIMULATOR / LOCAL ONLY
+            </span>
+          </div>
           <div className="flex items-end justify-center gap-1 overflow-hidden">
-            <span className="truncate text-[clamp(2.4rem,12vw,4.3rem)] font-bold leading-none tracking-[-0.07em]">{formatMoney(total, currency)}</span>
+            <span className="truncate text-[clamp(2rem,10.5vw,4.3rem)] font-bold leading-none tracking-[-0.07em]">{formatMoney(total, currency)}</span>
           </div>
           <button type="button" onClick={() => onNotice("Portfolio change is calculated from your simulated asset values.")} className="mt-5 rounded-full bg-[#4a484b] px-5 py-2 text-sm font-bold text-white/80 transition hover:bg-[#5a575b]">
             {change >= 0 ? "+" : ""}{change.toFixed(2)}% · Today <ChevronRight className="ml-1 inline-block" size={17} />
@@ -626,7 +631,7 @@ function HomeScreen({
 
 function AssetsScreen({ tokens, currency, rate, onToken, onHome }: { tokens: WalletToken[]; currency: CurrencyCode; rate: number; onToken: (token: WalletToken) => void; onHome: () => void }) {
   return (
-    <main className="space-y-5 px-4 pb-8 pt-6 sm:px-7">
+    <main className="space-y-5 px-4 pb-28 pt-6 sm:px-7">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold tracking-[0.18em] text-white/45">PORTFOLIO</p><h1 className="mt-1 text-3xl font-bold">All assets</h1></div><button type="button" onClick={onHome} className="rounded-full bg-white/[0.08] px-4 py-2 text-sm font-bold">Home</button></div>
       <div className="space-y-1 rounded-2xl bg-white/[0.025] p-3">{tokens.map((token) => <AssetRow key={token.id} token={token} currency={currency} rate={rate} onClick={() => onToken(token)} />)}</div>
     </main>
@@ -642,7 +647,7 @@ function HistoryScreen({ records, tokens, currency, rate, onHome, onAdd }: { rec
   }, {});
 
   return (
-    <main className="space-y-5 px-4 pb-8 pt-6 sm:px-7">
+    <main className="space-y-5 px-4 pb-28 pt-6 sm:px-7">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold tracking-[0.18em] text-white/45">ACTIVITY</p><h1 className="mt-1 text-3xl font-bold">Transaction history</h1></div><button type="button" onClick={onAdd} className="flex size-11 items-center justify-center rounded-full bg-[#a995f2] text-black"><Plus size={22} /></button></div>
       {Object.keys(groups).length > 0 ? Object.entries(groups).map(([date, items]) => <section key={date}><div className="rounded-xl bg-[#292929] px-4 py-3 text-sm font-bold text-white/70">{date}</div><div className="divide-y divide-white/8">{items.map((record) => <HistoryRow key={record.id} record={record} currency={currency} rate={rate} tokens={tokens} />)}</div></section>) : <p className="rounded-xl bg-white/[0.04] px-4 py-5 text-sm text-white/50">No simulated transactions yet.</p>}
       <button type="button" onClick={onHome} className="w-full rounded-full border border-white/25 py-3 text-sm font-bold">Back to home</button>
