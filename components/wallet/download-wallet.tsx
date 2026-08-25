@@ -162,7 +162,7 @@ function tokenMark(token: WalletToken) {
 
 function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "small" | "normal" | "large" }) {
   const visual = tokenVisuals[token.symbol] ?? { background: "#8068e8", mark: tokenMark(token) };
-  const dimensions = size === "small" ? "h-8 w-8 text-sm" : size === "large" ? "h-20 w-20 text-4xl" : "h-12 w-12 text-xl";
+  const dimensions = size === "small" ? "h-8 w-8 text-sm" : size === "large" ? "h-[clamp(4rem,20vw,5rem)] w-[clamp(4rem,20vw,5rem)] text-[clamp(1.8rem,8vw,2.25rem)]" : "h-[clamp(2.5rem,12vw,3rem)] w-[clamp(2.5rem,12vw,3rem)] text-[clamp(1rem,5vw,1.25rem)]";
 
   return (
     <span
@@ -182,8 +182,8 @@ function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?
 
 function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange: (tab: Tab) => void; onMenu: () => void }) {
   return (
-    <div className="flex items-center gap-2">
-      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#252527] text-[25px] transition hover:bg-[#303033]">
+    <div className="flex min-w-0 items-center gap-2">
+      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-[clamp(2.5rem,12vw,3rem)] w-[clamp(2.5rem,12vw,3rem)] shrink-0 place-items-center rounded-full bg-[#252527] text-[clamp(1.1rem,5vw,1.55rem)] transition hover:bg-[#303033]">
         🔐
       </button>
       {(["Home", "Trade", "Explore"] as Tab[]).map((tab) => (
@@ -191,7 +191,7 @@ function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange:
           key={tab}
           type="button"
           onClick={() => onChange(tab)}
-          className={`rounded-full px-5 py-3 text-[15px] font-medium transition ${activeTab === tab ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
+          className={`min-w-0 flex-1 rounded-full px-2 py-2.5 text-[clamp(.72rem,3.5vw,.94rem)] font-medium transition ${activeTab === tab ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
         >
           {tab}
         </button>
@@ -308,19 +308,19 @@ function HomeView({
 
   return (
     <>
-      <div className="px-4 pt-[calc(env(safe-area-inset-top)+20px)]">
+      <div className="min-w-0 px-4 pt-[calc(env(safe-area-inset-top)+20px)]">
         <WalletTabs activeTab={tab} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
         <section className="px-4 pb-32 pt-11">
-          <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex items-center gap-2 text-[17px] text-white/70">{profile.accountName}<ChevronDown className="h-5 w-5" /></button>
-          <h1 className="mt-2 text-[4.1rem] font-normal leading-none tracking-[-0.07em] text-white">{formatMoney(total)}</h1>
-          <div className="mt-4 flex items-center gap-3 text-[15px] font-medium"><span className={totalChange >= 0 ? "text-[#e8e8ea]" : "text-[#f21b3f]"}>{formatMoney(total * (totalChange / 100))}</span><span className="rounded-xl bg-[#f21b3f] px-3 py-1.5 text-black">{totalChange.toFixed(2)}%</span></div>
+          <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex max-w-full items-center gap-2 truncate text-[clamp(.85rem,4vw,1.06rem)] text-white/70">{profile.accountName}<ChevronDown className="h-5 w-5 shrink-0" /></button>
+          <h1 className="mt-2 overflow-hidden text-[clamp(2.65rem,14vw,4.1rem)] font-normal leading-none tracking-[-0.07em] text-white">{formatMoney(total)}</h1>
+          <div className="mt-4 flex items-center gap-2 text-[clamp(.75rem,3.5vw,.94rem)] font-medium"><span className="truncate">{formatMoney(total * (totalChange / 100))}</span><span className="shrink-0 rounded-xl bg-[#f21b3f] px-2.5 py-1.5 text-black">{totalChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-9 flex w-full items-center justify-between rounded-[1.65rem] bg-[#19191b] px-7 py-6 text-left transition hover:bg-[#232326]"><span className="flex items-center gap-6 text-[20px]"><span className="text-[24px] text-white/70">▣</span>Cash</span><span className="text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-9 flex w-full items-center justify-between rounded-[1.65rem] bg-[#19191b] px-[clamp(1rem,5vw,1.75rem)] py-[clamp(1rem,5vw,1.5rem)] text-left transition hover:bg-[#232326]"><span className="flex items-center gap-[clamp(.75rem,4vw,1.5rem)] text-[clamp(1rem,4.8vw,1.25rem)]"><span className="text-[clamp(1.25rem,6vw,1.5rem)] text-white/70">▣</span>Cash</span><span className="shrink-0 text-[clamp(1rem,4.8vw,1.25rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
-          <div className="mt-12 flex items-center gap-2"><h2 className="text-[24px] font-medium tracking-[-0.04em]">Tokens</h2><ChevronRight className="h-7 w-7" /></div>
+          <div className="mt-12 flex items-center gap-2"><h2 className="text-[clamp(1.25rem,6vw,1.5rem)] font-medium tracking-[-0.04em]">Tokens</h2><ChevronRight className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></div>
           <div className="mt-4 space-y-2.5">
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
@@ -338,8 +338,8 @@ function HomeView({
       )}
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+18px)] left-1/2 z-20 flex -translate-x-1/2 items-center gap-3" style={{ width: "min(calc(100vw - 32px), 528px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-4 rounded-full bg-[#242426] px-6 py-4 text-[18px] text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Ph4ntom" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
-        <button type="button" onClick={onActions} aria-label="Open wallet actions" className={`grid h-[66px] w-[66px] shrink-0 place-items-center rounded-full bg-[#a295f3] text-black shadow-[0_6px_30px_rgba(162,149,243,.35)] transition hover:scale-105 ${actionsOpen ? "rotate-45" : ""}`}><Plus className="h-9 w-9" /></button>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[#242426] px-[clamp(.85rem,4vw,1.5rem)] py-[clamp(.75rem,3.5vw,1rem)] text-[clamp(.78rem,3.8vw,1.125rem)] text-white/40"><Search className="h-[clamp(1.1rem,5vw,1.5rem)] w-[clamp(1.1rem,5vw,1.5rem)] shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Ph4ntom" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <button type="button" onClick={onActions} aria-label="Open wallet actions" className={`grid h-[clamp(3rem,16vw,4.125rem)] w-[clamp(3rem,16vw,4.125rem)] shrink-0 place-items-center rounded-full bg-[#a295f3] text-black shadow-[0_6px_30px_rgba(162,149,243,.35)] transition hover:scale-105 ${actionsOpen ? "rotate-45" : ""}`}><Plus className="h-[clamp(1.6rem,8vw,2.25rem)] w-[clamp(1.6rem,8vw,2.25rem)]" /></button>
       </div>
     </>
   );
@@ -349,10 +349,10 @@ function TokenRow({ token, onClick }: { token: WalletToken; onClick: () => void 
   const value = token.balance * token.price;
   const changeValue = value * (token.change24h / 100);
   return (
-    <button type="button" onClick={onClick} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-6 py-4 text-left transition hover:bg-[#242426]">
+    <button type="button" onClick={onClick} className="flex w-full items-center gap-[clamp(.65rem,3.5vw,1.25rem)] rounded-[1.5rem] bg-[#19191b] px-[clamp(.75rem,4vw,1.5rem)] py-[clamp(.7rem,3.5vw,1rem)] text-left transition hover:bg-[#242426]">
       <TokenIcon token={token} />
-      <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[20px] font-medium"><span className="truncate">{token.name}</span><span className="text-[19px] text-[#a295f3]">✿</span></span><span className="mt-1 block text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
-      <span className="text-right"><span className="block text-[18px]">{formatMoney(value)}</span><span className={`mt-1 block text-[16px] ${token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#f21b3f]"}`}>{value === 0 ? formatMoney(0) : formatMoney(changeValue)}</span></span>
+      <span className="min-w-0 flex-1"><span className="flex items-center gap-1 text-[clamp(.9rem,4.5vw,1.25rem)] font-medium"><span className="truncate">{token.name}</span><span className="text-[clamp(.85rem,4vw,1.2rem)] text-[#a295f3]">✿</span></span><span className="mt-1 block truncate text-[clamp(.72rem,3.5vw,1.06rem)] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
+      <span className="max-w-[35%] shrink-0 text-right"><span className="block truncate text-[clamp(.78rem,3.8vw,1.125rem)]">{formatMoney(value)}</span><span className={`mt-1 block truncate text-[clamp(.68rem,3.2vw,1rem)] ${token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#f21b3f]"}`}>{value === 0 ? formatMoney(0) : formatMoney(changeValue)}</span></span>
     </button>
   );
 }
@@ -364,7 +364,7 @@ function ActionMenu({ onAction }: { onAction: (action: Action) => void }) {
     { label: "Buy", icon: WalletCards },
     { label: "Trade", icon: Shuffle },
   ];
-  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-4" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-4 text-[20px] font-medium"><span>{label}</span><span className="grid h-[60px] w-[60px] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-7 w-7" /></span></button>)}</div>;
+  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-2" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-2 text-[clamp(.9rem,4.5vw,1.25rem)] font-medium"><span>{label}</span><span className="grid h-[clamp(3rem,15vw,3.75rem)] w-[clamp(3rem,15vw,3.75rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div>;
 }
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
