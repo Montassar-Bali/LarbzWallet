@@ -43,12 +43,6 @@ export default function ActivatePage() {
       return;
     }
 
-    if (validation.status === "active") {
-      setStatus("error");
-      setMessage("This license key is already activated.");
-      return;
-    }
-
     try {
       const activated = activateLicense(key, user ? { id: user.id, email: user.email } : undefined);
       if (user) {
