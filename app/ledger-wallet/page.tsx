@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { LedgerWallet } from "@/components/wallet/ledger-wallet";
+import { WalletLaunchPage } from "@/components/dashboard/wallet-launch-page";
 
 export const metadata: Metadata = {
   title: "Ledger Wallet",
@@ -16,5 +16,5 @@ export const metadata: Metadata = {
 };
 
 export default function LedgerWalletRoute() {
-  return <LedgerWallet />;
+  return <WalletLaunchPage initialWallet="ledger" />;
 }
