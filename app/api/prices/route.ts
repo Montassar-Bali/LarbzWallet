@@ -10,12 +10,13 @@ export async function GET(request: NextRequest) {
     .filter(Boolean);
 
   try {
-    const prices = await fetchCryptoPrices(symbols);
-    return NextResponse.json({ prices }, { status: 200 });
+    const snapshot = await fetchCryptoPrices(symbols);
+    return NextResponse.json(snapshot, { status: 200 });
   } catch {
     return NextResponse.json(
       {
         prices: {},
+        changes: {},
         error: "Unable to fetch live display prices. Fallback prices remain active.",
       },
       { status: 200 },

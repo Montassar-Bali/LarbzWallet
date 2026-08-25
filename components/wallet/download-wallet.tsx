@@ -30,6 +30,7 @@ import {
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import type { WalletActivity, WalletToken } from "@/lib/types";
+import { useLivePrices } from "@/components/wallet/use-live-prices";
 import {
   createTransaction,
   deleteToken,
@@ -178,8 +179,12 @@ function referenceHomeTokens(tokens: WalletToken[]) {
   const storedBfs = tokens.find((token) => token.symbol === "BFS");
 
   return [
-    storedSolana ? { ...referenceSolanaToken, id: storedSolana.id } : referenceSolanaToken,
-    storedBfs ? { ...referenceBfsToken, id: storedBfs.id } : referenceBfsToken,
+    storedSolana
+      ? { ...referenceSolanaToken, ...storedSolana, id: storedSolana.id }
+      : referenceSolanaToken,
+    storedBfs
+      ? { ...referenceBfsToken, ...storedBfs, id: storedBfs.id }
+      : referenceBfsToken,
   ];
 }
 
@@ -617,6 +622,33 @@ export function DownloadWallet() {
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
+
+  const liveSymbols = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...tokens.map((token) => token.symbol),
+          "BTC",
+          "ETH",
+          "SOL",
+          "TRX",
+          "BNB",
+          "USDT",
+          "USDC",
+        ]),
+      ),
+    [tokens],
+  );
+
+  useLivePrices(liveSymbols, (prices, changes) => {
+    setTokens((current) =>
+      current.map((token) => ({
+        ...token,
+        price: prices[token.symbol] ?? token.price,
+        change24h: changes[token.symbol] ?? token.change24h,
+      })),
+    );
+  });
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

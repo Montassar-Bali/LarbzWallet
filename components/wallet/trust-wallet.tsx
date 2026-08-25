@@ -33,11 +33,14 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { defaultTokens } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
+import { useLivePrices } from "@/components/wallet/use-live-prices";
 
 type TrustTab = "home" | "swap" | "discover" | "browser";
 type Appearance = "light" | "dark";
 type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD";
 type TransactionKind = "send" | "receive";
+
+const trustLiveSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
 
 type TrustProfile = {
   walletName: string;
@@ -1163,6 +1166,16 @@ export function TrustWallet() {
   const [selectedToken, setSelectedToken] = useState<WalletToken | null>(null);
   const [notice, setNotice] = useState("");
   const [balanceVisible, setBalanceVisible] = useState(true);
+
+  useLivePrices(trustLiveSymbols, (prices, changes) => {
+    setTokens((current) =>
+      current.map((token) => ({
+        ...token,
+        price: prices[token.symbol] ?? token.price,
+        change24h: changes[token.symbol] ?? token.change24h,
+      })),
+    );
+  });
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

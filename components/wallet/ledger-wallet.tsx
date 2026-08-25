@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
+import { useLivePrices } from "@/components/wallet/use-live-prices";
 
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
@@ -674,6 +675,16 @@ export function LedgerWallet() {
   const [transactionDate, setTransactionDate] = useState("");
   const [transactionTime, setTransactionTime] = useState("");
   const [notice, setNotice] = useState("");
+
+  useLivePrices(portfolioSymbols, (prices, changes) => {
+    setTokens((current) =>
+      current.map((token) => ({
+        ...token,
+        price: prices[token.symbol] ?? token.price,
+        change24h: changes[token.symbol] ?? token.change24h,
+      })),
+    );
+  });
 
   useEffect(() => {
     document.documentElement.dataset.walletTheme = "ledger";
