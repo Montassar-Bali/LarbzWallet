@@ -5,6 +5,7 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  Banknote,
   Bell,
   Check,
   ChevronDown,
@@ -107,7 +108,14 @@ const profileEmojis = [
   "🫥", "🤡", "💎", "🙌", "🗣️", "💪",
 ];
 
-const walletTokenOrder = ["USDT", "SOL", "ETH", "BTC", "SUI", "MATIC", "HYPE", "BNB"];
+const preferredWalletTokenSymbols = [
+  "USDT", "SOL", "ETH", "BTC", "SUI", "MATIC", "HYPE", "BNB",
+];
+
+const walletTokenOrder = [
+  ...preferredWalletTokenSymbols,
+  ...liveMarketSymbols.filter((symbol) => !preferredWalletTokenSymbols.includes(symbol)),
+];
 
 const tokenVisuals: Record<string, { background: string; mark: string; foreground?: string }> = {
   BTC: { background: "#f5a623", mark: "₿" },
@@ -121,6 +129,49 @@ const tokenVisuals: Record<string, { background: string; mark: string; foregroun
   HYPE: { background: "#063b38", mark: "〰", foreground: "#63f4dc" },
   BNB: { background: "#f3ba2f", mark: "◆", foreground: "white" },
 };
+
+const liveTokenNames: Record<string, string> = {
+  BTC: "Bitcoin",
+  ETH: "Ethereum",
+  SOL: "Solana",
+  USDT: "Tether",
+  USDC: "USD Coin",
+  SUI: "Sui",
+  MATIC: "Polygon",
+  HYPE: "Hyperliquid",
+  BNB: "BNB",
+  TRX: "TRON",
+  XRP: "XRP",
+  DOGE: "Dogecoin",
+  ADA: "Cardano",
+  AVAX: "Avalanche",
+  DOT: "Polkadot",
+  LINK: "Chainlink",
+  LTC: "Litecoin",
+  TON: "Toncoin",
+  SHIB: "Shiba Inu",
+  NEAR: "NEAR",
+  APT: "Aptos",
+  ARB: "Arbitrum",
+  OP: "Optimism",
+  ATOM: "Cosmos",
+  XLM: "Stellar",
+  BCH: "Bitcoin Cash",
+  XMR: "Monero",
+  PEPE: "Pepe",
+  WIF: "dogwifhat",
+};
+
+const liveTokenCatalogue: WalletToken[] = liveMarketSymbols.map((symbol) => ({
+  id: `market-${symbol.toLowerCase()}`,
+  name: liveTokenNames[symbol] ?? symbol,
+  symbol,
+  balance: 0,
+  price: 0,
+  change24h: 0,
+  image: "",
+  updatedAt: "",
+}));
 
 const emptyTokenForm: TokenForm = {
   name: "",
@@ -189,6 +240,19 @@ function referenceHomeTokens(tokens: WalletToken[]) {
   ];
 }
 
+function mergeLiveTokenCatalogue(tokens: WalletToken[]) {
+  const known = new Map<string, WalletToken>();
+  for (const token of [...liveTokenCatalogue, referenceSolanaToken, referenceBfsToken]) {
+    known.set(token.symbol, token);
+  }
+  for (const token of tokens) {
+    const isEmptyCatalogueToken =
+      token.id.startsWith("market-") && token.balance === 0 && token.price === 0;
+    if (!isEmptyCatalogueToken) known.set(token.symbol, token);
+  }
+  return [...known.values()];
+}
+
 function sortTokens(tokens: WalletToken[]) {
   return [...tokens].sort((a, b) => {
     const aIndex = walletTokenOrder.indexOf(a.symbol);
@@ -214,7 +278,7 @@ function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "sma
       style={{ background: visual.background, color: visual.foreground ?? "white" }}
     >
       <TokenGlyph token={token} />
-      {token.image ? <Image src={token.image} alt="" fill unoptimized sizes="80px" className="z-10 object-contain p-[10%]" /> : null}
+      {token.image && token.symbol !== "BFS" ? <Image src={token.image} alt="" fill unoptimized sizes="80px" className="z-10 object-contain p-[10%]" /> : null}
       {token.symbol === "USDT" ? <span className="absolute bottom-0 right-0 z-20 grid h-4 w-4 place-items-center rounded-full bg-white text-[9px] text-black">▤</span> : null}
     </span>
   );
@@ -232,7 +296,7 @@ function TokenGlyph({ token }: { token: WalletToken }) {
   }
 
   if (token.symbol === "BFS") {
-    return <span className="rounded-full border border-white/60 bg-[#f3a62a] px-[.18em] py-[.12em] text-[.32em] leading-none">BFS</span>;
+    return <Image src="/bfs-coin.svg" alt="" fill unoptimized sizes="80px" className="z-10 object-contain" />;
   }
 
   return <span className="relative z-0">{tokenMark(token)}</span>;
@@ -341,8 +405,6 @@ function HomeView({
   cashVisible,
   tokenQuery,
   actionsOpen,
-  total,
-  totalChange,
   onTab,
   onMenu,
   onCash,
@@ -357,8 +419,6 @@ function HomeView({
   cashVisible: boolean;
   tokenQuery: string;
   actionsOpen: boolean;
-  total: number;
-  totalChange: number;
   onTab: (tab: Tab) => void;
   onMenu: () => void;
   onCash: () => void;
@@ -368,20 +428,33 @@ function HomeView({
   onNotify: (message: string) => void;
 }) {
   const referenceTokens = useMemo(() => referenceHomeTokens(tokens), [tokens]);
+  const displayTokens = useMemo(
+    () => [
+      ...referenceTokens,
+      ...sortTokens(tokens.filter((token) => token.symbol !== "SOL" && token.symbol !== "BFS")),
+    ],
+    [referenceTokens, tokens],
+  );
   const filteredTokens = useMemo(() => {
     const query = tokenQuery.trim().toLowerCase();
-    const source = query
-      ? sortTokens([...referenceTokens, ...tokens.filter((token) => token.symbol !== "SOL" && token.symbol !== "BFS")])
-      : referenceTokens;
-    if (!query) return source;
-    return source.filter((token) => token.name.toLowerCase().includes(query) || token.symbol.toLowerCase().includes(query));
-  }, [referenceTokens, tokenQuery, tokens]);
+    if (!query) return displayTokens;
+    return displayTokens.filter(
+      (token) =>
+        token.name.toLowerCase().includes(query) ||
+        token.symbol.toLowerCase().includes(query),
+    );
+  }, [displayTokens, tokenQuery]);
+  const displayTotal = displayTokens.reduce(
+    (sum, token) => sum + token.balance * token.price,
+    profile.cash,
+  );
+  const displayChangeValue = displayTokens.reduce(
+    (sum, token) => sum + token.price * token.balance * (token.change24h / 100),
+    0,
+  );
+  const displayChange =
+    displayTotal === 0 ? 0 : (displayChangeValue / displayTotal) * 100;
   const showingReference = tokenQuery.trim().length === 0;
-  const displayTotal = showingReference
-    ? referenceTokens.reduce((sum, token) => sum + token.balance * token.price, profile.cash)
-    : total;
-  const displayChange = showingReference ? 2.97 : totalChange;
-  const displayChangeValue = showingReference ? 0.27 : displayTotal * (displayChange / 100);
   const accountName = profile.accountName;
 
   return (
@@ -396,7 +469,7 @@ function HomeView({
           <h1 className="mt-4 overflow-hidden text-[clamp(3.5rem,17vw,6rem)] font-semibold leading-none tracking-[-0.08em] text-white">{formatMoney(displayTotal)}</h1>
           <div className="mt-3 flex items-center gap-2 text-[clamp(1.05rem,5vw,1.35rem)] font-semibold text-[#00e676]"><span className="truncate">+{formatMoney(displayChangeValue)}</span><span className="shrink-0 rounded-[.75rem] bg-[#00e676] px-2.5 py-1 text-black">+{displayChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-10 flex w-full items-center justify-between rounded-[1.65rem] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="flex items-center gap-4 text-[clamp(1.3rem,6vw,1.8rem)] font-semibold"><WalletCards className="h-7 w-7 text-white/60" />Cash</span><span className="shrink-0 text-[clamp(1.2rem,5.5vw,1.55rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+    <button type="button" onClick={onCash} className="mt-10 flex w-full items-center justify-between rounded-[1.65rem] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="flex items-center gap-4 text-[clamp(1.3rem,6vw,1.8rem)] font-semibold"><Banknote className="h-7 w-7 text-white/60" />Cash</span><span className="shrink-0 text-[clamp(1.2rem,5.5vw,1.55rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
           <div className="mt-10 flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Token</h2><ChevronRight className="h-7 w-7" /></div>
           <div className="mt-4 space-y-2.5">
@@ -479,7 +552,7 @@ function ActionMenu({ onAction }: { onAction: (action: Action) => void }) {
     { label: "Buy", icon: WalletCards },
     { label: "Trade", icon: Shuffle },
   ];
-  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-2" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-2 text-[clamp(.9rem,4.5vw,1.25rem)] font-medium"><span>{label}</span><span className="grid h-[clamp(3rem,15vw,3.75rem)] w-[clamp(3rem,15vw,3.75rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div>;
+  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-2 bg-transparent" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-2 text-[clamp(.9rem,4.5vw,1.25rem)] font-medium"><span>{label}</span><span className="grid h-[clamp(3rem,15vw,3.75rem)] w-[clamp(3rem,15vw,3.75rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div>;
 }
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
@@ -638,7 +711,7 @@ export function DownloadWallet() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setTokens(getTokens());
+      setTokens(mergeLiveTokenCatalogue(getTokens()));
       setProfile(readStorage(profileStorageKey, defaultProfile));
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
       if (!window.localStorage.getItem(notificationStorageKey)) setNotificationPromptOpen(true);
@@ -651,8 +724,6 @@ export function DownloadWallet() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
-  const total = useMemo(() => tokens.reduce((sum, token) => sum + token.price * token.balance, 0), [tokens]);
-  const totalChange = useMemo(() => total === 0 ? 0 : tokens.reduce((sum, token) => sum + ((token.price * token.balance) / total) * token.change24h, 0), [tokens, total]);
 
   const resetSend = () => { setSelectedToken(null); setSendAmount(""); setRecipient(""); };
 
@@ -718,7 +789,7 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-black font-sans text-white">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/50">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-          {view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} actionsOpen={actionsOpen} total={total} totalChange={totalChange} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onToken={(token) => { setSelectedToken(token); setView("token-detail"); }} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onToken={(token) => { setSelectedToken(token); setView("token-detail"); }} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "token-picker" ? <TokenPicker tokens={tokens} flow={flow} onClose={() => { resetSend(); setView("home"); }} onSelect={pickToken} /> : null}
