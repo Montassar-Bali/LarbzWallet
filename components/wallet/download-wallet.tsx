@@ -243,9 +243,9 @@ function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?
 
 function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange: (tab: Tab) => void; onMenu: () => void }) {
   const tabs: { value: Tab; label: string }[] = [
-    { value: "Home", label: "Start" },
-    { value: "Trade", label: "Handel" },
-    { value: "Explore", label: "Vorhersage" },
+    { value: "Home", label: "Home" },
+    { value: "Trade", label: "Trade" },
+    { value: "Explore", label: "Explore" },
   ];
 
   return (
@@ -381,7 +381,7 @@ function HomeView({
     : total;
   const displayChange = showingReference ? 2.97 : totalChange;
   const displayChangeValue = showingReference ? 0.27 : displayTotal * (displayChange / 100);
-  const accountName = profile.accountName === "Account 1" ? "Konto 1" : profile.accountName;
+  const accountName = profile.accountName;
 
   return (
     <>
@@ -408,7 +408,7 @@ function HomeView({
         <section className="px-4 pb-44 pt-12">
           <div className="rounded-[1.75rem] bg-[#191919] p-7">
             <div className="grid h-14 w-14 place-items-center rounded-full bg-[#a295f3] text-black">{tab === "Trade" ? <Shuffle className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}</div>
-            <h1 className="mt-7 text-3xl font-semibold">{tab === "Trade" ? "Handel" : "Vorhersage"}</h1>
+            <h1 className="mt-7 text-3xl font-semibold">{tab === "Trade" ? "Trade" : "Explore"}</h1>
             <p className="mt-3 text-[17px] leading-7 text-white/55">Explore the simulated wallet market and preview actions without connecting a real account.</p>
             <button type="button" onClick={() => onNotify(`${tab} is available in simulation mode.`)} className="mt-7 rounded-full bg-[#a295f3] px-6 py-3.5 font-medium text-black">Preview {tab}</button>
           </div>
@@ -416,7 +416,7 @@ function HomeView({
       )}
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+12px)] left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5" style={{ width: "min(calc(100vw - 24px), 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[#242426] px-4 py-3.5 text-[clamp(.9rem,4.5vw,1.2rem)] font-medium text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Phantom durchsuchen" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[#242426] px-4 py-3.5 text-[clamp(.9rem,4.5vw,1.2rem)] font-medium text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
         <button type="button" onClick={onActions} aria-label="Open wallet actions" className={`grid h-[clamp(3.25rem,16vw,4.5rem)] w-[clamp(3.25rem,16vw,4.5rem)] shrink-0 place-items-center rounded-full bg-[#a295f3] text-black shadow-[0_6px_30px_rgba(162,149,243,.35)] transition hover:scale-105 ${actionsOpen ? "rotate-45" : ""}`}><Plus className="h-[clamp(1.6rem,8vw,2.25rem)] w-[clamp(1.6rem,8vw,2.25rem)]" /></button>
       </div>
     </>
