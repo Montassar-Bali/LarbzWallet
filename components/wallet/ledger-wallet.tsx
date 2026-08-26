@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
@@ -27,7 +28,8 @@ import { useLivePrices } from "@/components/wallet/use-live-prices";
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
 
-const portfolioSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
+  const portfolioSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
+  const ledgerLiveSymbols = liveMarketSymbols;
 
 const ledgerDefaults: Record<
   string,
@@ -346,10 +348,8 @@ function PortfolioModal({
   tokens,
   editValues,
   currency,
-  apiKey,
   proKey,
   onChangeValue,
-  onChangeApiKey,
   onChangeProKey,
   onCurrency,
   onAddCustom,
@@ -359,10 +359,8 @@ function PortfolioModal({
   tokens: WalletToken[];
   editValues: Record<string, string>;
   currency: CurrencyCode;
-  apiKey: string;
   proKey: boolean;
   onChangeValue: (symbol: string, value: string) => void;
-  onChangeApiKey: (value: string) => void;
   onChangeProKey: (value: boolean) => void;
   onCurrency: () => void;
   onAddCustom: () => void;
@@ -398,11 +396,6 @@ function PortfolioModal({
             <span>{currencies.find((item) => item.code === currency)?.label}</span><ChevronRight size={18} className="rotate-90 text-white/55" />
           </button>
         </div>
-
-        <label className="mt-3 flex items-center gap-3 border-b border-white/6 py-2.5">
-          <span className="w-14 shrink-0 text-sm font-bold text-white/65">API Key</span>
-          <input type="text" value={apiKey} onChange={(event) => onChangeApiKey(event.target.value)} placeholder="Optional CoinGecko API key" className="min-w-0 flex-1 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-right text-base text-white outline-none focus:border-[#a188ff]" />
-        </label>
 
         <label className="flex items-center gap-3 border-b border-white/6 py-3">
           <span className="w-14 shrink-0 text-sm font-bold text-white/65">Pro Key</span>
@@ -667,7 +660,6 @@ export function LedgerWallet() {
   const [transactionOpen, setTransactionOpen] = useState(false);
   const [customTokenOpen, setCustomTokenOpen] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
-  const [apiKey, setApiKey] = useState("");
   const [proKey, setProKey] = useState(false);
   const [transactionType, setTransactionType] = useState<TransactionType>("receive");
   const [transactionCrypto, setTransactionCrypto] = useState("BTC");
@@ -676,7 +668,7 @@ export function LedgerWallet() {
   const [transactionTime, setTransactionTime] = useState("");
   const [notice, setNotice] = useState("");
 
-  useLivePrices(portfolioSymbols, (prices, changes) => {
+  useLivePrices(ledgerLiveSymbols, (prices, changes) => {
     setTokens((current) =>
       current.map((token) => ({
         ...token,
@@ -816,7 +808,7 @@ export function LedgerWallet() {
         <BottomNav active={activeTab} onChange={changeBottomTab} />
 
         {notice ? <div role="status" className="fixed inset-x-4 bottom-24 z-40 mx-auto max-w-[470px] rounded-xl border border-[#b8a5ff]/35 bg-[#282134]/95 px-4 py-3 text-center text-sm font-semibold text-[#ded5ff] shadow-2xl backdrop-blur-xl">{notice}</div> : null}
-        {portfolioOpen ? <PortfolioModal tokens={tokens} editValues={editValues} currency={currency} apiKey={apiKey} proKey={proKey} onChangeValue={(symbol, value) => setEditValues((current) => ({ ...current, [symbol]: value }))} onChangeApiKey={setApiKey} onChangeProKey={setProKey} onCurrency={() => setCurrencyOpen(true)} onAddCustom={() => setCustomTokenOpen(true)} onSave={savePortfolio} onClose={() => setPortfolioOpen(false)} /> : null}
+        {portfolioOpen ? <PortfolioModal tokens={tokens} editValues={editValues} currency={currency} proKey={proKey} onChangeValue={(symbol, value) => setEditValues((current) => ({ ...current, [symbol]: value }))} onChangeProKey={setProKey} onCurrency={() => setCurrencyOpen(true)} onAddCustom={() => setCustomTokenOpen(true)} onSave={savePortfolio} onClose={() => setPortfolioOpen(false)} /> : null}
         {currencyOpen ? <CurrencyPicker selected={currency} onSelect={(value) => { setCurrency(value); setCurrencyOpen(false); }} onClose={() => setCurrencyOpen(false)} /> : null}
         {customTokenOpen ? <CustomTokenModal onSave={addCustomToken} onClose={() => setCustomTokenOpen(false)} /> : null}
         {transactionOpen ? <TransactionModal type={transactionType} crypto={transactionCrypto} amount={transactionAmount} date={transactionDate} time={transactionTime} tokens={tokens} onType={setTransactionType} onCrypto={setTransactionCrypto} onAmount={setTransactionAmount} onDate={setTransactionDate} onTime={setTransactionTime} onSubmit={submitTransaction} onClear={clearTransactions} onClose={() => setTransactionOpen(false)} /> : null}

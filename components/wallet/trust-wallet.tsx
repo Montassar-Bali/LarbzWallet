@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
-import { defaultTokens } from "@/config/tokens";
+import { defaultTokens, liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
@@ -40,7 +40,7 @@ type Appearance = "light" | "dark";
 type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD";
 type TransactionKind = "send" | "receive";
 
-const trustLiveSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
+  const trustLiveSymbols = liveMarketSymbols;
 
 type TrustProfile = {
   walletName: string;

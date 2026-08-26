@@ -209,10 +209,13 @@ async function fetchProviderQuotes(symbols: string[]) {
 }
 
 async function fetchCoinGeckoQuotes(symbols: string[]) {
-  const ids = symbols
-    .map((symbol) => coingeckoMap[symbol])
-    .filter(Boolean)
-    .join(",");
+  const ids = Array.from(
+    new Set(
+      symbols
+        .map((symbol) => coingeckoMap[symbol])
+        .filter(Boolean),
+    ),
+  ).join(",");
 
   if (!ids) {
     return new Map<string, Quote>();
@@ -224,8 +227,16 @@ async function fetchCoinGeckoQuotes(symbols: string[]) {
     endpoint.searchParams.set("vs_currencies", "usd");
     endpoint.searchParams.set("include_24hr_change", "true");
 
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+    const apiKey = process.env.COINGECKO_API_KEY;
+    if (apiKey) {
+      headers["x-cg-demo-api-key"] = apiKey;
+    }
+
     const response = await fetch(endpoint, {
-      headers: { Accept: "application/json" },
+      headers,
       cache: "no-store",
     });
 
@@ -280,23 +291,23 @@ export async function fetchCryptoPrices(
     return snapshot;
   }
 
-  const [providerQuotes, fallbackQuotes] = await Promise.all([
-    fetchProviderQuotes(requestedSymbols),
+  const [coinGeckoQuotes, providerQuotes] = await Promise.all([
     fetchCoinGeckoQuotes(requestedSymbols),
+    fetchProviderQuotes(requestedSymbols),
   ]);
 
   requestedSymbols.forEach((symbol) => {
+    const coinGeckoQuote = coinGeckoQuotes.get(symbol);
     const providerQuote = providerQuotes?.get(symbol);
-    const fallbackQuote = fallbackQuotes.get(symbol);
 
     snapshot.prices[symbol] =
+      coinGeckoQuote?.price ??
       providerQuote?.price ??
-      fallbackQuote?.price ??
       FALLBACK_PRICES[symbol] ??
       0;
     snapshot.changes[symbol] =
+      coinGeckoQuote?.change ??
       providerQuote?.change ??
-      fallbackQuote?.change ??
       FALLBACK_CHANGES[symbol] ??
       0;
   });

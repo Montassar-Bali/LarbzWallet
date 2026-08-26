@@ -114,3 +114,5 @@ export const coingeckoMap: Record<string, string> = {
   PEPE: "pepe",
   WIF: "dogwifhat",
 };
+
+export const liveMarketSymbols = Object.keys(coingeckoMap);

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
+import { liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import {
@@ -623,22 +624,7 @@ export function DownloadWallet() {
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
 
-  const liveSymbols = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...tokens.map((token) => token.symbol),
-          "BTC",
-          "ETH",
-          "SOL",
-          "TRX",
-          "BNB",
-          "USDT",
-          "USDC",
-        ]),
-      ),
-    [tokens],
-  );
+  const liveSymbols = liveMarketSymbols;
 
   useLivePrices(liveSymbols, (prices, changes) => {
     setTokens((current) =>
