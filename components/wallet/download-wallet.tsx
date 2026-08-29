@@ -379,17 +379,19 @@ function TokenGlyph({ token }: { token: WalletToken }) {
   return <span className="relative z-0">{tokenMark(token)}</span>;
 }
 
-function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "normal" | "large" }) {
+function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "small" | "normal" | "large" }) {
   const imageSource = value === "🔐" ? "/assets/logo_m.png" : value.startsWith("/avatars/") ? value : null;
+  const dimensions = size === "large" ? "h-24 w-24 text-5xl" : size === "small" ? "h-11 w-11 text-xl" : "h-12 w-12 text-2xl";
+  const imageSize = size === "large" ? "96px" : size === "small" ? "44px" : "48px";
 
   return (
-    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${size === "large" ? "h-24 w-24 text-5xl" : "h-12 w-12 text-2xl"}`}>
-      {imageSource ? <Image src={imageSource} alt="Profile avatar" fill unoptimized sizes={size === "large" ? "96px" : "48px"} className="object-cover" /> : value}
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${dimensions}`}>
+      {imageSource ? <Image src={imageSource} alt="Profile avatar" fill unoptimized sizes={imageSize} className="object-cover" /> : value}
     </span>
   );
 }
 
-function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange: (tab: Tab) => void; onMenu: () => void }) {
+function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; avatar: string; onChange: (tab: Tab) => void; onMenu: () => void }) {
   const tabs: { value: Tab; label: string }[] = [
     { value: "Home", label: "Home" },
     { value: "Trade", label: "Trade" },
@@ -399,8 +401,8 @@ function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange:
 
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-[#f4cb42] text-white transition hover:scale-[1.03] active:scale-95">
-        <Image src="/assets/logo_m.png" alt="" fill sizes="44px" className="object-cover" priority />
+      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
+        <LockAvatar value={avatar} size="small" />
       </button>
       {tabs.map(({ value, label }) => (
         <button
@@ -556,7 +558,7 @@ function HomeView({
   return (
     <>
       <div className="sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
-        <WalletTabs activeTab={tab} onChange={onTab} onMenu={onMenu} />
+        <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
