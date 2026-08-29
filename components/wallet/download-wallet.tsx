@@ -137,6 +137,11 @@ type LiveMarketSnapshot = {
   volumes24h: Record<string, number>;
 };
 
+type MarketChartPoint = {
+  time: number;
+  price: number;
+};
+
 const profileStorageKey = "larpz_download_profile";
 const notificationStorageKey = "larpz_download_notifications_prompted";
 const watchlistStorageKey = "larpz_download_watchlist";
@@ -1191,42 +1196,107 @@ function TransactionDetail({ record, onClose }: { record: WalletActivity; onClos
   return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">View on Explorer</button></div>;
 }
 
-function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onReceive, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
+function useLiveMarketChart(symbol: string, period: string, livePrice: number) {
+  const [points, setPoints] = useState<MarketChartPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(symbol)}&period=${encodeURIComponent(period)}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error("Chart request failed.");
+        const payload = await response.json() as { points?: MarketChartPoint[] };
+        if (!Array.isArray(payload.points) || payload.points.length < 2) throw new Error("Chart data is unavailable.");
+        const nextPoints = payload.points.filter((point) => Number.isFinite(point.time) && Number.isFinite(point.price) && point.price > 0);
+        if (livePrice > 0) nextPoints.push({ time: Date.now(), price: livePrice });
+        if (!cancelled) { setPoints(nextPoints); setUnavailable(false); }
+      } catch (error) {
+        if (!cancelled && !(error instanceof DOMException && error.name === "AbortError")) setUnavailable(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), period === "LIVE" || period === "1D" ? 30_000 : 5 * 60_000);
+    return () => { cancelled = true; controller.abort(); window.clearInterval(interval); };
+  }, [livePrice, period, symbol]);
+
+  return { points, loading, unavailable };
+}
+
+function LiveMarketChart({ points, loading, unavailable, symbol, period }: { points: MarketChartPoint[]; loading: boolean; unavailable: boolean; symbol: string; period: string }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const width = 410;
+  const height = 260;
+  const padding = 10;
+  const firstTime = points[0]?.time ?? 0;
+  const lastTime = points.at(-1)?.time ?? firstTime + 1;
+  const prices = points.map((point) => point.price);
+  const minimum = Math.min(...prices);
+  const maximum = Math.max(...prices);
+  const rawRange = maximum - minimum;
+  const range = rawRange || Math.max(maximum * 0.01, 1);
+  const chartPoints = points.map((point) => ({
+    ...point,
+    x: padding + ((point.time - firstTime) / Math.max(1, lastTime - firstTime)) * (width - padding * 2),
+    y: padding + ((maximum - point.price + range * 0.04) / (range * 1.08)) * (height - padding * 2),
+  }));
+  const selectedIndex = hoverIndex === null ? chartPoints.length - 1 : Math.min(hoverIndex, chartPoints.length - 1);
+  const selected = chartPoints[selectedIndex];
+  const chartPositive = (points.at(-1)?.price ?? 0) >= (points[0]?.price ?? 0);
+  const accent = chartPositive ? "#31ed65" : "#ff1744";
+  const line = chartPoints.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+
+  const inspect = (clientX: number, left: number, renderedWidth: number) => {
+    if (!chartPoints.length) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - left) / renderedWidth));
+    const targetTime = firstTime + ratio * (lastTime - firstTime);
+    let closest = 0;
+    for (let index = 1; index < chartPoints.length; index += 1) if (Math.abs(chartPoints[index].time - targetTime) < Math.abs(chartPoints[closest].time - targetTime)) closest = index;
+    setHoverIndex(closest);
+  };
+
+  if (!points.length) return <div className="grid h-[clamp(13rem,25svh,19rem)] place-items-center px-5 text-center text-white/45">{loading ? <span className="flex items-center gap-3"><span className="h-3 w-3 animate-pulse rounded-full bg-[#a295f3]" /> Loading live {symbol} chart…</span> : unavailable ? "Live chart is temporarily unavailable." : "Waiting for market data…"}</div>;
+
+  return (
+    <div className="relative h-[clamp(13rem,25svh,19rem)] touch-none select-none" onPointerMove={(event) => inspect(event.clientX, event.currentTarget.getBoundingClientRect().left, event.currentTarget.getBoundingClientRect().width)} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); inspect(event.clientX, event.currentTarget.getBoundingClientRect().left, event.currentTarget.getBoundingClientRect().width); }} onPointerLeave={() => setHoverIndex(null)}>
+      {selected && hoverIndex !== null ? <div className="pointer-events-none absolute top-2 z-10 -translate-x-1/2 rounded-xl bg-[#252527] px-3 py-2 text-center shadow-xl" style={{ left: `${Math.max(14, Math.min(86, selected.x / width * 100))}%` }}><strong className="block text-sm">{formatPrice(selected.price)}</strong><span className="mt-0.5 block text-[11px] text-white/45">{new Date(selected.time).toLocaleString("en-US", period === "LIVE" || period === "1D" ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric", year: period === "1Y" || period === "ALL" ? "numeric" : undefined })}</span></div> : null}
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={`${symbol} live ${period} price chart`}>
+        <polyline points={line} fill="none" stroke={accent} strokeWidth="4" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+        {selected ? <><line x1={selected.x} x2={selected.x} y1="0" y2={height} stroke={hoverIndex === null ? "transparent" : "rgba(255,255,255,.28)"} strokeDasharray="5 6" /><circle cx={selected.x} cy={selected.y} r={hoverIndex === null ? 5 : 7} fill={accent} stroke="black" strokeWidth="3" vectorEffect="non-scaling-stroke" /></> : null}
+      </svg>
+      {loading ? <span className="absolute right-4 top-3 h-2.5 w-2.5 animate-pulse rounded-full bg-[#a295f3]" aria-label="Refreshing chart" /> : null}
+    </div>
+  );
+}
+
+function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
   const [period, setPeriod] = useState("LIVE");
   const positive = token.change24h >= 0;
   const accent = positive ? "#00e676" : "#ff1744";
   const changeValue = token.price * (token.change24h / 100);
-  const positivePoints = "0,142 18,151 35,126 51,139 65,118 79,127 94,105 110,119 127,98 142,108 156,87 172,96 187,78 204,92 220,68 237,76 254,56 271,66 288,42 305,51 324,25 344,38 364,14 384,31 404,10";
-  const negativePoints = "0,70 42,70 84,69 126,67 168,68 210,66 252,67 270,64 278,150 292,132 334,132 366,137 404,134";
-  const candles = [
-    { x: 6, y: 77, h: 42, up: false }, { x: 22, y: 87, h: 55, up: true }, { x: 38, y: 70, h: 29, up: true }, { x: 54, y: 64, h: 35, up: false },
-    { x: 70, y: 75, h: 25, up: false }, { x: 86, y: 83, h: 24, up: false }, { x: 102, y: 96, h: 45, up: false }, { x: 118, y: 111, h: 30, up: true },
-    { x: 134, y: 105, h: 24, up: true }, { x: 150, y: 98, h: 22, up: true }, { x: 166, y: 93, h: 16, up: false }, { x: 182, y: 101, h: 37, up: false },
-    { x: 198, y: 114, h: 24, up: true }, { x: 214, y: 91, h: 40, up: true }, { x: 230, y: 82, h: 32, up: false }, { x: 246, y: 96, h: 39, up: false },
-    { x: 262, y: 111, h: 25, up: true }, { x: 278, y: 91, h: 30, up: true }, { x: 294, y: 76, h: 28, up: true }, { x: 310, y: 70, h: 28, up: false },
-    { x: 326, y: 59, h: 35, up: true }, { x: 342, y: 38, h: 48, up: true }, { x: 358, y: 19, h: 48, up: true }, { x: 374, y: 28, h: 43, up: false },
-  ];
+  const { points, loading, unavailable } = useLiveMarketChart(token.symbol, period, token.price);
+  const liveChatCount = token.symbol === "SOL" ? 291 : token.symbol === "BTC" ? 99 : 12;
   return <div className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0">
-    <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+10px)] backdrop-blur-2xl">
+    <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
       <button type="button" onClick={onBack} aria-label="Go back" className="mx-auto block h-1.5 w-20 rounded-full bg-white/45" />
       <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
     </div>
     <div className="px-5 pt-3">
-      <h1 className="text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}</h1>
+      <h1 className="flex items-center gap-2 text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}<ChevronDown className="mt-2 h-7 w-7 text-white/55" /></h1>
       <p className="mt-4 text-[clamp(3rem,15vw,5.2rem)] font-semibold leading-none tracking-[-.075em]">{formatPrice(token.price)}</p>
       <p className="mt-3 text-[clamp(1.1rem,5vw,1.45rem)] font-bold" style={{ color: accent }}>{formatSignedMoney(changeValue)} ({token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%)</p>
     </div>
-    <div className="mt-8">
-      <svg viewBox="0 0 410 180" className="h-[265px] w-full" preserveAspectRatio="none" role="img" aria-label={`${token.symbol} simulated ${token.symbol === "BTC" ? "candlestick" : "line"} chart`}>
-        {[40, 90, 140].map((y) => <line key={y} x1="0" x2="410" y1={y} y2={y} stroke="rgba(255,255,255,.06)" />)}
-        {token.symbol === "BTC" ? candles.map((candle) => { const color = candle.up ? "#00e676" : "#ff1744"; return <g key={candle.x}><line x1={candle.x + 5} x2={candle.x + 5} y1={candle.y - 9} y2={candle.y + candle.h + 9} stroke={color} strokeWidth="2" /><rect x={candle.x} y={candle.y} width="10" height={candle.h} rx="2" fill={color} /></g>; }) : <><polyline points={positive ? positivePoints : negativePoints} fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="404" cy={positive ? 10 : 134} r="5" fill={accent} /></>}
-      </svg>
-      <div className="flex items-center justify-between px-5 text-sm font-semibold text-white/55">{["LIVE", "1D", "1W", "1M", "1Y", "ALL"].map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} className={`rounded-full px-3 py-2 transition ${period === item ? "bg-white text-black" : "hover:text-white"}`}>{item === "ALL" ? "All" : item}</button>)}<SlidersHorizontal className="h-5 w-5" /></div>
+    <div className="mt-5">
+      <LiveMarketChart points={points} loading={loading} unavailable={unavailable} symbol={token.symbol} period={period} />
+      <div className="flex items-center justify-between px-4 text-sm font-semibold text-white/55">{["LIVE", "1D", "1W", "1M", "1Y", "ALL"].map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} aria-pressed={period === item} className={`rounded-full px-3 py-2 transition ${period === item ? "bg-white text-black" : "hover:text-white"}`}>{item === "ALL" ? "All" : item}</button>)}<SlidersHorizontal className="h-5 w-5" /></div>
     </div>
     <div className="px-5 pb-28">
-      {token.balance > 0 ? <section className="mt-12"><SectionHeading>Your positions</SectionHeading><button type="button" onClick={onSend} className="mt-5 flex w-full items-center gap-4 rounded-[1.5rem] bg-[#121213] py-3 text-left"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol} <span className="font-normal text-white/55">{token.symbol === "BFS" ? "Solana" : token.name}</span></strong><span className="mt-1 block text-base text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price * token.balance)}</span><span className={`mt-1 block font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{formatSignedMoney(token.price * token.balance * token.change24h / 100)}</span></span><ChevronRight className="h-5 w-5 text-white/55" /></button><div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={onSend} className="flex items-center justify-center gap-2 rounded-full bg-[#202022] px-4 py-3.5 font-semibold"><Send className="h-4 w-4" /> Send</button><button type="button" onClick={onReceive} className="flex items-center justify-center gap-2 rounded-full bg-[#202022] px-4 py-3.5 font-semibold"><QrCode className="h-4 w-4" /> Receive</button></div></section> : null}
-      <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {token.symbol === "BTC" ? "99" : "12"} here</span></div><button type="button" className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? "momentum is picking up" : "watching this level closely"}</span></button></section>
-      <p className="mt-10 text-base leading-7 text-white/55">Market activity is displayed for simulation and interface-preview purposes. Prices may update from the connected market-data source.</p>
+      {token.balance > 0 ? <section className="mt-12"><SectionHeading>Your positions</SectionHeading><button type="button" onClick={onSend} className="mt-4 flex w-full items-center gap-4 py-3 text-left"><TokenIcon token={token} size="small" /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol} <span className="font-normal text-white/55">{token.name}</span></strong><span className="mt-1 block text-base text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price * token.balance)}</span><span className={`mt-1 block font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{formatSignedMoney(token.price * token.balance * token.change24h / 100)}</span></span><ChevronRight className="h-6 w-6 text-white/55" /></button></section> : null}
+      <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {liveChatCount} here</span></div><button type="button" className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? `${token.symbol} momentum is picking up` : `watching ${token.symbol} support closely`}</span></button></section>
     </div>
     <div className="sticky bottom-0 z-20 mt-auto flex items-center gap-4 border-t border-white/[0.04] bg-black/85 px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 backdrop-blur-2xl"><div className="min-w-0 flex-1"><span className="block text-sm text-white/45">Market capitalization</span><strong className="mt-1 block truncate text-lg">{formatCompactMoney(token.marketCap)}</strong></div><button type="button" onClick={onTrade} className="min-w-[44%] rounded-full bg-[#a295f3] px-7 py-4 text-xl font-semibold text-black transition hover:bg-[#b6aaff] active:scale-[.98]">Trade</button></div>
   </div>;
