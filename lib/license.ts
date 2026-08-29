@@ -209,7 +209,7 @@ export function validateLicense(key: string) {
     return {
       valid: true,
       status: license.status,
-      reason: "License already active.",
+      reason: "Reusable license is active and valid.",
       license,
     };
   }

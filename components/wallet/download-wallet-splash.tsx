@@ -14,14 +14,27 @@ function DownloadWalletSplash() {
       aria-label="Loading Phantom"
       role="status"
     >
+      <svg aria-hidden="true" className="absolute h-0 w-0">
+        <defs>
+          <filter id="larpz-splash-color-correct" colorInterpolationFilters="sRGB">
+            <feComponentTransfer>
+              <feFuncR type="linear" slope="1.10714" intercept="-0.10714" />
+              <feFuncG type="linear" slope="1.10417" intercept="-0.10417" />
+              <feFuncB type="linear" slope="0.92308" intercept="0.07692" />
+            </feComponentTransfer>
+          </filter>
+        </defs>
+      </svg>
+
       <div
         className="relative h-[150px] w-[150px]"
         style={{
           animation: "larpz-splash-mark 5s cubic-bezier(0.22, 1, 0.36, 1) both",
+          filter: "url(#larpz-splash-color-correct)",
         }}
       >
         <Image
-          src="/icons/phantom-pwa.svg"
+          src="/assets/logo.png"
           alt=""
           fill
           priority
