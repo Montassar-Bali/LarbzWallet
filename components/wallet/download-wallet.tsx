@@ -129,6 +129,11 @@ const profileEmojis = [
   "🫥", "🤡", "💎", "🙌", "🗣️", "💪",
 ];
 
+const profileAvatars = Array.from(
+  { length: 20 },
+  (_, index) => `/avatars/avatar-${String(index + 1).padStart(2, "0")}.svg`,
+);
+
 const preferredWalletTokenSymbols = [
   "USDT", "SOL", "ETH", "BTC", "SUI", "MATIC", "HYPE", "BNB",
 ];
@@ -372,7 +377,13 @@ function TokenGlyph({ token }: { token: WalletToken }) {
 }
 
 function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "normal" | "large" }) {
-  return <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${size === "large" ? "h-24 w-24 text-5xl" : "h-12 w-12 text-2xl"}`}>{value === "🔐" ? <Image src="/assets/logo_m.png" alt="" fill sizes={size === "large" ? "96px" : "48px"} className="object-cover" /> : value}</span>;
+  const imageSource = value === "🔐" ? "/assets/logo_m.png" : value.startsWith("/avatars/") ? value : null;
+
+  return (
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${size === "large" ? "h-24 w-24 text-5xl" : "h-12 w-12 text-2xl"}`}>
+      {imageSource ? <Image src={imageSource} alt="Profile avatar" fill unoptimized sizes={size === "large" ? "96px" : "48px"} className="object-cover" /> : value}
+    </span>
+  );
 }
 
 function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange: (tab: Tab) => void; onMenu: () => void }) {
@@ -772,9 +783,11 @@ function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToke
     <form onSubmit={submit} className="absolute inset-0 z-40 overflow-y-auto bg-black pb-16">
       <ScreenHeader title="Edit Profile" onBack={onBack} actionLabel="Save" />
       <div className="px-6 pb-20">
-        <div className="flex flex-col items-center pt-12"><button type="button" onClick={() => undefined} aria-label="Change profile icon"><LockAvatar value={draft.avatar} size="large" /></button><p className="mt-6 text-[27px] font-semibold tracking-[-0.05em]">@{draft.username || "username"}</p></div>
+        <div className="flex flex-col items-center pt-12"><div aria-label="Current profile avatar"><LockAvatar value={draft.avatar} size="large" /></div><p className="mt-6 text-[27px] font-semibold tracking-[-0.05em]">@{draft.username || "username"}</p></div>
 
-        <ProfileSection title="Icon"><div className="grid grid-cols-6 gap-3 rounded-[1.5rem] bg-[#1d1d1f] p-5">{profileEmojis.map((emoji) => <button key={emoji} type="button" onClick={() => update("avatar", emoji)} className={`grid aspect-square place-items-center rounded-full bg-[#29292b] text-[29px] transition ${draft.avatar === emoji ? "bg-[#a295f3] ring-2 ring-[#a295f3] ring-offset-2 ring-offset-[#1d1d1f]" : "hover:bg-[#38383b]"}`} aria-label={`Use ${emoji} avatar`}>{emoji}</button>)}</div></ProfileSection>
+        <ProfileSection title="Avatars"><div className="grid grid-cols-5 gap-3 rounded-[1.5rem] bg-[#1d1d1f] p-5">{profileAvatars.map((avatar, index) => <button key={avatar} type="button" onClick={() => update("avatar", avatar)} className={`relative aspect-square overflow-hidden rounded-full bg-[#29292b] transition ${draft.avatar === avatar ? "ring-2 ring-[#a295f3] ring-offset-2 ring-offset-[#1d1d1f]" : "hover:scale-105 hover:ring-2 hover:ring-white/20"}`} aria-label={`Use avatar ${index + 1}`}><Image src={avatar} alt="" fill unoptimized sizes="72px" className="object-cover" />{draft.avatar === avatar ? <span className="absolute bottom-0 right-0 z-10 grid h-5 w-5 place-items-center rounded-full bg-[#a295f3] text-black"><Check className="h-3.5 w-3.5 stroke-[3]" /></span> : null}</button>)}</div></ProfileSection>
+
+        <ProfileSection title="Icons"><div className="grid grid-cols-6 gap-3 rounded-[1.5rem] bg-[#1d1d1f] p-5">{profileEmojis.map((emoji) => <button key={emoji} type="button" onClick={() => update("avatar", emoji)} className={`grid aspect-square place-items-center rounded-full bg-[#29292b] text-[29px] transition ${draft.avatar === emoji ? "bg-[#a295f3] ring-2 ring-[#a295f3] ring-offset-2 ring-offset-[#1d1d1f]" : "hover:bg-[#38383b]"}`} aria-label={`Use ${emoji} icon`}>{emoji}</button>)}</div></ProfileSection>
 
         <ProfileSection title="Profile"><div className="overflow-hidden rounded-[1.5rem] bg-[#1d1d1f]"><ProfileInput label="Username" prefix="@" value={draft.username} onChange={(value) => update("username", value)} /><ProfileInput label="Account Name" value={draft.accountName} onChange={(value) => update("accountName", value)} /><div className="px-5 py-5"><div className="flex items-center justify-between text-[18px] text-white/55"><span>Wallet Address</span><button type="button" onClick={() => update("address", `Ph${Math.random().toString(36).slice(2, 30)}`)} className="text-[#a295f3]">↻ GENERATE</button></div><input value={draft.address} onChange={(event) => update("address", event.target.value)} className="mt-4 w-full bg-transparent font-mono text-[17px] text-white outline-none" /></div></div></ProfileSection>
 
