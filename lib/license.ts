@@ -8,6 +8,18 @@ import type { LicenseRecord, LicenseStatus } from "@/lib/types";
 
 const seedLicenses: LicenseRecord[] = [
   {
+    key: "DEMO-STAR-4130-2028",
+    plan: "starter",
+    status: "unused",
+    expiration: "2028-12-31",
+  },
+  {
+    key: "DEMO-STAR-71A9-2028",
+    plan: "starter",
+    status: "unused",
+    expiration: "2028-12-31",
+  },
+  {
     key: "DEMO-STAR-EFA5-2027",
     plan: "starter",
     status: "unused",
