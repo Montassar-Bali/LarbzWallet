@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import { WalletLaunchPage } from "@/components/dashboard/wallet-launch-page";
 
 export const metadata: Metadata = {
-  title: "Download Now · Larpz Wallet",
+  title: "Download Now Wallet",
   manifest: "/manifests/ghost.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Larpz Wallet",
+    title: "Download Now Wallet",
     statusBarStyle: "black-translucent",
   },
 };

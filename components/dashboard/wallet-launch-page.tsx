@@ -15,7 +15,7 @@ const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featu
 ];
 
 const homeScreenNames: Record<WalletThemeId, string> = {
-  ghost: "Larpz Wallet",
+  ghost: "Download Now Wallet",
   ledger: "Ledger Wallet",
   trust: "Trust Wallet",
 };

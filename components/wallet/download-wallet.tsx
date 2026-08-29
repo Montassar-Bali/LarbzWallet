@@ -5,7 +5,9 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  BadgeDollarSign,
   Banknote,
+  BarChart3,
   Bell,
   Check,
   ChevronDown,
@@ -13,16 +15,27 @@ import {
   CircleHelp,
   Clock3,
   Copy,
-  Grid2X2,
+  Gem,
+  Headphones,
+  Heart,
+  Info,
+  Infinity,
+  LineChart,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Plus,
   QrCode,
+  Radio,
+  Repeat2,
   Search,
   Send,
   Settings,
+  SlidersHorizontal,
   Shuffle,
   Sparkles,
+  TrendingUp,
+  Trophy,
   UserRound,
   WalletCards,
   X,
@@ -42,8 +55,8 @@ import {
 } from "@/lib/wallet";
 import { readStorage, writeStorage } from "@/lib/storage";
 
-type Tab = "Home" | "Trade" | "Explore";
-type Action = "Send" | "Receive" | "Buy" | "Trade";
+type Tab = "Home" | "Trade" | "Predictions" | "Explore";
+type Action = "Send" | "Receive" | "Add Cash" | "Trade";
 type TokenFlow = "send" | "buy";
 type View =
   | "home"
@@ -56,6 +69,7 @@ type View =
   | "sending"
   | "sent"
   | "receive"
+  | "add-cash"
   | "buy"
   | "token-detail"
   | "sent-detail";
@@ -303,20 +317,21 @@ function TokenGlyph({ token }: { token: WalletToken }) {
 }
 
 function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "normal" | "large" }) {
-  return <span className={`grid shrink-0 place-items-center rounded-full bg-[#242426] ${size === "large" ? "h-24 w-24 text-5xl" : "h-12 w-12 text-2xl"}`}>{value}</span>;
+  return <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${size === "large" ? "h-24 w-24 text-5xl" : "h-12 w-12 text-2xl"}`}>{value === "🔐" ? <Image src="/assets/logo_m.png" alt="" fill sizes={size === "large" ? "96px" : "48px"} className="object-cover" /> : value}</span>;
 }
 
 function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange: (tab: Tab) => void; onMenu: () => void }) {
   const tabs: { value: Tab; label: string }[] = [
     { value: "Home", label: "Home" },
     { value: "Trade", label: "Trade" },
+    { value: "Predictions", label: "Predictions" },
     { value: "Explore", label: "Explore" },
   ];
 
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#252527] text-white transition hover:bg-[#303033]">
-        <WalletCards className="h-6 w-6" />
+      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[#f4cb42] text-white transition hover:scale-[1.03] active:scale-95">
+        <Image src="/assets/logo_m.png" alt="" fill sizes="48px" className="object-cover" priority />
       </button>
       {tabs.map(({ value, label }) => (
         <button
@@ -376,18 +391,20 @@ function SideDrawer({ profile, onClose, onProfile, onHistory, onSettings, onNoti
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-black/60" role="presentation">
+    <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-[2px]" role="presentation">
       <button type="button" onClick={onClose} aria-label="Close menu" className="absolute inset-0 cursor-default" />
-      <aside className="relative flex h-full w-[min(78vw,350px)] flex-col bg-black px-8 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-[calc(env(safe-area-inset-top)+36px)] shadow-[20px_0_60px_rgba(0,0,0,.5)]">
-        <div>
-          <LockAvatar value={profile.avatar} />
-          <p className="mt-7 text-[25px] font-semibold tracking-[-0.04em]">@{profile.username}</p>
+      <aside className="relative flex h-full w-[min(84vw,390px)] flex-col border-r border-white/[0.06] bg-black px-7 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-[calc(env(safe-area-inset-top)+30px)] shadow-[20px_0_60px_rgba(0,0,0,.75)]">
+        <div className="flex items-start justify-between">
+          <div><LockAvatar value={profile.avatar} /><p className="mt-6 text-[25px] font-semibold tracking-[-0.04em]">@{profile.username}</p></div>
+          <button type="button" onClick={() => { void navigator.clipboard?.writeText(profile.address); onNotice("Wallet address copied."); }} aria-label="Copy wallet address" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022] text-white/75 transition hover:text-white"><Copy className="h-5 w-5" /></button>
         </div>
+        <button type="button" onClick={() => onNotice("Connect X is available in simulation mode.")} className="mt-6 flex items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
         <div className="mt-10">
-          <button type="button" onClick={onClose} className="flex items-center gap-4 py-3 text-left text-[16px] font-medium text-white/80"><WalletCards className="h-5 w-5" /> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
+          <button type="button" onClick={onClose} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A1</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
           {item(UserRound, "Profile", onProfile)}
-          {item(Grid2X2, "Chats", () => onNotice("Chats are available in simulation mode."))}
-          {item(Clock3, "History", onHistory)}
+          {item(MessageCircle, "Chats", () => onNotice("Chats are available in simulation mode."))}
+          {item(Heart, "Watchlist", () => onNotice("Your watchlist is shown on Home."))}
+          {item(Clock3, "Activity", onHistory)}
         </div>
         <div className="mt-auto space-y-1">
           {item(Settings, "Settings", onSettings)}
@@ -459,42 +476,167 @@ function HomeView({
 
   return (
     <>
-      <div className="min-w-0 px-4 pt-[calc(env(safe-area-inset-top)+12px)]">
+      <div className="sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-4 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
         <WalletTabs activeTab={tab} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
-        <section className="px-4 pb-44 pt-10">
+        <section className="px-4 pb-48 pt-9">
           <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex max-w-full items-center gap-2 truncate text-[clamp(1rem,5vw,1.25rem)] font-semibold text-white/75"><span className="truncate">{accountName}</span><ChevronDown className="h-5 w-5 shrink-0" /></button>
-          <h1 className="mt-4 overflow-hidden text-[clamp(3.5rem,17vw,6rem)] font-semibold leading-none tracking-[-0.08em] text-white">{formatMoney(displayTotal)}</h1>
-          <div className="mt-3 flex items-center gap-2 text-[clamp(1.05rem,5vw,1.35rem)] font-semibold text-[#00e676]"><span className="truncate">+{formatMoney(displayChangeValue)}</span><span className="shrink-0 rounded-[.75rem] bg-[#00e676] px-2.5 py-1 text-black">+{displayChange.toFixed(2)}%</span></div>
+          <h1 className="mt-4 overflow-hidden text-[clamp(3.25rem,16vw,5.7rem)] font-semibold leading-none tracking-[-0.075em] text-white">{formatMoney(displayTotal)}</h1>
+          <div className={`mt-3 flex items-center gap-2 text-[clamp(1.05rem,5vw,1.35rem)] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.75rem] px-2.5 py-1 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
-    <button type="button" onClick={onCash} className="mt-10 flex w-full items-center justify-between rounded-[1.65rem] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="flex items-center gap-4 text-[clamp(1.3rem,6vw,1.8rem)] font-semibold"><Banknote className="h-7 w-7 text-white/60" />Cash</span><span className="shrink-0 text-[clamp(1.2rem,5.5vw,1.55rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-10 flex w-full items-center justify-between rounded-[1.65rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[clamp(1.25rem,6vw,1.65rem)] font-semibold"><Banknote className="h-7 w-7 text-white/55" />Cash</span><span className="shrink-0 text-[clamp(1.15rem,5.5vw,1.45rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
-          <div className="mt-10 flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Token</h2><ChevronRight className="h-7 w-7" /></div>
+          <WatchlistPromo onBrowse={() => onNotify("Opening the HyperEVM watchlist preview.")} />
+
+          <SectionHeading>Tokens</SectionHeading>
           <div className="mt-4 space-y-2.5">
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
           </div>
-          {showingReference ? <PerpsSection tokens={tokens} onNotify={onNotify} /> : null}
+          {showingReference ? <><PerpsSection tokens={tokens} onNotify={onNotify} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections onNotify={onNotify} /></> : null}
         </section>
-      ) : (
-        <section className="px-4 pb-44 pt-12">
-          <div className="rounded-[1.75rem] bg-[#191919] p-7">
-            <div className="grid h-14 w-14 place-items-center rounded-full bg-[#a295f3] text-black">{tab === "Trade" ? <Shuffle className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}</div>
-            <h1 className="mt-7 text-3xl font-semibold">{tab === "Trade" ? "Trade" : "Explore"}</h1>
-            <p className="mt-3 text-[17px] leading-7 text-white/55">Explore the simulated wallet market and preview actions without connecting a real account.</p>
-            <button type="button" onClick={() => onNotify(`${tab} is available in simulation mode.`)} className="mt-7 rounded-full bg-[#a295f3] px-6 py-3.5 font-medium text-black">Preview {tab}</button>
-          </div>
-        </section>
-      )}
+      ) : tab === "Trade" ? <TradeView tokens={tokens} onToken={onToken} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
-      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+12px)] left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5" style={{ width: "min(calc(100vw - 24px), 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[#242426] px-4 py-3.5 text-[clamp(.9rem,4.5vw,1.2rem)] font-medium text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
-        <button type="button" onClick={onActions} aria-label="Open wallet actions" className={`grid h-[clamp(3.25rem,16vw,4.5rem)] w-[clamp(3.25rem,16vw,4.5rem)] shrink-0 place-items-center rounded-full bg-[#a295f3] text-black shadow-[0_6px_30px_rgba(162,149,243,.35)] transition hover:scale-105 ${actionsOpen ? "rotate-45" : ""}`}><Plus className="h-[clamp(1.6rem,8vw,2.25rem)] w-[clamp(1.6rem,8vw,2.25rem)]" /></button>
+      <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 border-t border-white/[0.035] bg-black/80 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3.5 text-[clamp(.88rem,4.3vw,1.1rem)] font-medium text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-[clamp(3.25rem,16vw,4.35rem)] w-[clamp(3.25rem,16vw,4.35rem)] shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-[clamp(1.5rem,7vw,2rem)] w-[clamp(1.5rem,7vw,2rem)]" /> : <Plus className="h-[clamp(1.6rem,8vw,2.25rem)] w-[clamp(1.6rem,8vw,2.25rem)]" />}</button>
       </div>
     </>
   );
+}
+
+function SectionHeading({ children, action }: { children: ReactNode; action?: () => void }) {
+  const heading = <h2 className="text-[clamp(1.75rem,8vw,2.25rem)] font-semibold tracking-[-.055em]">{children}</h2>;
+  if (!action) return <div className="mt-10 flex items-center gap-1.5">{heading}</div>;
+  return <button type="button" onClick={action} className="mt-10 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-7 w-7 text-white/65" /></button>;
+}
+
+function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
+  return (
+    <aside className="relative mt-8 min-h-[170px] overflow-hidden rounded-[1.8rem] border border-white/[0.04] bg-[linear-gradient(145deg,#171719,#101011)] p-6">
+      <div className="relative z-10 max-w-[63%]">
+        <p className="text-xs font-bold uppercase tracking-[.08em] text-[#a99bf7]">Watchlist</p>
+        <h2 className="mt-3 text-[clamp(1.35rem,6vw,1.75rem)] font-semibold leading-[1.08] tracking-[-.04em]">What&apos;s moving on HyperEVM?</h2>
+        <button type="button" onClick={onBrowse} className="mt-5 flex items-center gap-1 text-base font-semibold text-[#a99bf7]">Browse <ChevronRight className="h-4 w-4" /></button>
+      </div>
+      <div className="absolute -bottom-3 -right-4 grid h-40 w-40 place-items-center rounded-[2.25rem] border border-[#6ff4d8]/15 bg-[#171a19] text-[#73f4db] shadow-[0_0_50px_rgba(115,244,219,.08)]">
+        <span className="absolute inset-4 rounded-full border border-[#73f4db]/15" />
+        <span className="absolute inset-8 rounded-full border border-[#73f4db]/25" />
+        <Infinity className="h-20 w-20 stroke-[1.5]" />
+      </div>
+    </aside>
+  );
+}
+
+function PredictionsStrip({ onNotify }: { onNotify: (message: string) => void }) {
+  const predictions = [
+    { title: "BTC Up or Down · 5m", time: "Live now", live: true },
+    { title: "ETH above $4K?", time: "Closes in 2h", live: false },
+  ];
+  return (
+    <section>
+      <SectionHeading action={() => onNotify("Predictions opened.")}>Predictions</SectionHeading>
+      <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {predictions.map((prediction) => (
+          <button key={prediction.title} type="button" onClick={() => onNotify(`${prediction.title} is a simulated market.`)} className="min-h-40 min-w-[78%] rounded-[1.7rem] border border-white/[0.035] bg-[#191919] p-5 text-left transition hover:bg-[#222223] sm:min-w-[58%]">
+            <div className="flex items-start justify-between"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#f7931a] text-2xl font-bold text-white">₿</span>{prediction.live ? <span className="flex items-center gap-1 text-base font-bold text-[#ff1744]"><Radio className="h-4 w-4" /> Live</span> : null}</div>
+            <p className="mt-7 truncate text-xl font-semibold">{prediction.title}</p>
+            <p className="mt-1 text-base text-white/55">{prediction.time}</p>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DiscoverySections({ onNotify }: { onNotify: (message: string) => void }) {
+  const explore = [
+    { icon: Infinity, title: "Perps", description: "Go long or short on leading markets" },
+    { icon: Sparkles, title: "Predictions", description: "Trade outcomes across crypto and culture" },
+    { icon: TrendingUp, title: "Stocks", description: "Discover tokenized market opportunities" },
+  ];
+  return (
+    <>
+      <section>
+        <SectionHeading action={() => onNotify("Watchlist opened.")}>Watchlist</SectionHeading>
+        <button type="button" onClick={() => onNotify("Search for assets to add to your watchlist.")} className="mt-4 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left">
+          <Heart className="h-7 w-7 text-[#a99bf7]" />
+          <span className="min-w-0"><strong className="block truncate text-lg">Follow what matters</strong><span className="mt-1 block truncate text-base text-white/55">Find assets or live markets to track</span></span>
+        </button>
+      </section>
+      <section>
+        <SectionHeading>Explore</SectionHeading>
+        <div className="mt-4 space-y-2.5">
+          {explore.map(({ icon: Icon, title, description }) => <button key={title} type="button" onClick={() => onNotify(`${title} opened.`)} className="flex w-full items-center gap-4 rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#222223]"><Icon className="h-7 w-7 text-[#a99bf7]" /><span className="min-w-0"><strong className="block text-lg">{title}</strong><span className="mt-1 block truncate text-base text-white/55">{description}</span></span></button>)}
+        </div>
+      </section>
+      <section className="pb-4">
+        <SectionHeading>Support</SectionHeading>
+        <button type="button" onClick={() => onNotify("FAQ opened.")} className="mt-5 flex w-full items-center justify-between py-3 text-left text-xl font-semibold">View FAQ <ChevronRight className="h-5 w-5 text-white/55" /></button>
+        <button type="button" onClick={() => onNotify("Support chat opened.")} className="flex w-full items-center justify-between py-3 text-left text-xl font-semibold">Chat with us <ChevronRight className="h-5 w-5 text-white/55" /></button>
+        <button type="button" onClick={() => onNotify("Disclosures opened.")} className="mt-3 flex items-center gap-2 py-3 text-left text-base text-white/35"><Info className="h-4 w-4" /> View disclosures</button>
+      </section>
+    </>
+  );
+}
+
+function TradeView({ tokens, onToken, onNotify }: { tokens: WalletToken[]; onToken: (token: WalletToken) => void; onNotify: (message: string) => void }) {
+  const [amount, setAmount] = useState("");
+  const [activeMarket, setActiveMarket] = useState<"Tokens" | "Perps">("Tokens");
+  const tradable = useMemo(() => sortTokens(tokens).filter((token) => token.symbol !== "BFS").slice(0, 8), [tokens]);
+  const sol = tokens.find((token) => token.symbol === "SOL") ?? referenceSolanaToken;
+  const amountValue = Number(amount) || 0;
+  const receiveValue = sol.price > 0 ? amountValue * sol.price : 0;
+  return (
+    <section className="px-4 pb-48 pt-5">
+      <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {[{ icon: Trophy, label: "Blue Chips" }, { icon: BarChart3, label: "Top Volume" }, { icon: Gem, label: "DeFi" }].map(({ icon: Icon, label }) => <button key={label} type="button" onClick={() => onNotify(`${label} filter selected.`)} className="flex shrink-0 items-center gap-2 rounded-full border border-white/[0.04] bg-[#1c1c1e] px-4 py-3 text-base font-semibold"><Icon className="h-5 w-5 text-[#a99bf7]" />{label}</button>)}
+      </div>
+      <div className="relative mt-5">
+        <div className="rounded-[1.8rem] border border-white/[0.035] bg-[#191919] p-6">
+          <div className="flex items-center justify-between"><span className="text-lg font-semibold text-white/55">You pay</span><button type="button" aria-label="Trade settings" onClick={() => onNotify("Trade settings opened.")} className="grid h-10 w-10 place-items-center rounded-full bg-[#222224]"><SlidersHorizontal className="h-5 w-5" /></button></div>
+          <div className="mt-8 flex items-center gap-3"><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" aria-label="Amount of SOL to pay" className="min-w-0 flex-1 bg-transparent text-5xl font-semibold tracking-[-.06em] outline-none placeholder:text-white/25" /><button type="button" className="flex shrink-0 items-center gap-2 rounded-full bg-[#252527] px-3 py-2 text-xl font-semibold"><TokenIcon token={sol} size="small" /> SOL <ChevronDown className="h-4 w-4" /></button></div>
+          <p className="mt-5 text-right text-base text-white/55">{formatAmount(sol.balance)} SOL available</p>
+        </div>
+        <button type="button" onClick={() => onNotify("Swap direction changed.")} aria-label="Swap trade direction" className="absolute left-1/2 top-1/2 z-10 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-black bg-[#a295f3] text-black"><Repeat2 className="h-6 w-6 rotate-90" /></button>
+        <div className="mt-2 rounded-[1.8rem] border border-white/[0.035] bg-[#191919] p-6">
+          <span className="text-lg font-semibold text-white/55">You receive</span>
+          <div className="mt-8 flex items-center gap-3"><span className="min-w-0 flex-1 text-5xl font-semibold tracking-[-.06em] text-white/30">{receiveValue ? receiveValue.toFixed(2) : "0"}</span><button type="button" className="flex shrink-0 items-center gap-2 rounded-full bg-[#252527] px-3 py-2 text-xl font-semibold"><span className="grid h-8 w-8 place-items-center rounded-full bg-[#a295f3] text-black"><BadgeDollarSign className="h-5 w-5" /></span> Cash <ChevronDown className="h-4 w-4" /></button></div>
+          <p className="mt-5 text-right text-base text-white/55">{formatMoney(receiveValue)}</p>
+        </div>
+      </div>
+      <div className="mt-10 flex gap-6 border-b border-white/[0.06] text-[1.7rem] font-semibold tracking-[-.05em]">{(["Tokens", "Perps"] as const).map((market) => <button key={market} type="button" onClick={() => setActiveMarket(market)} className={`pb-3 ${activeMarket === market ? "border-b-2 border-white text-white" : "text-white/30"}`}>{market}</button>)}</div>
+      <div className="mt-5 flex gap-2">{["Rank", "Solana", "24h"].map((filter) => <button key={filter} type="button" onClick={() => onNotify(`${filter} filter opened.`)} className="flex items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70">{filter}<ChevronDown className="h-4 w-4" /></button>)}</div>
+      <div className="mt-6 space-y-1">
+        {activeMarket === "Tokens" ? tradable.map((token, index) => <button key={token.id} type="button" onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block text-base text-white/55">{formatMoney(Math.max(token.price * 2_700_000, 1_000_000))} MC</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(1)}%</span></span></button>) : <PerpsMarketList tokens={tradable} onNotify={onNotify} />}
+      </div>
+    </section>
+  );
+}
+
+function PerpsMarketList({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (message: string) => void }) {
+  return <>{tokens.slice(0, 5).map((token) => <button key={token.id} type="button" onClick={() => onNotify(`${token.symbol} perpetual market opened.`)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol}-PERP</strong><span className="text-base text-white/50">Up to 20x leverage</span></span><span className={token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></button>)}</>;
+}
+
+function PredictionsView({ onNotify }: { onNotify: (message: string) => void }) {
+  const markets = [
+    { title: "BTC Up or Down · 5m", meta: "Live · 1,284 traders", chance: "52% Up" },
+    { title: "Will ETH close above $4,000?", meta: "Ends today · 842 traders", chance: "64% Yes" },
+    { title: "Solana above $200 this week?", meta: "Ends Friday · 506 traders", chance: "39% Yes" },
+  ];
+  return <section className="px-4 pb-48 pt-7"><div className="flex items-end justify-between"><div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Live markets</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Predictions</h1></div><Radio className="h-7 w-7 text-[#ff1744]" /></div><p className="mt-4 max-w-md text-lg leading-7 text-white/55">Follow fast-moving simulated markets across crypto, finance, and culture.</p><div className="mt-8 space-y-3">{markets.map((market, index) => <button key={market.title} type="button" onClick={() => onNotify(`${market.title} opened.`)} className="w-full rounded-[1.7rem] border border-white/[0.04] bg-[#191919] p-5 text-left transition hover:bg-[#232323]"><div className="flex items-start justify-between"><span className={`grid h-12 w-12 place-items-center rounded-full ${index === 0 ? "bg-[#f7931a]" : index === 1 ? "bg-[#e9e9ec] text-black" : "bg-black"} text-xl font-bold`}>{index === 0 ? "₿" : index === 1 ? "◆" : "≋"}</span><span className="rounded-full bg-[#28252f] px-3 py-2 text-sm font-bold text-[#b5a7ff]">{market.chance}</span></div><h2 className="mt-6 text-xl font-semibold">{market.title}</h2><p className="mt-2 text-base text-white/50">{market.meta}</p></button>)}</div></section>;
+}
+
+function ExploreView({ onNotify }: { onNotify: (message: string) => void }) {
+  const features = [
+    { icon: Infinity, title: "Perpetuals", detail: "Long or short hundreds of markets" },
+    { icon: Sparkles, title: "Predictions", detail: "Trade outcomes in live markets" },
+    { icon: LineChart, title: "Stocks", detail: "Explore tokenized equities" },
+    { icon: Headphones, title: "Live support", detail: "Get help from the wallet team" },
+  ];
+  return <section className="px-4 pb-48 pt-7"><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Discover</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Explore everything</h1><div className="mt-8 space-y-3">{features.map(({ icon: Icon, title, detail }) => <button key={title} type="button" onClick={() => onNotify(`${title} opened.`)} className="flex w-full items-center gap-5 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><Icon className="h-6 w-6" /></span><span className="min-w-0 flex-1"><strong className="block text-xl">{title}</strong><span className="mt-1 block truncate text-base text-white/50">{detail}</span></span><ChevronRight className="h-5 w-5 text-white/35" /></button>)}</div><div className="mt-10 rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><h2 className="text-2xl font-semibold">Need a hand?</h2><p className="mt-2 text-base leading-6 text-white/55">Browse common questions or start a conversation with support.</p><button type="button" onClick={() => onNotify("Help & Support opened.")} className="mt-6 rounded-full bg-[#a295f3] px-5 py-3 font-semibold text-black">Help & Support</button></div></section>;
 }
 
 function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (message: string) => void }) {
@@ -516,7 +658,7 @@ function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (
 
   return (
     <section className="mt-10">
-      <div className="flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Perps</h2><ChevronRight className="h-7 w-7" /></div>
+      <div className="flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Perps</h2><ChevronRight className="h-7 w-7 text-white/65" /></div>
       <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {cards.map(({ token, leverage, change }) => (
           <button key={token.symbol} type="button" onClick={() => onNotify(`${token.symbol} perpetuals are available in simulation mode.`)} className="flex min-h-[clamp(10rem,43vw,13rem)] min-w-[clamp(10rem,44vw,13.25rem)] shrink-0 flex-col items-start justify-between rounded-[1.65rem] bg-[#191919] p-5 text-left transition hover:bg-[#232323]">
@@ -549,10 +691,10 @@ function ActionMenu({ onAction }: { onAction: (action: Action) => void }) {
   const items: { label: Action; icon: LucideIcon }[] = [
     { label: "Send", icon: Send },
     { label: "Receive", icon: QrCode },
-    { label: "Buy", icon: WalletCards },
+    { label: "Add Cash", icon: BadgeDollarSign },
     { label: "Trade", icon: Shuffle },
   ];
-  return <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+100px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-2 bg-transparent" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-2 text-[clamp(.9rem,4.5vw,1.25rem)] font-medium"><span>{label}</span><span className="grid h-[clamp(3rem,15vw,3.75rem)] w-[clamp(3rem,15vw,3.75rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div>;
+  return <><div className="fixed inset-0 z-30 bg-black/45 backdrop-blur-xl" aria-hidden="true" /><div className="fixed bottom-[calc(env(safe-area-inset-bottom)+104px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-3 bg-transparent" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-3 text-[clamp(1rem,5vw,1.3rem)] font-semibold drop-shadow-lg transition hover:translate-x-[-3px]"><span>{label}</span><span className="grid h-[clamp(3.25rem,15vw,4rem)] w-[clamp(3.25rem,15vw,4rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div></>;
 }
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
@@ -643,6 +785,12 @@ function ReceiveScreen({ profile, onClose }: { profile: ProfileRecord; onClose: 
   return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-64 w-64 place-items-center rounded-3xl bg-white p-5"><QrCode className="h-full w-full text-black" /></div><p className="mt-10 text-center text-[20px] text-white/65">Your simulated wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
 }
 
+function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: () => void; onAdd: (amount: number) => void }) {
+  const [amount, setAmount] = useState("");
+  const numericAmount = Number(amount) || 0;
+  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Add Cash</h1></div><div className="flex flex-1 flex-col items-center justify-center"><span className="grid h-20 w-20 place-items-center rounded-full bg-[#a295f3] text-black"><BadgeDollarSign className="h-10 w-10" /></span><p className="mt-8 text-base text-white/50">Current balance · {formatMoney(balance)}</p><label className="mt-5 flex items-center justify-center text-[72px] font-semibold tracking-[-.08em]"><span className="text-white/55">$</span><input autoFocus inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" aria-label="Cash amount" className="w-[240px] bg-transparent outline-none placeholder:text-white/25" /></label><div className="mt-8 flex gap-2">{[25, 50, 100].map((value) => <button key={value} type="button" onClick={() => setAmount(String(value))} className="rounded-full bg-[#202022] px-5 py-3 text-lg">${value}</button>)}</div></div><button type="button" onClick={() => onAdd(numericAmount)} disabled={numericAmount <= 0} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-semibold text-black disabled:bg-[#403967] disabled:text-white/35">Add {numericAmount > 0 ? formatMoney(numericAmount) : "Cash"}</button></div>;
+}
+
 function BuyScreen({ token, onClose, onBuy }: { token: WalletToken; onClose: () => void; onBuy: (amount: number) => void }) {
   const [amount, setAmount] = useState("1");
   const quantity = Number(amount) || 0;
@@ -657,9 +805,46 @@ function TransactionDetail({ record, onClose }: { record: WalletActivity; onClos
   return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">View on Explorer</button></div>;
 }
 
-function TokenDetail({ token, onBack, onSend, onReceive }: { token: WalletToken; onBack: () => void; onSend: () => void; onReceive: () => void }) {
-  const chartPoints = "0,88 18,98 35,82 51,103 65,94 79,120 94,108 110,139 127,127 142,151 156,126 172,142 187,115 204,129 220,104 237,116 254,98 271,106 288,79 305,91 324,59 344,70 364,43 384,61 404,31";
-  return <div className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black px-4 pb-10"><div className="mt-[calc(env(safe-area-inset-top)+20px)] flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><button type="button" onClick={() => undefined} aria-label="Favorite token" className="text-4xl text-white/75">☆</button></div><div className="mt-9 flex items-center justify-between"><div className="flex items-center gap-4"><TokenIcon token={token} size="large" /><div><p className="text-[25px] font-semibold">{token.symbol}</p><p className="text-[17px] text-white/55">{token.name}</p></div></div><div className="text-right"><p className="text-[22px]">{formatMoney(token.price)}</p><p className="mt-1 text-[16px] text-[#f21b3f]">{formatMoney(token.price * token.change24h / 100)} ({token.change24h.toFixed(2)}%)</p></div></div><div className="mt-12 rounded-[1.5rem] bg-[#1d1d1f] p-3"><svg viewBox="0 0 405 170" className="h-48 w-full" role="img" aria-label={`${token.symbol} simulated price chart`}><polyline points={chartPoints} fill="none" stroke="#ff69a9" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /></svg><div className="flex justify-between text-[14px] text-white/45">{["1H", "1D", "1W", "1M", "1Y", "ALL"].map((period) => <button key={period} type="button" className={period === "1D" ? "rounded-full bg-[#3a374d] px-3 py-1 text-white" : "px-2 py-1"}>{period}</button>)}</div></div><div className="mt-10 flex items-end justify-between"><div><p className="text-[17px] text-white/65">Your balance</p><p className="mt-2 text-[28px]">{formatMoney(token.price * token.balance)}</p></div><p className="text-[17px] text-white/65">{formatAmount(token.balance)} {token.symbol}</p></div><div className="mt-6 grid grid-cols-2 gap-3"><button type="button" onClick={onSend} className="rounded-full bg-[#242426] px-4 py-4 text-[17px]">↗ Send</button><button type="button" onClick={onReceive} className="rounded-full bg-[#242426] px-4 py-4 text-[17px]">⇩ Receive</button></div><h2 className="mt-10 text-[20px]">Recent history <ChevronRight className="inline h-5 w-5" /></h2><div className="mt-6 grid grid-cols-2 gap-5 text-[16px] text-white/55"><div>Market cap<p className="mt-1 text-white">{formatMoney(token.price * 1_000_000)}</p></div><div>24h volume<p className="mt-1 text-white">{formatMoney(token.price * 25_000)}</p></div><div>Network<p className="mt-1 text-white">Simulated</p></div><div>Updated<p className="mt-1 text-white">Just now</p></div></div><button type="button" onClick={onSend} className="mt-auto pt-10"><span className="block w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Swap</span></button></div>;
+function TokenDetail({ token, onBack, onSend, onReceive, onTrade }: { token: WalletToken; onBack: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
+  const [period, setPeriod] = useState("LIVE");
+  const [favorite, setFavorite] = useState(false);
+  const positive = token.change24h >= 0;
+  const accent = positive ? "#00e676" : "#ff1744";
+  const changeValue = token.price * (token.change24h / 100);
+  const positivePoints = "0,142 18,151 35,126 51,139 65,118 79,127 94,105 110,119 127,98 142,108 156,87 172,96 187,78 204,92 220,68 237,76 254,56 271,66 288,42 305,51 324,25 344,38 364,14 384,31 404,10";
+  const negativePoints = "0,70 42,70 84,69 126,67 168,68 210,66 252,67 270,64 278,150 292,132 334,132 366,137 404,134";
+  const candles = [
+    { x: 6, y: 77, h: 42, up: false }, { x: 22, y: 87, h: 55, up: true }, { x: 38, y: 70, h: 29, up: true }, { x: 54, y: 64, h: 35, up: false },
+    { x: 70, y: 75, h: 25, up: false }, { x: 86, y: 83, h: 24, up: false }, { x: 102, y: 96, h: 45, up: false }, { x: 118, y: 111, h: 30, up: true },
+    { x: 134, y: 105, h: 24, up: true }, { x: 150, y: 98, h: 22, up: true }, { x: 166, y: 93, h: 16, up: false }, { x: 182, y: 101, h: 37, up: false },
+    { x: 198, y: 114, h: 24, up: true }, { x: 214, y: 91, h: 40, up: true }, { x: 230, y: 82, h: 32, up: false }, { x: 246, y: 96, h: 39, up: false },
+    { x: 262, y: 111, h: 25, up: true }, { x: 278, y: 91, h: 30, up: true }, { x: 294, y: 76, h: 28, up: true }, { x: 310, y: 70, h: 28, up: false },
+    { x: 326, y: 59, h: 35, up: true }, { x: 342, y: 38, h: 48, up: true }, { x: 358, y: 19, h: 48, up: true }, { x: 374, y: 28, h: 43, up: false },
+  ];
+  return <div className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0">
+    <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+10px)] backdrop-blur-2xl">
+      <button type="button" onClick={onBack} aria-label="Go back" className="mx-auto block h-1.5 w-20 rounded-full bg-white/45" />
+      <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={() => setFavorite((value) => !value)} aria-label={favorite ? "Remove from favorites" : "Add to favorites"} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${favorite ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
+    </div>
+    <div className="px-5 pt-3">
+      <h1 className="text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}</h1>
+      <p className="mt-4 text-[clamp(3rem,15vw,5.2rem)] font-semibold leading-none tracking-[-.075em]">{token.price < 0.01 ? `$${token.price.toFixed(6)}` : formatMoney(token.price)}</p>
+      <p className="mt-3 text-[clamp(1.1rem,5vw,1.45rem)] font-bold" style={{ color: accent }}>{formatSignedMoney(changeValue)} ({token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%)</p>
+    </div>
+    <div className="mt-8">
+      <svg viewBox="0 0 410 180" className="h-[265px] w-full" preserveAspectRatio="none" role="img" aria-label={`${token.symbol} simulated ${token.symbol === "BTC" ? "candlestick" : "line"} chart`}>
+        {[40, 90, 140].map((y) => <line key={y} x1="0" x2="410" y1={y} y2={y} stroke="rgba(255,255,255,.06)" />)}
+        {token.symbol === "BTC" ? candles.map((candle) => { const color = candle.up ? "#00e676" : "#ff1744"; return <g key={candle.x}><line x1={candle.x + 5} x2={candle.x + 5} y1={candle.y - 9} y2={candle.y + candle.h + 9} stroke={color} strokeWidth="2" /><rect x={candle.x} y={candle.y} width="10" height={candle.h} rx="2" fill={color} /></g>; }) : <><polyline points={positive ? positivePoints : negativePoints} fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="404" cy={positive ? 10 : 134} r="5" fill={accent} /></>}
+      </svg>
+      <div className="flex items-center justify-between px-5 text-sm font-semibold text-white/55">{["LIVE", "1D", "1W", "1M", "1Y", "ALL"].map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} className={`rounded-full px-3 py-2 transition ${period === item ? "bg-white text-black" : "hover:text-white"}`}>{item === "ALL" ? "All" : item}</button>)}<SlidersHorizontal className="h-5 w-5" /></div>
+    </div>
+    <div className="px-5 pb-28">
+      {token.balance > 0 ? <section className="mt-12"><SectionHeading>Your positions</SectionHeading><button type="button" onClick={onSend} className="mt-5 flex w-full items-center gap-4 rounded-[1.5rem] bg-[#121213] py-3 text-left"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol} <span className="font-normal text-white/55">{token.symbol === "BFS" ? "Solana" : token.name}</span></strong><span className="mt-1 block text-base text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price * token.balance)}</span><span className={`mt-1 block font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{formatSignedMoney(token.price * token.balance * token.change24h / 100)}</span></span><ChevronRight className="h-5 w-5 text-white/55" /></button><div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={onSend} className="flex items-center justify-center gap-2 rounded-full bg-[#202022] px-4 py-3.5 font-semibold"><Send className="h-4 w-4" /> Send</button><button type="button" onClick={onReceive} className="flex items-center justify-center gap-2 rounded-full bg-[#202022] px-4 py-3.5 font-semibold"><QrCode className="h-4 w-4" /> Receive</button></div></section> : null}
+      <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {token.symbol === "BTC" ? "99" : "12"} here</span></div><button type="button" className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? "momentum is picking up" : "watching this level closely"}</span></button></section>
+      <p className="mt-10 text-base leading-7 text-white/55">Market activity is displayed for simulation and interface-preview purposes. Prices may update from the connected market-data source.</p>
+    </div>
+    <div className="sticky bottom-0 z-20 mt-auto flex items-center gap-4 border-t border-white/[0.04] bg-black/85 px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 backdrop-blur-2xl"><div className="min-w-0 flex-1"><span className="block text-sm text-white/45">Market capitalization</span><strong className="mt-1 block truncate text-lg">{formatMoney(Math.max(token.price * 1_000_000, 296_800))}</strong></div><button type="button" onClick={onTrade} className="min-w-[44%] rounded-full bg-[#a295f3] px-7 py-4 text-xl font-semibold text-black transition hover:bg-[#b6aaff] active:scale-[.98]">Trade</button></div>
+  </div>;
 }
 
 function TokenEditor({ token, onClose, onSave }: { token: WalletToken | null; onClose: () => void; onSave: (form: TokenForm) => void }) {
@@ -729,9 +914,10 @@ export function DownloadWallet() {
 
   const openAction = (action: Action) => {
     setActionsOpen(false);
-    if (action === "Send" || action === "Buy") { setFlow(action === "Send" ? "send" : "buy"); setView("token-picker"); return; }
+    if (action === "Send") { setFlow("send"); setView("token-picker"); return; }
     if (action === "Receive") { setView("receive"); return; }
-    notify("Trade is available in simulation mode.");
+    if (action === "Add Cash") { setView("add-cash"); return; }
+    setActiveTab("Trade");
   };
 
   const pickToken = (token: WalletToken) => {
@@ -771,6 +957,15 @@ export function DownloadWallet() {
     notify(`${formatAmount(amount)} ${saved.symbol} added to your simulated wallet.`);
   };
 
+  const addCash = (amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const nextProfile = { ...profile, cash: profile.cash + amount };
+    writeStorage(profileStorageKey, nextProfile);
+    setProfile(nextProfile);
+    setView("home");
+    notify(`${formatMoney(amount)} added to your simulated cash balance.`);
+  };
+
   const completeSend = () => {
     if (!selectedToken) return;
     const amount = Number(sendAmount);
@@ -786,8 +981,8 @@ export function DownloadWallet() {
   const currentToken = selectedToken;
 
   return (
-    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-black font-sans text-white">
-      <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/50">
+    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
+      <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
 {view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onToken={(token) => { setSelectedToken(token); setView("token-detail"); }} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
@@ -799,13 +994,14 @@ export function DownloadWallet() {
           {view === "sending" && currentToken ? <SendingScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onComplete={completeSend} /> : null}
           {view === "sent" && currentToken && sentRecord ? <SentScreen token={currentToken} amount={sentRecord.amount} recipient={sentRecord.counterpartyLabel} onClose={() => { resetSend(); setView("home"); }} onHistory={() => setView("history")} /> : null}
           {view === "receive" ? <ReceiveScreen profile={profile} onClose={() => setView("home")} /> : null}
+          {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
           {view === "buy" && currentToken ? <BuyScreen token={currentToken} onClose={() => { resetSend(); setView("home"); }} onBuy={buyToken} /> : null}
-          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} onBack={() => { setSelectedToken(null); setView("home"); }} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} /> : null}
+          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} onBack={() => { setSelectedToken(null); setView("home"); }} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
           {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onHistory={() => { setDrawerOpen(false); setView("history"); }} onSettings={() => { setDrawerOpen(false); setView("profile"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
-          {toast ? <div className="absolute bottom-28 left-1/2 z-[80] -translate-x-1/2 whitespace-nowrap rounded-full bg-[#29292b] px-5 py-3 text-sm text-white/85 shadow-xl">{toast}</div> : null}
+          {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}
         </div>
       </div>

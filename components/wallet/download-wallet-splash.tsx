@@ -11,7 +11,7 @@ function DownloadWalletSplash() {
   return (
     <main
       className="fixed inset-0 z-[100] flex min-h-[100svh] items-center justify-center overflow-hidden bg-[#a295f3]"
-      aria-label="Loading Larpz Wallet"
+      aria-label="Loading Download Now Wallet"
       role="status"
     >
       <svg aria-hidden="true" className="absolute h-0 w-0">
