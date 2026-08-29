@@ -53,7 +53,7 @@ import {
   getTransactions,
   saveToken,
 } from "@/lib/wallet";
-import { readStorage, writeStorage } from "@/lib/storage";
+import { createId, readStorage, writeStorage } from "@/lib/storage";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
@@ -72,6 +72,7 @@ type View =
   | "receive"
   | "add-cash"
   | "buy"
+  | "perp-market"
   | "token-detail"
   | "sent-detail";
 
@@ -106,6 +107,26 @@ type TradeRequest = {
   receiveAmount: number;
 };
 
+type PerpSide = "long" | "short";
+
+type PerpPosition = {
+  id: string;
+  symbol: string;
+  side: PerpSide;
+  leverage: number;
+  collateral: number;
+  notional: number;
+  entryPrice: number;
+  openedAt: string;
+};
+
+type PerpOrderRequest = {
+  symbol: string;
+  side: PerpSide;
+  leverage: number;
+  collateral: number;
+};
+
 type LiveMarketSnapshot = {
   prices: Record<string, number>;
   changes: Record<string, number>;
@@ -119,6 +140,7 @@ type LiveMarketSnapshot = {
 const profileStorageKey = "larpz_download_profile";
 const notificationStorageKey = "larpz_download_notifications_prompted";
 const watchlistStorageKey = "larpz_download_watchlist";
+const perpPositionsStorageKey = "larpz_download_perp_positions";
 const defaultWatchlistSymbols = ["BTC", "ETH", "SOL"];
 
 const defaultProfile: ProfileRecord = {
@@ -273,6 +295,25 @@ function formatSignedMoney(value: number) {
   return `${value > 0 ? "+" : "-"}${formatMoney(Math.abs(value))}`;
 }
 
+function maxPerpLeverage(symbol: string) {
+  if (symbol === "BTC") return 40;
+  if (symbol === "ETH") return 25;
+  if (symbol === "HYPE") return 10;
+  return 20;
+}
+
+function perpPositionPnl(position: PerpPosition, currentPrice: number) {
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0 || position.entryPrice <= 0) return 0;
+  const priceMove = (currentPrice - position.entryPrice) / position.entryPrice;
+  return position.notional * (position.side === "long" ? priceMove : -priceMove);
+}
+
+function perpLiquidationPrice(entryPrice: number, side: PerpSide, leverage: number) {
+  const maintenanceBuffer = 0.005;
+  const move = Math.max(0, 1 / leverage - maintenanceBuffer);
+  return side === "long" ? entryPrice * (1 - move) : entryPrice * (1 + move);
+}
+
 function shortAddress(value: string) {
   if (value.length <= 12) return value;
   return `${value.slice(0, 5)}...${value.slice(-4)}`;
@@ -360,6 +401,8 @@ function applyLiveMarketSnapshot(tokens: WalletToken[], snapshot: LiveMarketSnap
 
 function sortTokens(tokens: WalletToken[]) {
   return [...tokens].sort((a, b) => {
+    const valueDifference = b.price * b.balance - a.price * a.balance;
+    if (Math.abs(valueDifference) > Number.EPSILON) return valueDifference;
     const aIndex = walletTokenOrder.indexOf(a.symbol);
     const bIndex = walletTokenOrder.indexOf(b.symbol);
     if (aIndex === -1 && bIndex === -1) return 0;
@@ -529,6 +572,9 @@ function HomeView({
   onActions,
   onOpenWatchlist,
   onExecuteTrade,
+  perpPositions,
+  onOpenPerp,
+  onClosePerp,
   onToken,
   onNotify,
 }: {
@@ -546,15 +592,18 @@ function HomeView({
   onActions: () => void;
   onOpenWatchlist: () => void;
   onExecuteTrade: (trade: TradeRequest) => boolean;
+  perpPositions: PerpPosition[];
+  onOpenPerp: (token: WalletToken) => void;
+  onClosePerp: (position: PerpPosition) => void;
   onToken: (token: WalletToken) => void;
   onNotify: (message: string) => void;
 }) {
   const referenceTokens = useMemo(() => referenceHomeTokens(tokens), [tokens]);
   const displayTokens = useMemo(
-    () => [
+    () => sortTokens([
       ...referenceTokens,
-      ...sortTokens(tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS")),
-    ],
+      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS"),
+    ]),
     [referenceTokens, tokens],
   );
   const filteredTokens = useMemo(() => {
@@ -606,9 +655,9 @@ function HomeView({
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
           </div>
-          {showingReference ? <><PerpsSection tokens={tokens} onNotify={onNotify} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onNotify={onNotify} /></> : null}
+          {showingReference ? <><PerpsSection tokens={tokens} positions={perpPositions} onOpen={onOpenPerp} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onNotify={onNotify} /></> : null}
         </section>
-      ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} onToken={onToken} onExecuteTrade={onExecuteTrade} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
+      ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
       <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
@@ -755,7 +804,7 @@ function MarketFilterSelect({ label, value, options, onChange }: { label: string
   return <label className="relative flex shrink-0 items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70"><span>{selectedLabel}</span><ChevronDown className="h-4 w-4" /><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="absolute inset-0 cursor-pointer opacity-0">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
-function TradeView({ tokens, cashBalance, onToken, onExecuteTrade, onNotify }: { tokens: WalletToken[]; cashBalance: number; onToken: (token: WalletToken) => void; onExecuteTrade: (trade: TradeRequest) => boolean; onNotify: (message: string) => void }) {
+function TradeView({ tokens, cashBalance, perpPositions, onToken, onExecuteTrade, onOpenPerp, onClosePerp }: { tokens: WalletToken[]; cashBalance: number; perpPositions: PerpPosition[]; onToken: (token: WalletToken) => void; onExecuteTrade: (trade: TradeRequest) => boolean; onOpenPerp: (token: WalletToken) => void; onClosePerp: (position: PerpPosition) => void }) {
   const [amount, setAmount] = useState("");
   const [payAsset, setPayAsset] = useState("SOL");
   const [receiveAsset, setReceiveAsset] = useState("CASH");
@@ -848,9 +897,10 @@ function TradeView({ tokens, cashBalance, onToken, onExecuteTrade, onNotify }: {
       <button type="button" onClick={executeTrade} disabled={!amountValue || payAsset === receiveAsset} className="mt-4 w-full rounded-full bg-[#a295f3] px-5 py-4 text-[18px] font-semibold text-black transition hover:bg-[#b5aaff] active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-35">Trade {payAsset === "CASH" ? "Cash" : payAsset} for {receiveAsset === "CASH" ? "Cash" : receiveAsset}</button>
 
       <div className="mt-10 flex gap-6 border-b border-white/[0.06] text-[1.7rem] font-semibold tracking-[-.05em]">{(["Tokens", "Perps"] as const).map((market) => <button key={market} type="button" onClick={() => setActiveMarket(market)} className={`pb-3 ${activeMarket === market ? "border-b-2 border-white text-white" : "text-white/30"}`}>{market}</button>)}</div>
+      {activeMarket === "Perps" && perpPositions.length ? <CompactPerpPositions positions={perpPositions} tokens={tokens} onOpen={onOpenPerp} onClose={onClosePerp} /> : null}
       <div className="mt-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"><MarketFilterSelect label="Market ranking" value={sortMode} onChange={setSortMode} options={[{ value: "rank", label: "Rank" }, { value: "gainers", label: "Top gainers" }, { value: "losers", label: "Top losers" }, { value: "price-high", label: "Price: high" }, { value: "price-low", label: "Price: low" }]} /><MarketFilterSelect label="Currency type" value={currencyType} onChange={setCurrencyType} options={[{ value: "all", label: "All currencies" }, { value: "Solana", label: "Solana" }, { value: "Ethereum", label: "Ethereum" }, { value: "Stablecoins", label: "Stablecoins" }, { value: "Memes", label: "Memes" }]} /><MarketFilterSelect label="Change period" value={period} onChange={(value) => setPeriod(value as "1h" | "24h" | "7d")} options={[{ value: "1h", label: "1h" }, { value: "24h", label: "24h" }, { value: "7d", label: "7d" }]} /></div>
       <div className="mt-6 space-y-1">
-        {activeMarket === "Tokens" ? marketTokens.map((token, index) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" aria-label={`Open ${token.name} market`} onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block truncate text-base text-white/55">{category === "Top Volume" ? `${formatCompactMoney(token.volume24h)} volume` : `${formatCompactMoney(token.marketCap)} MC`}</span></span><span className="text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>; }) : <PerpsMarketList tokens={marketTokens} period={period} onNotify={onNotify} />}
+        {activeMarket === "Tokens" ? marketTokens.map((token, index) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" aria-label={`Open ${token.name} market`} onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block truncate text-base text-white/55">{category === "Top Volume" ? `${formatCompactMoney(token.volume24h)} volume` : `${formatCompactMoney(token.marketCap)} MC`}</span></span><span className="text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>; }) : <PerpsMarketList tokens={marketTokens} period={period} onOpen={onOpenPerp} />}
         {marketTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#191919] px-5 py-10 text-center text-white/50">No markets match these filters.</div> : null}
       </div>
       {assetPicker ? <TradeAssetPicker title={assetPicker === "pay" ? "Choose what to pay" : "Choose what to receive"} tokens={tokens} cashBalance={cashBalance} selectedAsset={assetPicker === "pay" ? payAsset : receiveAsset} onClose={() => setAssetPicker(null)} onSelect={selectAsset} /> : null}
@@ -858,8 +908,100 @@ function TradeView({ tokens, cashBalance, onToken, onExecuteTrade, onNotify }: {
   );
 }
 
-function PerpsMarketList({ tokens, period, onNotify }: { tokens: WalletToken[]; period: "1h" | "24h" | "7d"; onNotify: (message: string) => void }) {
-  return <>{tokens.slice(0, 8).map((token) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" onClick={() => onNotify(`${token.symbol} perpetual market opened.`)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol}-PERP</strong><span className="text-base text-white/50">Up to 20x leverage</span></span><span className={change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></button>; })}</>;
+function PerpsMarketList({ tokens, period, onOpen }: { tokens: WalletToken[]; period: "1h" | "24h" | "7d"; onOpen: (token: WalletToken) => void }) {
+  return <>{tokens.slice(0, 8).map((token) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" onClick={() => onOpen(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol}-PERP</strong><span className="text-base text-white/50">Up to {maxPerpLeverage(token.symbol)}x leverage</span></span><span className="shrink-0 text-right"><span className="block text-base">{formatPrice(token.price)}</span><span className={change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span><ChevronRight className="h-5 w-5 text-white/35" /></button>; })}</>;
+}
+
+function CompactPerpPositions({ positions, tokens, onOpen, onClose }: { positions: PerpPosition[]; tokens: WalletToken[]; onOpen: (token: WalletToken) => void; onClose: (position: PerpPosition) => void }) {
+  return (
+    <section className="mt-5 rounded-[1.6rem] border border-white/[0.045] bg-[#151516] p-4">
+      <div className="flex items-center justify-between"><h3 className="text-lg font-semibold">Open positions</h3><span className="rounded-full bg-[#292633] px-3 py-1 text-sm font-bold text-[#a99bf7]">{positions.length}</span></div>
+      <div className="mt-3 space-y-2">
+        {positions.map((position) => {
+          const token = tokens.find((item) => item.symbol === position.symbol);
+          const currentPrice = token?.price ?? position.entryPrice;
+          const pnl = perpPositionPnl(position, currentPrice);
+          return <div key={position.id} className="flex items-center gap-3 rounded-[1.2rem] bg-[#202022] p-3"><button type="button" onClick={() => token && onOpen(token)} disabled={!token} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className={`rounded-lg px-2 py-1 text-xs font-bold uppercase ${position.side === "long" ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#ff1744]/15 text-[#ff5573]"}`}>{position.side}</span><span className="min-w-0"><strong className="block truncate">{position.symbol} · {position.leverage}x</strong><span className={`text-sm font-semibold ${pnl < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{formatSignedMoney(pnl)}</span></span></button><button type="button" onClick={() => onClose(position)} className="rounded-full bg-[#303033] px-3 py-2 text-sm font-semibold">Close</button></div>;
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PerpMarketScreen({ token, cashBalance, positions, onBack, onOpenPosition, onClosePosition }: { token: WalletToken; cashBalance: number; positions: PerpPosition[]; onBack: () => void; onOpenPosition: (request: PerpOrderRequest) => string | null; onClosePosition: (position: PerpPosition) => void }) {
+  const [side, setSide] = useState<PerpSide>("long");
+  const maxLeverage = maxPerpLeverage(token.symbol);
+  const [leverage, setLeverage] = useState(Math.min(5, maxLeverage));
+  const [collateral, setCollateral] = useState("");
+  const [error, setError] = useState("");
+  const collateralValue = Number(collateral) || 0;
+  const notional = collateralValue * leverage;
+  const openingFee = notional * 0.0005;
+  const totalRequired = collateralValue + openingFee;
+  const liquidationPrice = token.price > 0 ? perpLiquidationPrice(token.price, side, leverage) : 0;
+  const tokenPositions = positions.filter((position) => position.symbol === token.symbol);
+  const leverageOptions = [1, 2, 5, 10, 20, 25, 40].filter((value) => value <= maxLeverage);
+  const positive = token.change24h >= 0;
+
+  const submit = () => {
+    if (!Number.isFinite(collateralValue) || collateralValue <= 0) { setError("Enter a collateral amount."); return; }
+    if (token.price <= 0) { setError("Waiting for a live market price."); return; }
+    if (totalRequired > cashBalance) { setError(`Insufficient cash. You need ${formatMoney(totalRequired)} including the opening fee.`); return; }
+    const result = onOpenPosition({ symbol: token.symbol, side, leverage, collateral: collateralValue });
+    if (result) { setError(result); return; }
+    setCollateral("");
+    setError("");
+  };
+
+  return (
+    <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+32px)]">
+      <ScreenHeader title={`${token.symbol}-PERP`} onBack={onBack} />
+      <section className="px-4 pb-12">
+        <div className="flex items-center gap-4 pt-3"><TokenIcon token={token} size="large" /><div className="min-w-0 flex-1"><p className="flex items-center gap-2 text-sm font-bold uppercase tracking-[.1em] text-white/45"><span className="h-2 w-2 rounded-full bg-[#00e676]" /> Live market</p><h1 className="mt-1 truncate text-[38px] font-semibold leading-none tracking-[-.06em]">{formatPrice(token.price)}</h1><p className={`mt-2 text-lg font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{positive ? "+" : ""}{token.change24h.toFixed(2)}% today</p></div></div>
+
+        <div className="relative mt-6 h-32 overflow-hidden rounded-[1.6rem] bg-[linear-gradient(180deg,rgba(162,149,243,.12),rgba(0,0,0,0))] px-3 py-4">
+          <div className="absolute inset-x-0 top-1/3 border-t border-white/[0.05]" /><div className="absolute inset-x-0 top-2/3 border-t border-white/[0.05]" />
+          <svg viewBox="0 0 360 100" preserveAspectRatio="none" className="relative h-full w-full" aria-hidden="true"><polyline fill="none" stroke={positive ? "#00e676" : "#ff1744"} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={positive ? "0,82 38,72 72,77 105,56 142,62 178,42 211,49 248,28 285,38 326,16 360,22" : "0,18 38,28 72,23 105,44 142,38 178,58 211,51 248,72 285,62 326,84 360,78"} /></svg>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-2 rounded-[1.35rem] bg-[#191919] p-1.5">
+          {(["long", "short"] as PerpSide[]).map((value) => <button key={value} type="button" onClick={() => { setSide(value); setError(""); }} aria-pressed={side === value} className={`rounded-[1rem] px-4 py-3.5 text-lg font-bold capitalize transition ${side === value ? value === "long" ? "bg-[#00e676] text-black" : "bg-[#ff1744] text-white" : "text-white/45"}`}>{value}</button>)}
+        </div>
+
+        <div className="mt-3 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] p-5">
+          <div className="flex items-center justify-between"><span className="text-base font-semibold text-white/55">Collateral</span><button type="button" onClick={() => setCollateral(String(Math.max(0, cashBalance / (1 + leverage * 0.0005))))} className="rounded-full bg-[#29292b] px-3 py-1.5 text-sm font-bold text-[#a99bf7]">MAX</button></div>
+          <div className="mt-5 flex items-center gap-3"><span className="text-4xl text-white/45">$</span><input inputMode="decimal" type="number" min="0" step="any" value={collateral} onChange={(event) => { setCollateral(event.target.value); setError(""); }} placeholder="0.00" aria-label="Perpetual position collateral" className="min-w-0 flex-1 bg-transparent text-4xl font-semibold tracking-[-.05em] outline-none placeholder:text-white/20" /><span className="rounded-full bg-[#29292b] px-3 py-2 font-semibold">USD</span></div>
+          <div className="mt-4 flex items-center justify-between text-sm text-white/45"><span>Available</span><span>{formatMoney(cashBalance)}</span></div>
+        </div>
+
+        <div className="mt-3 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] p-5">
+          <div className="flex items-center justify-between"><span className="text-base font-semibold text-white/55">Leverage</span><strong className="text-2xl text-[#a99bf7]">{leverage}x</strong></div>
+          <input type="range" min="1" max={maxLeverage} step="1" value={leverage} onChange={(event) => { setLeverage(Number(event.target.value)); setError(""); }} aria-label="Position leverage" className="mt-5 w-full accent-[#a295f3]" />
+          <div className="mt-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{leverageOptions.map((value) => <button key={value} type="button" onClick={() => setLeverage(value)} className={`min-w-12 flex-1 rounded-full px-3 py-2 text-sm font-bold ${leverage === value ? "bg-[#a295f3] text-black" : "bg-[#29292b] text-white/60"}`}>{value}x</button>)}</div>
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-[1.5rem] border border-white/[0.04] bg-[#151516] text-[15px]"><PerpMetric label="Position size" value={formatMoney(notional)} /><PerpMetric label="Entry price" value={formatPrice(token.price)} /><PerpMetric label="Liquidation price" value={formatPrice(liquidationPrice)} /><PerpMetric label="Opening fee · 0.05%" value={formatMoney(openingFee)} /></div>
+        {error ? <p role="alert" className="mt-3 rounded-2xl bg-[#ff1744]/12 px-4 py-3 text-center text-sm font-medium text-[#ff7189]">{error}</p> : null}
+        <button type="button" onClick={submit} disabled={!collateralValue || token.price <= 0} className={`mt-4 w-full rounded-full px-5 py-4 text-lg font-bold transition active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-35 ${side === "long" ? "bg-[#00e676] text-black" : "bg-[#ff1744] text-white"}`}>Open {leverage}x {side}</button>
+        <p className="mt-3 text-center text-xs leading-5 text-white/35">Simulation only. No real funds or blockchain transactions are used.</p>
+
+        <div className="mt-9 flex items-center justify-between"><h2 className="text-[28px] font-semibold tracking-[-.05em]">Your positions</h2><span className="text-sm text-white/45">{tokenPositions.length} open</span></div>
+        <div className="mt-4 space-y-3">{tokenPositions.map((position) => <PerpPositionCard key={position.id} position={position} currentPrice={token.price} onClose={() => onClosePosition(position)} />)}{tokenPositions.length === 0 ? <div className="rounded-[1.6rem] bg-[#191919] px-5 py-8 text-center"><Infinity className="mx-auto h-8 w-8 text-[#a99bf7]" /><p className="mt-3 text-lg font-semibold">No open {token.symbol} positions</p><p className="mt-1 text-sm text-white/45">Choose long or short to open one.</p></div> : null}</div>
+      </section>
+    </div>
+  );
+}
+
+function PerpMetric({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between border-b border-white/[0.05] px-4 py-3.5 last:border-0"><span className="text-white/45">{label}</span><strong>{value}</strong></div>;
+}
+
+function PerpPositionCard({ position, currentPrice, onClose }: { position: PerpPosition; currentPrice: number; onClose: () => void }) {
+  const pnl = perpPositionPnl(position, currentPrice);
+  const equity = Math.max(0, position.collateral + pnl);
+  const pnlPercent = position.collateral > 0 ? pnl / position.collateral * 100 : 0;
+  const liquidated = equity === 0 && pnl < 0;
+  return <article className="rounded-[1.6rem] border border-white/[0.04] bg-[#191919] p-5"><div className="flex items-start justify-between"><div className="flex items-center gap-2"><span className={`rounded-lg px-2 py-1 text-xs font-bold uppercase ${position.side === "long" ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#ff1744]/15 text-[#ff5573]"}`}>{position.side}</span><strong className="text-lg">{position.symbol} · {position.leverage}x</strong></div><span className={`text-right text-lg font-bold ${pnl < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{formatSignedMoney(pnl)}<small className="block text-xs">{pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%</small></span></div><div className="mt-5 grid grid-cols-3 gap-2 text-sm"><div><span className="block text-white/40">Entry</span><strong className="mt-1 block truncate">{formatPrice(position.entryPrice)}</strong></div><div><span className="block text-white/40">Mark</span><strong className="mt-1 block truncate">{formatPrice(currentPrice)}</strong></div><div><span className="block text-white/40">Equity</span><strong className="mt-1 block truncate">{formatMoney(equity)}</strong></div></div><button type="button" onClick={onClose} className={`mt-5 w-full rounded-full px-4 py-3 font-semibold ${liquidated ? "bg-[#ff1744] text-white" : "bg-[#303033] text-white"}`}>{liquidated ? "Settle liquidated position" : "Close position"}</button></article>;
 }
 
 function PredictionsView({ onNotify }: { onNotify: (message: string) => void }) {
@@ -881,7 +1023,7 @@ function ExploreView({ onNotify }: { onNotify: (message: string) => void }) {
   return <section className="px-4 pb-48 pt-7"><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Discover</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Explore everything</h1><div className="mt-8 space-y-3">{features.map(({ icon: Icon, title, detail }) => <button key={title} type="button" onClick={() => onNotify(`${title} opened.`)} className="flex w-full items-center gap-5 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><Icon className="h-6 w-6" /></span><span className="min-w-0 flex-1"><strong className="block text-xl">{title}</strong><span className="mt-1 block truncate text-base text-white/50">{detail}</span></span><ChevronRight className="h-5 w-5 text-white/35" /></button>)}</div><div className="mt-10 rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><h2 className="text-2xl font-semibold">Need a hand?</h2><p className="mt-2 text-base leading-6 text-white/55">Browse common questions or start a conversation with support.</p><button type="button" onClick={() => onNotify("Help & Support opened.")} className="mt-6 rounded-full bg-[#a295f3] px-5 py-3 font-semibold text-black">Help & Support</button></div></section>;
 }
 
-function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (message: string) => void }) {
+function PerpsSection({ tokens, positions, onOpen }: { tokens: WalletToken[]; positions: PerpPosition[]; onOpen: (token: WalletToken) => void }) {
   const tokenFor = (symbol: string, name: string): WalletToken => tokens.find((token) => token.symbol === symbol) ?? {
     id: `perps-${symbol}`,
     name,
@@ -900,10 +1042,10 @@ function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (
 
   return (
     <section className="mt-8">
-      <div className="flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Perps</h2><ChevronRight className="h-7 w-7 text-white/65" /></div>
+      <div className="flex items-center justify-between"><div className="flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Perps</h2><ChevronRight className="h-7 w-7 text-white/65" /></div>{positions.length ? <span className="rounded-full bg-[#292633] px-3 py-1.5 text-sm font-bold text-[#a99bf7]">{positions.length} open</span> : null}</div>
       <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {cards.map(({ token, leverage }) => (
-          <button key={token.symbol} type="button" onClick={() => onNotify(`${token.symbol} perpetuals are available in simulation mode.`)} className="flex min-h-[clamp(10rem,43vw,13rem)] min-w-[clamp(10rem,44vw,13.25rem)] shrink-0 flex-col items-start justify-between rounded-[1.65rem] bg-[#191919] p-5 text-left transition hover:bg-[#232323]">
+          <button key={token.symbol} type="button" onClick={() => onOpen(token)} className="flex min-h-[clamp(10rem,43vw,13rem)] min-w-[clamp(10rem,44vw,13.25rem)] shrink-0 flex-col items-start justify-between rounded-[1.65rem] bg-[#191919] p-5 text-left transition hover:bg-[#232323]">
             <TokenIcon token={token} size="large" />
             <div className="flex items-center gap-2 text-[clamp(1.2rem,5.5vw,1.55rem)] font-semibold"><span>{token.symbol}</span><span className="rounded-lg bg-[#242426] px-2 py-1 text-[clamp(.85rem,4vw,1.05rem)]">{leverage}</span></div>
             <strong className={`text-[clamp(1.35rem,6vw,1.8rem)] ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</strong>
@@ -1122,6 +1264,9 @@ export function DownloadWallet() {
   const [records, setRecords] = useState<WalletActivity[]>([]);
   const [tokenQuery, setTokenQuery] = useState("");
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(defaultWatchlistSymbols);
+  const [perpPositions, setPerpPositions] = useState<PerpPosition[]>([]);
+  const [selectedPerpSymbol, setSelectedPerpSymbol] = useState("BTC");
+  const [perpOriginTab, setPerpOriginTab] = useState<Tab>("Home");
   const [tokenDetailOrigin, setTokenDetailOrigin] = useState<"home" | "watchlist">("home");
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
@@ -1147,6 +1292,12 @@ export function DownloadWallet() {
         ? [...new Set(storedWatchlist.filter((symbol): symbol is string => typeof symbol === "string").map((symbol) => symbol.toUpperCase()))]
         : defaultWatchlistSymbols;
       setWatchlistSymbols(normalizedWatchlist);
+      const storedPositions = readStorage<unknown>(perpPositionsStorageKey, []);
+      setPerpPositions(Array.isArray(storedPositions) ? storedPositions.filter((position): position is PerpPosition => {
+        if (!position || typeof position !== "object") return false;
+        const candidate = position as Partial<PerpPosition>;
+        return typeof candidate.id === "string" && typeof candidate.symbol === "string" && (candidate.side === "long" || candidate.side === "short") && typeof candidate.leverage === "number" && candidate.leverage >= 1 && typeof candidate.collateral === "number" && candidate.collateral > 0 && typeof candidate.notional === "number" && candidate.notional > 0 && typeof candidate.entryPrice === "number" && candidate.entryPrice > 0 && typeof candidate.openedAt === "string";
+      }) : []);
       if (!window.localStorage.getItem(notificationStorageKey)) setNotificationPromptOpen(true);
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -1164,6 +1315,12 @@ export function DownloadWallet() {
     setSelectedToken(token);
     setTokenDetailOrigin(origin);
     setView("token-detail");
+  };
+
+  const openPerpMarket = (token: WalletToken) => {
+    setSelectedPerpSymbol(token.symbol);
+    setPerpOriginTab(activeTab);
+    setView("perp-market");
   };
 
   const toggleWatchlist = (token: WalletToken) => {
@@ -1248,6 +1405,51 @@ export function DownloadWallet() {
     return true;
   };
 
+  const openPerpPosition = ({ symbol, side, leverage, collateral }: PerpOrderRequest) => {
+    const token = tokens.find((item) => item.symbol === symbol);
+    if (!token || !Number.isFinite(token.price) || token.price <= 0) return "A live market price is not available.";
+    if (!Number.isFinite(collateral) || collateral <= 0) return "Enter a valid collateral amount.";
+    if (!Number.isInteger(leverage) || leverage < 1 || leverage > maxPerpLeverage(symbol)) return "Choose a valid leverage level.";
+    const notional = collateral * leverage;
+    const openingFee = notional * 0.0005;
+    const requiredCash = collateral + openingFee;
+    if (requiredCash > profile.cash + 0.000001) return `Insufficient cash. Add ${formatMoney(requiredCash - profile.cash)} more.`;
+
+    const position: PerpPosition = {
+      id: createId("perp"),
+      symbol,
+      side,
+      leverage,
+      collateral,
+      notional,
+      entryPrice: token.price,
+      openedAt: new Date().toISOString(),
+    };
+    const nextPositions = [position, ...perpPositions];
+    const nextProfile = { ...profile, cash: Math.max(0, profile.cash - requiredCash) };
+    setPerpPositions(nextPositions);
+    writeStorage(perpPositionsStorageKey, nextPositions);
+    setProfile(nextProfile);
+    writeStorage(profileStorageKey, nextProfile);
+    notify(`Opened ${leverage}x ${side} on ${symbol}.`);
+    return null;
+  };
+
+  const closePerpPosition = (position: PerpPosition) => {
+    const token = tokens.find((item) => item.symbol === position.symbol);
+    const currentPrice = token?.price ?? position.entryPrice;
+    const pnl = perpPositionPnl(position, currentPrice);
+    const closingFee = position.notional * 0.0005;
+    const payout = Math.max(0, position.collateral + pnl - closingFee);
+    const nextPositions = perpPositions.filter((item) => item.id !== position.id);
+    const nextProfile = { ...profile, cash: profile.cash + payout };
+    setPerpPositions(nextPositions);
+    writeStorage(perpPositionsStorageKey, nextPositions);
+    setProfile(nextProfile);
+    writeStorage(profileStorageKey, nextProfile);
+    notify(`Closed ${position.symbol} ${position.side} · ${formatSignedMoney(pnl - closingFee)} after fee.`);
+  };
+
   const buyToken = (amount: number) => {
     if (!selectedToken || amount <= 0) return;
     const saved = saveToken({ ...selectedToken, balance: selectedToken.balance + amount });
@@ -1281,12 +1483,13 @@ export function DownloadWallet() {
   const currentToken = selectedToken
     ? tokens.find((token) => token.id === selectedToken.id) ?? selectedToken
     : null;
+  const currentPerpToken = tokens.find((token) => token.symbol === selectedPerpSymbol) ?? null;
 
   return (
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onExecuteTrade={executeMarketTrade} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
@@ -1299,6 +1502,7 @@ export function DownloadWallet() {
           {view === "receive" ? <ReceiveScreen profile={profile} onClose={() => setView("home")} /> : null}
           {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
           {view === "buy" && currentToken ? <BuyScreen token={currentToken} onClose={() => { resetSend(); setView("home"); }} onBuy={buyToken} /> : null}
+          {view === "perp-market" && currentPerpToken ? <PerpMarketScreen token={currentPerpToken} cashBalance={profile.cash} positions={perpPositions} onBack={() => { setView("home"); setActiveTab(perpOriginTab); }} onOpenPosition={openPerpPosition} onClosePosition={closePerpPosition} /> : null}
           {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
