@@ -665,7 +665,7 @@ function HomeView({
       ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
       <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
         <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
       </div>
     </>
@@ -1275,14 +1275,67 @@ function LiveMarketChart({ points, loading, unavailable, symbol, period }: { poi
 
 function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
   const [period, setPeriod] = useState("LIVE");
+  const [dismissOffset, setDismissOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef<number | null>(null);
+  const dragMoved = useRef(false);
   const positive = token.change24h >= 0;
   const accent = positive ? "#00e676" : "#ff1744";
   const changeValue = token.price * (token.change24h / 100);
   const { points, loading, unavailable } = useLiveMarketChart(token.symbol, period, token.price);
   const liveChatCount = token.symbol === "SOL" ? 291 : token.symbol === "BTC" ? 99 : 12;
-  return <div className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0">
+  const finishDismissDrag = (clientY: number) => {
+    if (dragStartY.current === null) return;
+    const distance = Math.max(0, clientY - dragStartY.current);
+    dragStartY.current = null;
+    setIsDragging(false);
+    if (distance >= 90) {
+      onBack();
+      return;
+    }
+    setDismissOffset(0);
+  };
+
+  return <div
+    className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0 will-change-transform"
+    style={{
+      transform: `translateY(${dismissOffset}px)`,
+      opacity: Math.max(0.72, 1 - dismissOffset / 900),
+      transition: isDragging ? "none" : "transform 220ms cubic-bezier(.22,1,.36,1), opacity 220ms ease",
+    }}
+  >
     <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
-      <button type="button" onClick={onBack} aria-label="Go back" className="mx-auto block h-1.5 w-20 rounded-full bg-white/45" />
+      <button
+        type="button"
+        onClick={() => {
+          if (!dragMoved.current) onBack();
+          dragMoved.current = false;
+        }}
+        aria-label="Swipe down to close asset details"
+        className="mx-auto flex h-9 w-28 touch-none cursor-grab items-start justify-center pt-1 active:cursor-grabbing"
+        onPointerDown={(event) => {
+          dragStartY.current = event.clientY;
+          dragMoved.current = false;
+          setDismissOffset(0);
+          setIsDragging(true);
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (dragStartY.current === null) return;
+          const distance = Math.max(0, event.clientY - dragStartY.current);
+          if (distance > 8) dragMoved.current = true;
+          setDismissOffset(distance);
+        }}
+        onPointerUp={(event) => finishDismissDrag(event.clientY)}
+        onPointerCancel={() => {
+          dragStartY.current = null;
+          dragMoved.current = false;
+          setIsDragging(false);
+          setDismissOffset(0);
+        }}
+      >
+        <span className="block h-1.5 w-20 rounded-full bg-white/45" />
+      </button>
       <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
     </div>
     <div className="px-5 pt-3">
