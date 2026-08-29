@@ -99,11 +99,21 @@ type TokenForm = {
   image: string;
 };
 
+type TradeRequest = {
+  payAsset: string;
+  receiveAsset: string;
+  payAmount: number;
+  receiveAmount: number;
+};
+
 type LiveMarketSnapshot = {
   prices: Record<string, number>;
   changes: Record<string, number>;
+  changes1h: Record<string, number>;
+  changes7d: Record<string, number>;
   images: Record<string, string>;
   marketCaps: Record<string, number>;
+  volumes24h: Record<string, number>;
 };
 
 const profileStorageKey = "larpz_download_profile";
@@ -145,6 +155,15 @@ const walletTokenOrder = [
   ...preferredWalletTokenSymbols,
   ...liveMarketSymbols.filter((symbol) => !preferredWalletTokenSymbols.includes(symbol)),
 ];
+
+const blueChipSymbols = new Set(["BTC", "ETH", "SOL", "BNB", "XRP", "USDT", "USDC", "DOGE", "ADA", "TRX", "AVAX", "LINK"]);
+const defiSymbols = new Set(["HYPE", "LINK", "AVAX", "DOT", "MATIC", "ARB", "OP", "ATOM", "SUI", "NEAR"]);
+const currencyTypeSymbols: Record<string, Set<string>> = {
+  Solana: new Set(["SOL", "WIF"]),
+  Ethereum: new Set(["ETH", "USDT", "USDC", "LINK", "MATIC", "SHIB", "PEPE", "ARB", "OP"]),
+  Stablecoins: new Set(["USDT", "USDC"]),
+  Memes: new Set(["DOGE", "SHIB", "PEPE", "WIF"]),
+};
 
 const tokenVisuals: Record<string, { background: string; mark: string; foreground?: string }> = {
   BTC: { background: "#f5a623", mark: "₿" },
@@ -243,6 +262,12 @@ function formatAmount(value: number) {
   return value.toLocaleString("en-US", { maximumFractionDigits: 5 });
 }
 
+function changeForPeriod(token: WalletToken, period: "1h" | "24h" | "7d") {
+  if (period === "1h") return token.change1h ?? token.change24h;
+  if (period === "7d") return token.change7d ?? token.change24h;
+  return token.change24h;
+}
+
 function formatSignedMoney(value: number) {
   if (value === 0) return formatMoney(0);
   return `${value > 0 ? "+" : "-"}${formatMoney(Math.abs(value))}`;
@@ -324,8 +349,11 @@ function applyLiveMarketSnapshot(tokens: WalletToken[], snapshot: LiveMarketSnap
     ...token,
     price: snapshot.prices[token.symbol] ?? token.price,
     change24h: snapshot.changes[token.symbol] ?? token.change24h,
+    change1h: snapshot.changes1h[token.symbol] ?? token.change1h,
+    change7d: snapshot.changes7d[token.symbol] ?? token.change7d,
     image: snapshot.images[token.symbol] ?? token.image,
     marketCap: snapshot.marketCaps[token.symbol] ?? token.marketCap,
+    volume24h: snapshot.volumes24h[token.symbol] ?? token.volume24h,
     updatedAt: snapshot.prices[token.symbol] ? new Date().toISOString() : token.updatedAt,
   }));
 }
@@ -500,6 +528,7 @@ function HomeView({
   onSearch,
   onActions,
   onOpenWatchlist,
+  onExecuteTrade,
   onToken,
   onNotify,
 }: {
@@ -516,6 +545,7 @@ function HomeView({
   onSearch: (value: string) => void;
   onActions: () => void;
   onOpenWatchlist: () => void;
+  onExecuteTrade: (trade: TradeRequest) => boolean;
   onToken: (token: WalletToken) => void;
   onNotify: (message: string) => void;
 }) {
@@ -578,7 +608,7 @@ function HomeView({
           </div>
           {showingReference ? <><PerpsSection tokens={tokens} onNotify={onNotify} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onNotify={onNotify} /></> : null}
         </section>
-      ) : tab === "Trade" ? <TradeView tokens={tokens} onToken={onToken} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
+      ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} onToken={onToken} onExecuteTrade={onExecuteTrade} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
       <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
@@ -707,44 +737,132 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
   );
 }
 
-function TradeView({ tokens, onToken, onNotify }: { tokens: WalletToken[]; onToken: (token: WalletToken) => void; onNotify: (message: string) => void }) {
+function CashIcon({ size = "normal" }: { size?: "small" | "normal" }) {
+  return <span className={`grid shrink-0 place-items-center rounded-full bg-[#a295f3] text-black ${size === "small" ? "h-8 w-8" : "h-12 w-12"}`}><BadgeDollarSign className={size === "small" ? "h-5 w-5" : "h-7 w-7"} /></span>;
+}
+
+function TradeAssetPicker({ title, tokens, cashBalance, selectedAsset, onClose, onSelect }: { title: string; tokens: WalletToken[]; cashBalance: number; selectedAsset: string; onClose: () => void; onSelect: (asset: string) => void }) {
+  const [query, setQuery] = useState("");
+  const availableTokens = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return [...tokens]
+      .filter((token) => !normalized || token.name.toLowerCase().includes(normalized) || token.symbol.toLowerCase().includes(normalized))
+      .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0) || a.name.localeCompare(b.name));
+  }, [query, tokens]);
+
+  return <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/65 px-2 backdrop-blur-md sm:items-center"><button type="button" onClick={onClose} aria-label="Close currency picker" className="absolute inset-0" /><section className="relative max-h-[84svh] w-full max-w-[548px] overflow-hidden rounded-t-[2rem] border border-white/[0.06] bg-[#151516] pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-2xl sm:rounded-[2rem]" aria-label={title}><div className="flex items-center justify-between px-5 pb-3 pt-5"><div><p className="text-sm font-bold uppercase tracking-[.1em] text-[#a99bf7]">Trade</p><h2 className="mt-1 text-[26px] font-semibold tracking-[-.04em]">{title}</h2></div><button type="button" onClick={onClose} aria-label="Close currency picker" className="grid h-11 w-11 place-items-center rounded-full bg-[#252527]"><X className="h-5 w-5" /></button></div><label className="mx-4 mt-2 flex items-center gap-3 rounded-full bg-[#242426] px-4 py-3.5"><Search className="h-5 w-5 text-white/40" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search currencies" aria-label="Search trade currencies" className="min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:text-white/35" /></label><div className="mt-4 max-h-[62svh] overflow-y-auto px-3"><button type="button" aria-label="Select Cash" onClick={() => onSelect("CASH")} className="flex w-full items-center gap-4 rounded-[1.3rem] px-3 py-3 text-left transition hover:bg-white/[0.05]"><CashIcon /><span className="min-w-0 flex-1"><strong className="block text-[19px]">Cash</strong><span className="text-[15px] text-white/45">USD balance</span></span><span className="text-right text-[17px]">{formatMoney(cashBalance)}</span>{selectedAsset === "CASH" ? <Check className="h-5 w-5 text-[#a99bf7]" /> : <span className="w-5" />}</button>{availableTokens.map((token) => <button key={token.id} type="button" aria-label={`Select ${token.name}`} onClick={() => onSelect(token.symbol)} className="flex w-full items-center gap-4 rounded-[1.3rem] px-3 py-3 text-left transition hover:bg-white/[0.05]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]">{token.name}</strong><span className="text-[15px] text-white/45">{token.symbol} · {formatAmount(token.balance)} available</span></span><span className="shrink-0 text-right text-[17px]">{formatPrice(token.price)}</span>{selectedAsset === token.symbol ? <Check className="h-5 w-5 text-[#a99bf7]" /> : <span className="w-5" />}</button>)}</div></section></div>;
+}
+
+function MarketFilterSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? label;
+  return <label className="relative flex shrink-0 items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70"><span>{selectedLabel}</span><ChevronDown className="h-4 w-4" /><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="absolute inset-0 cursor-pointer opacity-0">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+}
+
+function TradeView({ tokens, cashBalance, onToken, onExecuteTrade, onNotify }: { tokens: WalletToken[]; cashBalance: number; onToken: (token: WalletToken) => void; onExecuteTrade: (trade: TradeRequest) => boolean; onNotify: (message: string) => void }) {
   const [amount, setAmount] = useState("");
+  const [payAsset, setPayAsset] = useState("SOL");
+  const [receiveAsset, setReceiveAsset] = useState("CASH");
+  const [assetPicker, setAssetPicker] = useState<"pay" | "receive" | null>(null);
+  const [tradeError, setTradeError] = useState("");
   const [activeMarket, setActiveMarket] = useState<"Tokens" | "Perps">("Tokens");
-  const tradable = useMemo(() => [...tokens]
-    .filter((token) => token.symbol !== "BFS")
-    .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0) || walletTokenOrder.indexOf(a.symbol) - walletTokenOrder.indexOf(b.symbol)), [tokens]);
-  const sol = tokens.find((token) => token.symbol === "SOL") ?? referenceSolanaToken;
+  const [category, setCategory] = useState<"Blue Chips" | "Top Volume" | "DeFi">("Blue Chips");
+  const [sortMode, setSortMode] = useState("rank");
+  const [currencyType, setCurrencyType] = useState("all");
+  const [period, setPeriod] = useState<"1h" | "24h" | "7d">("24h");
+  const tradable = useMemo(() => [...tokens].filter((token) => token.symbol !== "BFS" && token.price > 0), [tokens]);
+  const payToken = payAsset === "CASH" ? null : tokens.find((token) => token.symbol === payAsset) ?? null;
+  const receiveToken = receiveAsset === "CASH" ? null : tokens.find((token) => token.symbol === receiveAsset) ?? null;
+  const payPrice = payAsset === "CASH" ? 1 : payToken?.price ?? 0;
+  const receivePrice = receiveAsset === "CASH" ? 1 : receiveToken?.price ?? 0;
   const amountValue = Number(amount) || 0;
-  const receiveValue = sol.price > 0 ? amountValue * sol.price : 0;
+  const receiveValue = payPrice > 0 && receivePrice > 0 ? amountValue * payPrice / receivePrice : 0;
+  const payAvailable = payAsset === "CASH" ? cashBalance : payToken?.balance ?? 0;
+  const payUsdValue = amountValue * payPrice;
+
+  const marketTokens = useMemo(() => {
+    let filtered = tradable.filter((token) => category === "Blue Chips" ? blueChipSymbols.has(token.symbol) : category === "DeFi" ? defiSymbols.has(token.symbol) : true);
+    if (currencyType !== "all") {
+      const allowed = currencyTypeSymbols[currencyType];
+      filtered = allowed ? filtered.filter((token) => allowed.has(token.symbol)) : filtered;
+    }
+    return [...filtered].sort((a, b) => {
+      if (sortMode === "gainers") return changeForPeriod(b, period) - changeForPeriod(a, period);
+      if (sortMode === "losers") return changeForPeriod(a, period) - changeForPeriod(b, period);
+      if (sortMode === "price-high") return b.price - a.price;
+      if (sortMode === "price-low") return a.price - b.price;
+      if (category === "Top Volume") return (b.volume24h ?? 0) - (a.volume24h ?? 0);
+      return (b.marketCap ?? 0) - (a.marketCap ?? 0);
+    });
+  }, [category, currencyType, period, sortMode, tradable]);
+
+  const selectAsset = (asset: string) => {
+    if (assetPicker === "pay") {
+      if (asset === receiveAsset) setReceiveAsset(payAsset);
+      setPayAsset(asset);
+    } else if (assetPicker === "receive") {
+      if (asset === payAsset) setPayAsset(receiveAsset);
+      setReceiveAsset(asset);
+    }
+    setAssetPicker(null);
+    setTradeError("");
+  };
+
+  const swapDirection = () => {
+    setPayAsset(receiveAsset);
+    setReceiveAsset(payAsset);
+    setAmount("");
+    setTradeError("");
+  };
+
+  const executeTrade = () => {
+    if (payAsset === receiveAsset) { setTradeError("Choose two different currencies."); return; }
+    if (!Number.isFinite(amountValue) || amountValue <= 0) { setTradeError("Enter an amount to trade."); return; }
+    if (!payPrice || !receivePrice) { setTradeError("A live quote is not available for this currency."); return; }
+    if (amountValue > payAvailable) { setTradeError(`Insufficient ${payAsset === "CASH" ? "cash" : payAsset} balance.`); return; }
+    if (onExecuteTrade({ payAsset, receiveAsset, payAmount: amountValue, receiveAmount: receiveValue })) {
+      setAmount("");
+      setTradeError("");
+    }
+  };
+
+  const assetButton = (asset: string, token: WalletToken | null, picker: "pay" | "receive") => <button type="button" onClick={() => setAssetPicker(picker)} aria-label={`Choose ${picker} currency`} className="flex shrink-0 items-center gap-2 rounded-full bg-[#252527] px-3 py-2 text-xl font-semibold">{asset === "CASH" ? <CashIcon size="small" /> : token ? <TokenIcon token={token} size="small" /> : null}{asset === "CASH" ? "Cash" : asset}<ChevronDown className="h-4 w-4" /></button>;
+
+  const categories: { label: "Blue Chips" | "Top Volume" | "DeFi"; icon: LucideIcon }[] = [{ icon: Trophy, label: "Blue Chips" }, { icon: BarChart3, label: "Top Volume" }, { icon: Gem, label: "DeFi" }];
+
   return (
     <section className="px-4 pb-48 pt-5">
       <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {[{ icon: Trophy, label: "Blue Chips" }, { icon: BarChart3, label: "Top Volume" }, { icon: Gem, label: "DeFi" }].map(({ icon: Icon, label }) => <button key={label} type="button" onClick={() => onNotify(`${label} filter selected.`)} className="flex shrink-0 items-center gap-2 rounded-full border border-white/[0.04] bg-[#1c1c1e] px-4 py-3 text-base font-semibold"><Icon className="h-5 w-5 text-[#a99bf7]" />{label}</button>)}
+        {categories.map(({ icon: Icon, label }) => <button key={label} type="button" onClick={() => setCategory(label)} aria-pressed={category === label} className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-3 text-base font-semibold transition ${category === label ? "border-[#a295f3]/50 bg-[#a295f3] text-black" : "border-white/[0.04] bg-[#1c1c1e] text-white"}`}><Icon className={`h-5 w-5 ${category === label ? "text-black" : "text-[#a99bf7]"}`} />{label}</button>)}
       </div>
       <div className="relative mt-5">
         <div className="rounded-[1.8rem] border border-white/[0.035] bg-[#191919] p-6">
-          <div className="flex items-center justify-between"><span className="text-lg font-semibold text-white/55">You pay</span><button type="button" aria-label="Trade settings" onClick={() => onNotify("Trade settings opened.")} className="grid h-10 w-10 place-items-center rounded-full bg-[#222224]"><SlidersHorizontal className="h-5 w-5" /></button></div>
-          <div className="mt-8 flex items-center gap-3"><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" aria-label="Amount of SOL to pay" className="min-w-0 flex-1 bg-transparent text-5xl font-semibold tracking-[-.06em] outline-none placeholder:text-white/25" /><button type="button" className="flex shrink-0 items-center gap-2 rounded-full bg-[#252527] px-3 py-2 text-xl font-semibold"><TokenIcon token={sol} size="small" /> SOL <ChevronDown className="h-4 w-4" /></button></div>
-          <p className="mt-5 text-right text-base text-white/55">{formatAmount(sol.balance)} SOL available</p>
+          <div className="flex items-center justify-between"><span className="text-lg font-semibold text-white/55">You pay</span><button type="button" aria-label="Use maximum available balance" onClick={() => setAmount(payAvailable > 0 ? String(payAvailable) : "")} className="rounded-full bg-[#252527] px-3 py-2 text-sm font-bold text-[#a99bf7]">MAX</button></div>
+          <div className="mt-8 flex items-center gap-3"><input inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); setTradeError(""); }} placeholder="0" aria-label={`Amount of ${payAsset === "CASH" ? "cash" : payAsset} to pay`} className="min-w-0 flex-1 bg-transparent text-5xl font-semibold tracking-[-.06em] outline-none placeholder:text-white/25" />{assetButton(payAsset, payToken, "pay")}</div>
+          <div className="mt-5 flex items-center justify-between text-base text-white/55"><span>{amountValue ? formatMoney(payUsdValue) : "$0.00"}</span><span>{payAsset === "CASH" ? formatMoney(payAvailable) : `${formatAmount(payAvailable)} ${payAsset}`} available</span></div>
         </div>
-        <button type="button" onClick={() => onNotify("Swap direction changed.")} aria-label="Swap trade direction" className="absolute left-1/2 top-1/2 z-10 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-black bg-[#a295f3] text-black"><Repeat2 className="h-6 w-6 rotate-90" /></button>
+        <button type="button" onClick={swapDirection} aria-label="Swap trade direction" className="absolute left-1/2 top-1/2 z-10 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-black bg-[#a295f3] text-black"><Repeat2 className="h-6 w-6 rotate-90" /></button>
         <div className="mt-2 rounded-[1.8rem] border border-white/[0.035] bg-[#191919] p-6">
           <span className="text-lg font-semibold text-white/55">You receive</span>
-          <div className="mt-8 flex items-center gap-3"><span className="min-w-0 flex-1 text-5xl font-semibold tracking-[-.06em] text-white/30">{receiveValue ? receiveValue.toFixed(2) : "0"}</span><button type="button" className="flex shrink-0 items-center gap-2 rounded-full bg-[#252527] px-3 py-2 text-xl font-semibold"><span className="grid h-8 w-8 place-items-center rounded-full bg-[#a295f3] text-black"><BadgeDollarSign className="h-5 w-5" /></span> Cash <ChevronDown className="h-4 w-4" /></button></div>
-          <p className="mt-5 text-right text-base text-white/55">{formatMoney(receiveValue)}</p>
+          <div className="mt-8 flex items-center gap-3"><span className={`min-w-0 flex-1 truncate text-5xl font-semibold tracking-[-.06em] ${receiveValue ? "text-white" : "text-white/30"}`}>{receiveAsset === "CASH" ? (receiveValue ? formatMoney(receiveValue) : "$0.00") : receiveValue ? formatAmount(receiveValue) : "0"}</span>{assetButton(receiveAsset, receiveToken, "receive")}</div>
+          <p className="mt-5 text-right text-base text-white/55">{receiveValue ? formatMoney(receiveValue * receivePrice) : "$0.00"}</p>
         </div>
       </div>
+      {tradeError ? <p className="mt-3 rounded-2xl bg-[#ff1744]/12 px-4 py-3 text-center text-sm font-medium text-[#ff7189]">{tradeError}</p> : null}
+      <button type="button" onClick={executeTrade} disabled={!amountValue || payAsset === receiveAsset} className="mt-4 w-full rounded-full bg-[#a295f3] px-5 py-4 text-[18px] font-semibold text-black transition hover:bg-[#b5aaff] active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-35">Trade {payAsset === "CASH" ? "Cash" : payAsset} for {receiveAsset === "CASH" ? "Cash" : receiveAsset}</button>
+
       <div className="mt-10 flex gap-6 border-b border-white/[0.06] text-[1.7rem] font-semibold tracking-[-.05em]">{(["Tokens", "Perps"] as const).map((market) => <button key={market} type="button" onClick={() => setActiveMarket(market)} className={`pb-3 ${activeMarket === market ? "border-b-2 border-white text-white" : "text-white/30"}`}>{market}</button>)}</div>
-      <div className="mt-5 flex gap-2">{["Rank", "Solana", "24h"].map((filter) => <button key={filter} type="button" onClick={() => onNotify(`${filter} filter opened.`)} className="flex items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70">{filter}<ChevronDown className="h-4 w-4" /></button>)}</div>
+      <div className="mt-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"><MarketFilterSelect label="Market ranking" value={sortMode} onChange={setSortMode} options={[{ value: "rank", label: "Rank" }, { value: "gainers", label: "Top gainers" }, { value: "losers", label: "Top losers" }, { value: "price-high", label: "Price: high" }, { value: "price-low", label: "Price: low" }]} /><MarketFilterSelect label="Currency type" value={currencyType} onChange={setCurrencyType} options={[{ value: "all", label: "All currencies" }, { value: "Solana", label: "Solana" }, { value: "Ethereum", label: "Ethereum" }, { value: "Stablecoins", label: "Stablecoins" }, { value: "Memes", label: "Memes" }]} /><MarketFilterSelect label="Change period" value={period} onChange={(value) => setPeriod(value as "1h" | "24h" | "7d")} options={[{ value: "1h", label: "1h" }, { value: "24h", label: "24h" }, { value: "7d", label: "7d" }]} /></div>
       <div className="mt-6 space-y-1">
-        {activeMarket === "Tokens" ? tradable.map((token, index) => <button key={token.id} type="button" onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block text-base text-white/55">{formatCompactMoney(token.marketCap)} MC</span></span><span className="text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button>) : <PerpsMarketList tokens={tradable} onNotify={onNotify} />}
+        {activeMarket === "Tokens" ? marketTokens.map((token, index) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" aria-label={`Open ${token.name} market`} onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block truncate text-base text-white/55">{category === "Top Volume" ? `${formatCompactMoney(token.volume24h)} volume` : `${formatCompactMoney(token.marketCap)} MC`}</span></span><span className="text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>; }) : <PerpsMarketList tokens={marketTokens} period={period} onNotify={onNotify} />}
+        {marketTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#191919] px-5 py-10 text-center text-white/50">No markets match these filters.</div> : null}
       </div>
+      {assetPicker ? <TradeAssetPicker title={assetPicker === "pay" ? "Choose what to pay" : "Choose what to receive"} tokens={tokens} cashBalance={cashBalance} selectedAsset={assetPicker === "pay" ? payAsset : receiveAsset} onClose={() => setAssetPicker(null)} onSelect={selectAsset} /> : null}
     </section>
   );
 }
 
-function PerpsMarketList({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (message: string) => void }) {
-  return <>{tokens.slice(0, 5).map((token) => <button key={token.id} type="button" onClick={() => onNotify(`${token.symbol} perpetual market opened.`)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol}-PERP</strong><span className="text-base text-white/50">Up to 20x leverage</span></span><span className={token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></button>)}</>;
+function PerpsMarketList({ tokens, period, onNotify }: { tokens: WalletToken[]; period: "1h" | "24h" | "7d"; onNotify: (message: string) => void }) {
+  return <>{tokens.slice(0, 8).map((token) => { const change = changeForPeriod(token, period); return <button key={token.id} type="button" onClick={() => onNotify(`${token.symbol} perpetual market opened.`)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol}-PERP</strong><span className="text-base text-white/50">Up to 20x leverage</span></span><span className={change < 0 ? "text-[#ff1744]" : "text-[#00e676]"}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></button>; })}</>;
 }
 
 function PredictionsView({ onNotify }: { onNotify: (message: string) => void }) {
@@ -1011,12 +1129,12 @@ export function DownloadWallet() {
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const latestMarketSnapshot = useRef<LiveMarketSnapshot>({ prices: {}, changes: {}, images: {}, marketCaps: {} });
+  const latestMarketSnapshot = useRef<LiveMarketSnapshot>({ prices: {}, changes: {}, changes1h: {}, changes7d: {}, images: {}, marketCaps: {}, volumes24h: {} });
 
   const liveSymbols = liveMarketSymbols;
 
-  useLivePrices(liveSymbols, (prices, changes, images, marketCaps) => {
-    const snapshot = { prices, changes, images, marketCaps };
+  useLivePrices(liveSymbols, (prices, changes, images, marketCaps, changes1h, changes7d, volumes24h) => {
+    const snapshot = { prices, changes, changes1h, changes7d, images, marketCaps, volumes24h };
     latestMarketSnapshot.current = snapshot;
     setTokens((current) => applyLiveMarketSnapshot(current, snapshot));
   });
@@ -1102,6 +1220,37 @@ export function DownloadWallet() {
     notify(`${token.name} deleted from your simulated wallet.`);
   };
 
+  const executeMarketTrade = ({ payAsset, receiveAsset, payAmount, receiveAmount }: TradeRequest) => {
+    if (payAsset === receiveAsset || !Number.isFinite(payAmount) || !Number.isFinite(receiveAmount) || payAmount <= 0 || receiveAmount <= 0) return false;
+    const payToken = payAsset === "CASH" ? null : tokens.find((token) => token.symbol === payAsset);
+    const receiveToken = receiveAsset === "CASH" ? null : tokens.find((token) => token.symbol === receiveAsset);
+    if ((payAsset !== "CASH" && !payToken) || (receiveAsset !== "CASH" && !receiveToken)) return false;
+    if (payAsset === "CASH" ? payAmount > profile.cash : payAmount > (payToken?.balance ?? 0)) return false;
+
+    const deltas = new Map<string, number>();
+    if (payToken) deltas.set(payToken.symbol, -payAmount);
+    if (receiveToken) deltas.set(receiveToken.symbol, (deltas.get(receiveToken.symbol) ?? 0) + receiveAmount);
+    if (deltas.size) {
+      const updatedTokens = tokens.map((token) => {
+        const delta = deltas.get(token.symbol);
+        return delta === undefined ? token : saveToken({ ...token, balance: Math.max(0, token.balance + delta) });
+      });
+      setTokens(updatedTokens);
+    }
+
+    const nextCash = profile.cash + (receiveAsset === "CASH" ? receiveAmount : 0) - (payAsset === "CASH" ? payAmount : 0);
+    if (nextCash !== profile.cash) {
+      const nextProfile = { ...profile, cash: Math.max(0, nextCash) };
+      writeStorage(profileStorageKey, nextProfile);
+      setProfile(nextProfile);
+    }
+
+    const payLabel = payAsset === "CASH" ? formatMoney(payAmount) : `${formatAmount(payAmount)} ${payAsset}`;
+    const receiveLabel = receiveAsset === "CASH" ? formatMoney(receiveAmount) : `${formatAmount(receiveAmount)} ${receiveAsset}`;
+    notify(`Traded ${payLabel} for ${receiveLabel}.`);
+    return true;
+  };
+
   const buyToken = (amount: number) => {
     if (!selectedToken || amount <= 0) return;
     const saved = saveToken({ ...selectedToken, balance: selectedToken.balance + amount });
@@ -1140,7 +1289,7 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onExecuteTrade={executeMarketTrade} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}

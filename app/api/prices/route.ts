@@ -20,8 +20,11 @@ export async function GET(request: NextRequest) {
       {
         prices: {},
         changes: {},
+        changes1h: {},
+        changes7d: {},
         images: {},
         marketCaps: {},
+        volumes24h: {},
         updatedAt: new Date().toISOString(),
         error: "Unable to fetch live display prices. Fallback prices remain active.",
       },

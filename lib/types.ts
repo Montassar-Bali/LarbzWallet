@@ -19,8 +19,11 @@ export type WalletToken = {
   price: number;
   balance: number;
   change24h: number;
+  change1h?: number;
+  change7d?: number;
   image: string;
   marketCap?: number;
+  volume24h?: number;
   updatedAt: string;
 };
 

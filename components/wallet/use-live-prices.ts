@@ -6,6 +6,7 @@ type PriceMap = Record<string, number>;
 type ChangeMap = Record<string, number>;
 type ImageMap = Record<string, string>;
 type MarketCapMap = Record<string, number>;
+type VolumeMap = Record<string, number>;
 
 export function useLivePrices(
   symbols: string[],
@@ -14,6 +15,9 @@ export function useLivePrices(
     changes: ChangeMap,
     images: ImageMap,
     marketCaps: MarketCapMap,
+    changes1h: ChangeMap,
+    changes7d: ChangeMap,
+    volumes24h: VolumeMap,
   ) => void,
 ) {
   const symbolKey = Array.from(
@@ -45,6 +49,9 @@ export function useLivePrices(
           changes?: ChangeMap;
           images?: ImageMap;
           marketCaps?: MarketCapMap;
+          changes1h?: ChangeMap;
+          changes7d?: ChangeMap;
+          volumes24h?: VolumeMap;
         };
 
         if (!cancelled && payload.prices) {
@@ -53,6 +60,9 @@ export function useLivePrices(
             payload.changes ?? {},
             payload.images ?? {},
             payload.marketCaps ?? {},
+            payload.changes1h ?? {},
+            payload.changes7d ?? {},
+            payload.volumes24h ?? {},
           );
         }
       } catch {
