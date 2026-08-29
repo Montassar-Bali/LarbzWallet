@@ -7,6 +7,7 @@ import {
   completeRegistration,
   InMemoryChallengeStore,
   shouldLockWallet,
+  shouldUseTemporarySecurityStorage,
   supportsPlatformBiometrics,
 } from "@/lib/wallet-security-core";
 
@@ -71,5 +72,12 @@ describe("wallet WebAuthn ceremony coordination", () => {
     expect(supportsPlatformBiometrics(false, true)).toBe(false);
     expect(supportsPlatformBiometrics(true, false)).toBe(false);
     expect(supportsPlatformBiometrics(true, true)).toBe(true);
+  });
+
+  it("uses writable temporary storage in Vercel and /var/task runtimes", () => {
+    expect(shouldUseTemporarySecurityStorage({ cwd: "/var/task", vercel: "1" })).toBe(true);
+    expect(shouldUseTemporarySecurityStorage({ cwd: "/var/task/app" })).toBe(true);
+    expect(shouldUseTemporarySecurityStorage({ cwd: "/workspace", lambdaTaskRoot: "/var/task/" })).toBe(true);
+    expect(shouldUseTemporarySecurityStorage({ cwd: "/Users/test/wallet" })).toBe(false);
   });
 });

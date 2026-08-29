@@ -16,6 +16,12 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Wallet security storage
+
+Face ID/passkey credentials, recovery PIN hashes, challenges, and unlock sessions are written to `.data/wallet-security.json` during local development. On Vercel, the app automatically avoids the read-only `/var/task` directory and uses the function's writable temporary directory.
+
+Temporary function storage is not durable or shared between every serverless instance. For reliable production Face ID and recovery-PIN access, set `WALLET_SECURITY_DATA_FILE` to an absolute path on persistent shared storage, or replace the file-backed adapter in `lib/wallet-security-store.ts` with a database-backed implementation.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

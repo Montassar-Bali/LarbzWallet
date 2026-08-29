@@ -2,10 +2,11 @@ import "server-only";
 
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { AuthenticatorTransportFuture, Base64URLString, CredentialDeviceType } from "@simplewebauthn/server";
-import { ChallengeValidationError, type SecurityCeremony, type SecurityChallenge } from "@/lib/wallet-security-core";
+import { ChallengeValidationError, shouldUseTemporarySecurityStorage, type SecurityCeremony, type SecurityChallenge } from "@/lib/wallet-security-core";
 
 export type StoredPasskey = {
   id: Base64URLString;
@@ -47,7 +48,19 @@ const defaultSessionLifetimeMs = 30 * 60 * 1000;
 const emptyData: SecurityData = { version: 1, credentials: [], challenges: [], pins: [], sessions: [] };
 
 function securityDataPath() {
-  return process.env.WALLET_SECURITY_DATA_FILE || path.join(process.cwd(), ".data", "wallet-security.json");
+  const configuredPath = process.env.WALLET_SECURITY_DATA_FILE?.trim();
+  if (configuredPath) return configuredPath;
+
+  const cwd = process.cwd();
+  if (shouldUseTemporarySecurityStorage({
+    cwd,
+    vercel: process.env.VERCEL,
+    lambdaTaskRoot: process.env.AWS_LAMBDA_TASK_ROOT,
+  })) {
+    return path.join(tmpdir(), "phantom-wallet-security", "wallet-security.json");
+  }
+
+  return path.join(cwd, ".data", "wallet-security.json");
 }
 
 function identifier(prefix: string) {

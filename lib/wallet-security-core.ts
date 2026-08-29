@@ -1,5 +1,22 @@
 export type SecurityCeremony = "registration" | "authentication";
 
+export function shouldUseTemporarySecurityStorage({
+  cwd,
+  vercel,
+  lambdaTaskRoot,
+}: {
+  cwd: string;
+  vercel?: string;
+  lambdaTaskRoot?: string;
+}) {
+  const normalizedCwd = cwd.replace(/\/+$/, "") || "/";
+  const normalizedTaskRoot = lambdaTaskRoot?.replace(/\/+$/, "");
+  return vercel === "1"
+    || normalizedCwd === "/var/task"
+    || normalizedCwd.startsWith("/var/task/")
+    || normalizedTaskRoot === "/var/task";
+}
+
 export type SecurityChallenge = {
   id: string;
   userId: string;
