@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       userName: displayName,
       userDisplayName: displayName,
       attestationType: "none",
-      excludeCredentials: passkeys.map((passkey) => ({ id: passkey.id, transports: passkey.transports })),
+      excludeCredentials: passkeys.map((passkey) => ({ id: passkey.id, transports: ["internal"] })),
       authenticatorSelection: {
         authenticatorAttachment: "platform",
         residentKey: "preferred",

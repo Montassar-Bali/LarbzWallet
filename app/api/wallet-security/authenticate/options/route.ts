@@ -10,10 +10,10 @@ export async function POST(request: Request) {
     const { userId } = await request.json() as { userId?: string };
     const { rpID } = validateSecurityOrigin(request);
     const passkeys = await listPasskeys(userId);
-    if (passkeys.length === 0) return Response.json({ error: "No passkey is enrolled for this wallet." }, { status: 404 });
+    if (passkeys.length === 0) return Response.json({ error: "Face ID is not enabled for this wallet on this device." }, { status: 404 });
     const options = await generateAuthenticationOptions({
       rpID,
-      allowCredentials: passkeys.map((passkey) => ({ id: passkey.id, transports: passkey.transports })),
+      allowCredentials: passkeys.map((passkey) => ({ id: passkey.id, transports: ["internal"] })),
       userVerification: "required",
     });
     const challenge = await issueChallenge(userId, "authentication", options.challenge);

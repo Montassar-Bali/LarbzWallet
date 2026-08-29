@@ -1,4 +1,4 @@
-import { verifyRegistrationResponse, type RegistrationResponseJSON } from "@simplewebauthn/server";
+import { verifyRegistrationResponse, type AuthenticatorTransportFuture, type RegistrationResponseJSON } from "@simplewebauthn/server";
 
 import { createSecuritySession, consumeChallenge, publicKeyToStored, savePasskey, validateSecurityOrigin } from "@/lib/wallet-security-store";
 import { errorResponse, setSessionCookie, takeChallengeCookie } from "@/lib/wallet-security-http";
@@ -32,7 +32,9 @@ export async function POST(request: Request) {
             webAuthnUserId: challenge.webAuthnUserId ?? body.response!.id,
             publicKey: publicKeyToStored(credential.publicKey),
             counter: credential.counter,
-            transports: credential.transports,
+            // A platform registration is deliberately kept device-internal so
+            // Safari does not offer security keys or cross-device authenticators.
+            transports: ["internal"] as AuthenticatorTransportFuture[],
             deviceType: credentialDeviceType,
             backedUp: credentialBackedUp,
             createdAt: new Date().toISOString(),

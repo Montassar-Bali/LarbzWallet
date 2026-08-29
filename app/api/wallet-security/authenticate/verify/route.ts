@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       consume: () => consumeChallengeCookie(body.userId),
       verify: async (challenge) => {
         const passkey = await findPasskey(body.userId, body.response!.id);
-        if (!passkey) throw new Error("Passkey not found for this wallet.");
+        if (!passkey) throw new Error("Face ID is not enabled for this wallet on this device.");
         credentialId = passkey.id;
         const verification = await verifyAuthenticationResponse({
           response: body.response!,
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
             id: passkey.id,
             publicKey: publicKeyFromStored(passkey),
             counter: passkey.counter,
-            transports: passkey.transports,
+            transports: ["internal"],
           },
           requireUserVerification: true,
         });
