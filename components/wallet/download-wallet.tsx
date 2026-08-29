@@ -599,7 +599,7 @@ function HomeView({
 
           <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><Banknote className="h-6 w-6 text-white/50" />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
-          <WatchlistPromo tokens={tokens} onBrowse={onOpenWatchlist} />
+          <WatchlistPromo onBrowse={onOpenWatchlist} />
 
           <SectionHeading>Token</SectionHeading>
           <div className="mt-4 space-y-2.5">
@@ -624,22 +624,19 @@ function SectionHeading({ children, action }: { children: ReactNode; action?: ()
   return <button type="button" onClick={action} className="mt-8 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-6 w-6 text-white/65" /></button>;
 }
 
-function WatchlistPromo({ tokens, onBrowse }: { tokens: WalletToken[]; onBrowse: () => void }) {
+function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
   const [visible, setVisible] = useState(true);
-  const hyperliquid = tokens.find((token) => token.symbol === "HYPE");
   if (!visible) return null;
   return (
     <aside className="relative mt-6 min-h-[170px] overflow-hidden rounded-[1.8rem] border border-white/[0.04] bg-[linear-gradient(145deg,#171719,#101011)] p-6">
-      <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-[#202022] text-white/65"><X className="h-5 w-5" /></button>
       <div className="relative z-10 max-w-[63%]">
         <p className="text-xs font-bold uppercase tracking-[.08em] text-[#a99bf7]">Watchlist</p>
         <h2 className="mt-3 text-[24px] font-semibold leading-[1.08] tracking-[-.04em]">What&apos;s moving on HyperEVM?</h2>
         <button type="button" onClick={onBrowse} className="mt-5 flex items-center gap-1 text-base font-semibold text-[#a99bf7]">Browse <ChevronRight className="h-4 w-4" /></button>
       </div>
-      <div className="absolute -bottom-3 -right-4 grid h-40 w-40 place-items-center overflow-hidden rounded-[2.25rem] border border-[#6ff4d8]/15 bg-[#0c2926] text-[#73f4db] shadow-[0_0_50px_rgba(115,244,219,.08)]">
-        {hyperliquid?.image ? <Image src={hyperliquid.image} alt="Hyperliquid logo" fill unoptimized sizes="160px" className="object-cover" /> : <Infinity className="h-20 w-20 stroke-[1.5]" />}
-        <span className="pointer-events-none absolute inset-3 rounded-full border border-[#73f4db]/10" />
-        <span className="pointer-events-none absolute inset-7 rounded-full border border-[#73f4db]/15" />
+      <div className="absolute -bottom-3 -right-1 h-40 w-[138px] overflow-hidden rounded-[2rem] shadow-[0_0_50px_rgba(115,244,219,.08)]">
+        <Image src="/assets/hyperevm-watchlist.png" alt="HyperEVM watchlist artwork" fill sizes="138px" className="object-cover" priority />
+        <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-0 top-0 z-20 h-11 w-11 rounded-full focus-visible:ring-2 focus-visible:ring-[#a99bf7]" />
       </div>
     </aside>
   );
