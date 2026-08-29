@@ -3,6 +3,8 @@ import { coingeckoMap, defaultTokens } from "@/config/tokens";
 type Quote = {
   price?: number;
   change?: number;
+  image?: string;
+  marketCap?: number;
 };
 
 type ParsedQuote = Quote & {
@@ -12,6 +14,9 @@ type ParsedQuote = Quote & {
 export type PriceSnapshot = {
   prices: Record<string, number>;
   changes: Record<string, number>;
+  images: Record<string, string>;
+  marketCaps: Record<string, number>;
+  updatedAt: string;
 };
 
 type PriceCache = {
@@ -72,6 +77,16 @@ function symbolFrom(value: unknown) {
   return /^[A-Z0-9]{2,12}$/.test(symbol) ? symbol : undefined;
 }
 
+function imageFrom(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function quoteFromRecord(
   record: Record<string, unknown>,
   fallbackSymbol?: string,
@@ -98,13 +113,20 @@ function quoteFromRecord(
     record.change24h,
     record.percent_change_24h,
     record.percentChange24h,
+    record.price_change_percentage_24h,
     record.change,
     record.usd_24h_change,
   ]
     .map(numberFrom)
     .find((value): value is number => value !== undefined);
 
-  return { symbol, price, change };
+  const marketCap = [record.market_cap, record.marketCap, record.usd_market_cap]
+    .map(numberFrom)
+    .find((value): value is number => value !== undefined);
+
+  const image = imageFrom(record.image) ?? imageFrom(record.logo);
+
+  return { symbol, price, change, image, marketCap };
 }
 
 function mergeQuote(quotes: Map<string, Quote>, symbol: string, quote: Quote) {
@@ -113,6 +135,8 @@ function mergeQuote(quotes: Map<string, Quote>, symbol: string, quote: Quote) {
     ...current,
     ...(quote.price !== undefined ? { price: quote.price } : {}),
     ...(quote.change !== undefined ? { change: quote.change } : {}),
+    ...(quote.image !== undefined ? { image: quote.image } : {}),
+    ...(quote.marketCap !== undefined ? { marketCap: quote.marketCap } : {}),
   });
 }
 
@@ -133,7 +157,7 @@ function collectQuotes(
   const parsed = quoteFromRecord(value, fallbackSymbol);
   if (
     parsed.symbol &&
-    (parsed.price !== undefined || parsed.change !== undefined)
+    (parsed.price !== undefined || parsed.change !== undefined || parsed.image !== undefined || parsed.marketCap !== undefined)
   ) {
     mergeQuote(quotes, parsed.symbol, parsed);
   }
@@ -222,10 +246,14 @@ async function fetchCoinGeckoQuotes(symbols: string[]) {
   }
 
   try {
-    const endpoint = new URL("https://api.coingecko.com/api/v3/simple/price");
+    const endpoint = new URL("https://api.coingecko.com/api/v3/coins/markets");
+    endpoint.searchParams.set("vs_currency", "usd");
     endpoint.searchParams.set("ids", ids);
-    endpoint.searchParams.set("vs_currencies", "usd");
-    endpoint.searchParams.set("include_24hr_change", "true");
+    endpoint.searchParams.set("order", "market_cap_desc");
+    endpoint.searchParams.set("per_page", "100");
+    endpoint.searchParams.set("page", "1");
+    endpoint.searchParams.set("sparkline", "false");
+    endpoint.searchParams.set("price_change_percentage", "24h");
 
     const headers: Record<string, string> = {
       Accept: "application/json",
@@ -247,22 +275,23 @@ async function fetchCoinGeckoQuotes(symbols: string[]) {
     const payload: unknown = await response.json();
     const quotes = new Map<string, Quote>();
 
-    if (!isRecord(payload)) {
+    if (!Array.isArray(payload)) {
       return quotes;
     }
 
-    symbols.forEach((symbol) => {
-      const id = coingeckoMap[symbol];
-      const item = id ? payload[id] : undefined;
-      if (!isRecord(item)) {
-        return;
-      }
-
-      const price = numberFrom(item.usd);
-      const change = numberFrom(item.usd_24h_change);
-      if (price !== undefined || change !== undefined) {
-        mergeQuote(quotes, symbol, { price, change });
-      }
+    const symbolById = new Map(Object.entries(coingeckoMap).map(([symbol, id]) => [id, symbol]));
+    payload.forEach((item) => {
+      if (!isRecord(item) || typeof item.id !== "string") return;
+      const symbol = symbolById.get(item.id);
+      if (!symbol) return;
+      const price = numberFrom(item.current_price);
+      const change = numberFrom(item.price_change_percentage_24h_in_currency) ?? numberFrom(item.price_change_percentage_24h);
+      const reportedMarketCap = numberFrom(item.market_cap);
+      const marketCap = reportedMarketCap && reportedMarketCap > 0
+        ? reportedMarketCap
+        : numberFrom(item.fully_diluted_valuation);
+      const image = imageFrom(item.image);
+      mergeQuote(quotes, symbol, { price, change, marketCap, image });
     });
 
     return quotes;
@@ -285,6 +314,9 @@ export async function fetchCryptoPrices(
   const snapshot: PriceSnapshot = {
     prices: {},
     changes: {},
+    images: {},
+    marketCaps: {},
+    updatedAt: new Date(now).toISOString(),
   };
 
   if (!requestedSymbols.length) {
@@ -310,6 +342,10 @@ export async function fetchCryptoPrices(
       providerQuote?.change ??
       FALLBACK_CHANGES[symbol] ??
       0;
+    const image = coinGeckoQuote?.image ?? providerQuote?.image;
+    const marketCap = coinGeckoQuote?.marketCap ?? providerQuote?.marketCap;
+    if (image) snapshot.images[symbol] = image;
+    if (marketCap !== undefined) snapshot.marketCaps[symbol] = marketCap;
   });
 
   cache = {

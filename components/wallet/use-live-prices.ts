@@ -4,10 +4,17 @@ import { useEffect, useRef } from "react";
 
 type PriceMap = Record<string, number>;
 type ChangeMap = Record<string, number>;
+type ImageMap = Record<string, string>;
+type MarketCapMap = Record<string, number>;
 
 export function useLivePrices(
   symbols: string[],
-  onUpdate: (prices: PriceMap, changes: ChangeMap) => void,
+  onUpdate: (
+    prices: PriceMap,
+    changes: ChangeMap,
+    images: ImageMap,
+    marketCaps: MarketCapMap,
+  ) => void,
 ) {
   const symbolKey = Array.from(
     new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
@@ -36,10 +43,17 @@ export function useLivePrices(
         const payload = (await response.json()) as {
           prices?: PriceMap;
           changes?: ChangeMap;
+          images?: ImageMap;
+          marketCaps?: MarketCapMap;
         };
 
         if (!cancelled && payload.prices) {
-          onUpdateRef.current(payload.prices, payload.changes ?? {});
+          onUpdateRef.current(
+            payload.prices,
+            payload.changes ?? {},
+            payload.images ?? {},
+            payload.marketCaps ?? {},
+          );
         }
       } catch {
         // Keep locally seeded quotes if the provider is unavailable.

@@ -14,7 +14,7 @@ export const defaultTokens: TokenSeed[] = [
     name: "USDT",
     symbol: "USDT",
     price: 0.9984615385,
-    balance: 65,
+    balance: 0,
     change24h: -0.01,
     image: "https://assets.coingecko.com/coins/images/325/large/Tether.png",
   },
@@ -23,9 +23,18 @@ export const defaultTokens: TokenSeed[] = [
     name: "Solana",
     symbol: "SOL",
     price: 73.387408,
-    balance: 0.05178,
+    balance: 0.09413,
     change24h: -2.55,
     image: "https://assets.coingecko.com/coins/images/4128/large/solana.png",
+  },
+  {
+    id: "bfs",
+    name: "BFS",
+    symbol: "BFS",
+    price: 0.05 / 176.12138,
+    balance: 176.12138,
+    change24h: 0.01,
+    image: "/bfs-coin.svg",
   },
   {
     id: "eth",
@@ -112,7 +121,7 @@ export const coingeckoMap: Record<string, string> = {
   BCH: "bitcoin-cash",
   XMR: "monero",
   PEPE: "pepe",
-  WIF: "dogwifhat",
+  WIF: "dogwifcoin",
 };
 
 export const liveMarketSymbols = Object.keys(coingeckoMap);

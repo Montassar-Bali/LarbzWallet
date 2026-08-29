@@ -41,7 +41,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
@@ -96,6 +96,13 @@ type TokenForm = {
   balance: string;
   change24h: string;
   image: string;
+};
+
+type LiveMarketSnapshot = {
+  prices: Record<string, number>;
+  changes: Record<string, number>;
+  images: Record<string, string>;
+  marketCaps: Record<string, number>;
 };
 
 const profileStorageKey = "larpz_download_profile";
@@ -204,6 +211,26 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
+function formatPrice(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "Updating…";
+  const maximumFractionDigits = value >= 1 ? 2 : value >= 0.01 ? 4 : 8;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits,
+  }).format(value);
+}
+
+function formatCompactMoney(value: number | undefined) {
+  if (!value || !Number.isFinite(value)) return "Updating…";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function formatAmount(value: number) {
   return value.toLocaleString("en-US", { maximumFractionDigits: 5 });
 }
@@ -235,7 +262,7 @@ const referenceBfsToken: WalletToken = {
   symbol: "BFS",
   balance: 176.12138,
   price: 0.05 / 176.12138,
-  change24h: -8,
+  change24h: 0.01,
   image: "",
   updatedAt: "",
 };
@@ -267,6 +294,34 @@ function mergeLiveTokenCatalogue(tokens: WalletToken[]) {
   return [...known.values()];
 }
 
+function migrateLegacyReferenceHoldings(tokens: WalletToken[]) {
+  const legacyUsdt = tokens.find((token) => token.symbol === "USDT");
+  const legacySolana = tokens.find((token) => token.symbol === "SOL");
+  const isLegacySeed = legacyUsdt?.balance === 65 && legacySolana?.balance === 0.05178;
+  if (!isLegacySeed) return tokens;
+
+  const migrated = tokens.map((token) => {
+    if (token.symbol === "USDT") return saveToken({ ...token, balance: 0 });
+    if (token.symbol === "SOL") return saveToken({ ...token, balance: 0.09413 });
+    return token;
+  });
+  if (!migrated.some((token) => token.symbol === "BFS")) {
+    migrated.push(saveToken(referenceBfsToken));
+  }
+  return migrated;
+}
+
+function applyLiveMarketSnapshot(tokens: WalletToken[], snapshot: LiveMarketSnapshot) {
+  return tokens.map((token) => ({
+    ...token,
+    price: snapshot.prices[token.symbol] ?? token.price,
+    change24h: snapshot.changes[token.symbol] ?? token.change24h,
+    image: snapshot.images[token.symbol] ?? token.image,
+    marketCap: snapshot.marketCaps[token.symbol] ?? token.marketCap,
+    updatedAt: snapshot.prices[token.symbol] ? new Date().toISOString() : token.updatedAt,
+  }));
+}
+
 function sortTokens(tokens: WalletToken[]) {
   return [...tokens].sort((a, b) => {
     const aIndex = walletTokenOrder.indexOf(a.symbol);
@@ -292,7 +347,7 @@ function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "sma
       style={{ background: visual.background, color: visual.foreground ?? "white" }}
     >
       <TokenGlyph token={token} />
-      {token.image && token.symbol !== "BFS" ? <Image src={token.image} alt="" fill unoptimized sizes="80px" className="z-10 object-contain p-[10%]" /> : null}
+      {token.image && token.symbol !== "BFS" ? <Image src={token.image} alt={`${token.name} logo`} fill unoptimized sizes="80px" className="z-10 object-contain" /> : null}
       {token.symbol === "USDT" ? <span className="absolute bottom-0 right-0 z-20 grid h-4 w-4 place-items-center rounded-full bg-white text-[9px] text-black">▤</span> : null}
     </span>
   );
@@ -330,15 +385,15 @@ function WalletTabs({ activeTab, onChange, onMenu }: { activeTab: Tab; onChange:
 
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[#f4cb42] text-white transition hover:scale-[1.03] active:scale-95">
-        <Image src="/assets/logo_m.png" alt="" fill sizes="48px" className="object-cover" priority />
+      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-[#f4cb42] text-white transition hover:scale-[1.03] active:scale-95">
+        <Image src="/assets/logo_m.png" alt="" fill sizes="44px" className="object-cover" priority />
       </button>
       {tabs.map(({ value, label }) => (
         <button
           key={value}
           type="button"
           onClick={() => onChange(value)}
-          className={`shrink-0 whitespace-nowrap rounded-full px-5 py-3 text-[clamp(.9rem,4.7vw,1.2rem)] font-semibold transition ${activeTab === value ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
+          className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-[clamp(.9rem,4.3vw,1.1rem)] font-semibold transition ${activeTab === value ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
         >
           {label}
         </button>
@@ -448,7 +503,7 @@ function HomeView({
   const displayTokens = useMemo(
     () => [
       ...referenceTokens,
-      ...sortTokens(tokens.filter((token) => token.symbol !== "SOL" && token.symbol !== "BFS")),
+      ...sortTokens(tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS")),
     ],
     [referenceTokens, tokens],
   );
@@ -476,21 +531,21 @@ function HomeView({
 
   return (
     <>
-      <div className="sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-4 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
+      <div className="sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
         <WalletTabs activeTab={tab} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
-        <section className="px-4 pb-48 pt-9">
-          <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex max-w-full items-center gap-2 truncate text-[clamp(1rem,5vw,1.25rem)] font-semibold text-white/75"><span className="truncate">{accountName}</span><ChevronDown className="h-5 w-5 shrink-0" /></button>
-          <h1 className="mt-4 overflow-hidden text-[clamp(3.25rem,16vw,5.7rem)] font-semibold leading-none tracking-[-0.075em] text-white">{formatMoney(displayTotal)}</h1>
-          <div className={`mt-3 flex items-center gap-2 text-[clamp(1.05rem,5vw,1.35rem)] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.75rem] px-2.5 py-1 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
+        <section className="px-5 pb-40 pt-8">
+          <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button>
+          <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
+          <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-10 flex w-full items-center justify-between rounded-[1.65rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[clamp(1.25rem,6vw,1.65rem)] font-semibold"><Banknote className="h-7 w-7 text-white/55" />Cash</span><span className="shrink-0 text-[clamp(1.15rem,5.5vw,1.45rem)]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><Banknote className="h-6 w-6 text-white/50" />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
           <WatchlistPromo onBrowse={() => onNotify("Opening the HyperEVM watchlist preview.")} />
 
-          <SectionHeading>Tokens</SectionHeading>
+          <SectionHeading>Token</SectionHeading>
           <div className="mt-4 space-y-2.5">
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
@@ -499,26 +554,29 @@ function HomeView({
         </section>
       ) : tab === "Trade" ? <TradeView tokens={tokens} onToken={onToken} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
-      <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 border-t border-white/[0.035] bg-black/80 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3.5 text-[clamp(.88rem,4.3vw,1.1rem)] font-medium text-white/40"><Search className="h-6 w-6 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
-        <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-[clamp(3.25rem,16vw,4.35rem)] w-[clamp(3.25rem,16vw,4.35rem)] shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-[clamp(1.5rem,7vw,2rem)] w-[clamp(1.5rem,7vw,2rem)]" /> : <Plus className="h-[clamp(1.6rem,8vw,2.25rem)] w-[clamp(1.6rem,8vw,2.25rem)]" />}</button>
+      <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Download Now Wallet" aria-label="Search tokens" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
       </div>
     </>
   );
 }
 
 function SectionHeading({ children, action }: { children: ReactNode; action?: () => void }) {
-  const heading = <h2 className="text-[clamp(1.75rem,8vw,2.25rem)] font-semibold tracking-[-.055em]">{children}</h2>;
-  if (!action) return <div className="mt-10 flex items-center gap-1.5">{heading}</div>;
-  return <button type="button" onClick={action} className="mt-10 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-7 w-7 text-white/65" /></button>;
+  const heading = <h2 className="text-[28px] font-semibold tracking-[-.05em]">{children}</h2>;
+  if (!action) return <div className="mt-8 flex items-center gap-1.5">{heading}</div>;
+  return <button type="button" onClick={action} className="mt-8 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-6 w-6 text-white/65" /></button>;
 }
 
 function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
+  const [visible, setVisible] = useState(true);
+  if (!visible) return null;
   return (
-    <aside className="relative mt-8 min-h-[170px] overflow-hidden rounded-[1.8rem] border border-white/[0.04] bg-[linear-gradient(145deg,#171719,#101011)] p-6">
+    <aside className="relative mt-6 min-h-[170px] overflow-hidden rounded-[1.8rem] border border-white/[0.04] bg-[linear-gradient(145deg,#171719,#101011)] p-6">
+      <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-[#202022] text-white/65"><X className="h-5 w-5" /></button>
       <div className="relative z-10 max-w-[63%]">
         <p className="text-xs font-bold uppercase tracking-[.08em] text-[#a99bf7]">Watchlist</p>
-        <h2 className="mt-3 text-[clamp(1.35rem,6vw,1.75rem)] font-semibold leading-[1.08] tracking-[-.04em]">What&apos;s moving on HyperEVM?</h2>
+        <h2 className="mt-3 text-[24px] font-semibold leading-[1.08] tracking-[-.04em]">What&apos;s moving on HyperEVM?</h2>
         <button type="button" onClick={onBrowse} className="mt-5 flex items-center gap-1 text-base font-semibold text-[#a99bf7]">Browse <ChevronRight className="h-4 w-4" /></button>
       </div>
       <div className="absolute -bottom-3 -right-4 grid h-40 w-40 place-items-center rounded-[2.25rem] border border-[#6ff4d8]/15 bg-[#171a19] text-[#73f4db] shadow-[0_0_50px_rgba(115,244,219,.08)]">
@@ -585,7 +643,9 @@ function DiscoverySections({ onNotify }: { onNotify: (message: string) => void }
 function TradeView({ tokens, onToken, onNotify }: { tokens: WalletToken[]; onToken: (token: WalletToken) => void; onNotify: (message: string) => void }) {
   const [amount, setAmount] = useState("");
   const [activeMarket, setActiveMarket] = useState<"Tokens" | "Perps">("Tokens");
-  const tradable = useMemo(() => sortTokens(tokens).filter((token) => token.symbol !== "BFS").slice(0, 8), [tokens]);
+  const tradable = useMemo(() => [...tokens]
+    .filter((token) => token.symbol !== "BFS")
+    .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0) || walletTokenOrder.indexOf(a.symbol) - walletTokenOrder.indexOf(b.symbol)), [tokens]);
   const sol = tokens.find((token) => token.symbol === "SOL") ?? referenceSolanaToken;
   const amountValue = Number(amount) || 0;
   const receiveValue = sol.price > 0 ? amountValue * sol.price : 0;
@@ -610,7 +670,7 @@ function TradeView({ tokens, onToken, onNotify }: { tokens: WalletToken[]; onTok
       <div className="mt-10 flex gap-6 border-b border-white/[0.06] text-[1.7rem] font-semibold tracking-[-.05em]">{(["Tokens", "Perps"] as const).map((market) => <button key={market} type="button" onClick={() => setActiveMarket(market)} className={`pb-3 ${activeMarket === market ? "border-b-2 border-white text-white" : "text-white/30"}`}>{market}</button>)}</div>
       <div className="mt-5 flex gap-2">{["Rank", "Solana", "24h"].map((filter) => <button key={filter} type="button" onClick={() => onNotify(`${filter} filter opened.`)} className="flex items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70">{filter}<ChevronDown className="h-4 w-4" /></button>)}</div>
       <div className="mt-6 space-y-1">
-        {activeMarket === "Tokens" ? tradable.map((token, index) => <button key={token.id} type="button" onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block text-base text-white/55">{formatMoney(Math.max(token.price * 2_700_000, 1_000_000))} MC</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(1)}%</span></span></button>) : <PerpsMarketList tokens={tradable} onNotify={onNotify} />}
+        {activeMarket === "Tokens" ? tradable.map((token, index) => <button key={token.id} type="button" onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-2xl px-1 py-3 text-left transition hover:bg-white/[0.035]"><span className="relative"><TokenIcon token={token} /><span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#f0c625] text-[10px] font-bold text-black">{index + 1}</span></span><span className="min-w-0 flex-1"><strong className="block truncate text-xl">{token.symbol}</strong><span className="mt-1 block text-base text-white/55">{formatCompactMoney(token.marketCap)} MC</span></span><span className="text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-1 block text-lg font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button>) : <PerpsMarketList tokens={tradable} onNotify={onNotify} />}
       </div>
     </section>
   );
@@ -651,20 +711,20 @@ function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (
     updatedAt: "",
   };
   const cards = [
-    { token: tokenFor("BTC", "Bitcoin"), leverage: "40x", change: "+0.64%" },
-    { token: tokenFor("ETH", "Ethereum"), leverage: "25x", change: "+0.29%" },
-    { token: tokenFor("HYPE", "Hyperliquid"), leverage: "20x", change: "+0.61%" },
+    { token: tokenFor("BTC", "Bitcoin"), leverage: "40x" },
+    { token: tokenFor("HYPE", "Hyperliquid"), leverage: "10x" },
+    { token: tokenFor("ETH", "Ethereum"), leverage: "25x" },
   ];
 
   return (
-    <section className="mt-10">
+    <section className="mt-8">
       <div className="flex items-center gap-2"><h2 className="text-[clamp(1.75rem,8vw,2.3rem)] font-semibold tracking-[-.05em]">Perps</h2><ChevronRight className="h-7 w-7 text-white/65" /></div>
       <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {cards.map(({ token, leverage, change }) => (
+        {cards.map(({ token, leverage }) => (
           <button key={token.symbol} type="button" onClick={() => onNotify(`${token.symbol} perpetuals are available in simulation mode.`)} className="flex min-h-[clamp(10rem,43vw,13rem)] min-w-[clamp(10rem,44vw,13.25rem)] shrink-0 flex-col items-start justify-between rounded-[1.65rem] bg-[#191919] p-5 text-left transition hover:bg-[#232323]">
             <TokenIcon token={token} size="large" />
             <div className="flex items-center gap-2 text-[clamp(1.2rem,5.5vw,1.55rem)] font-semibold"><span>{token.symbol}</span><span className="rounded-lg bg-[#242426] px-2 py-1 text-[clamp(.85rem,4vw,1.05rem)]">{leverage}</span></div>
-            <strong className="text-[clamp(1.35rem,6vw,1.8rem)] text-[#00e676]">{change}</strong>
+            <strong className={`text-[clamp(1.35rem,6vw,1.8rem)] ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</strong>
           </button>
         ))}
       </div>
@@ -675,14 +735,14 @@ function PerpsSection({ tokens, onNotify }: { tokens: WalletToken[]; onNotify: (
 function TokenRow({ token, onClick }: { token: WalletToken; onClick: () => void }) {
   const value = token.balance * token.price;
   const changeValue = value * (token.change24h / 100);
-  const changeLabel = token.symbol === "BFS" ? "-<$0.01" : value === 0 ? formatMoney(0) : formatSignedMoney(changeValue);
+  const changeLabel = token.symbol === "BFS" ? "+<$0.01" : value === 0 ? formatMoney(0) : formatSignedMoney(changeValue);
   const changeClass = token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#00e676]";
 
   return (
-    <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-[1.6rem] bg-[#191919] px-3 py-3.5 text-left transition hover:bg-[#232323]">
+    <button type="button" onClick={onClick} className="flex min-h-16 w-full items-center gap-3 rounded-[1.45rem] bg-[#191919] px-4 py-2 text-left transition hover:bg-[#232323]">
       <TokenIcon token={token} />
-      <span className="min-w-0 flex-1"><span className="block truncate text-[clamp(1.15rem,5.5vw,1.55rem)] font-semibold">{token.name}</span><span className="mt-1 block truncate text-[clamp(.95rem,4.5vw,1.25rem)] text-white/60">{formatAmount(token.balance)} {token.symbol}</span></span>
-      <span className="max-w-[36%] shrink-0 text-right"><span className="block truncate text-[clamp(1rem,5vw,1.35rem)] font-medium">{formatMoney(value)}</span><span className={`mt-1 block truncate text-[clamp(1rem,5vw,1.35rem)] font-semibold ${changeClass}`}>{changeLabel}</span></span>
+      <span className="min-w-0 flex-1"><span className="block truncate text-[20px] font-semibold">{token.name}</span><span className="mt-0.5 block truncate text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
+      <span className="max-w-[36%] shrink-0 text-right"><span className="block truncate text-[20px] font-medium">{formatMoney(value)}</span><span className={`mt-0.5 block truncate text-[18px] font-semibold ${changeClass}`}>{changeLabel}</span></span>
     </button>
   );
 }
@@ -828,7 +888,7 @@ function TokenDetail({ token, onBack, onSend, onReceive, onTrade }: { token: Wal
     </div>
     <div className="px-5 pt-3">
       <h1 className="text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}</h1>
-      <p className="mt-4 text-[clamp(3rem,15vw,5.2rem)] font-semibold leading-none tracking-[-.075em]">{token.price < 0.01 ? `$${token.price.toFixed(6)}` : formatMoney(token.price)}</p>
+      <p className="mt-4 text-[clamp(3rem,15vw,5.2rem)] font-semibold leading-none tracking-[-.075em]">{formatPrice(token.price)}</p>
       <p className="mt-3 text-[clamp(1.1rem,5vw,1.45rem)] font-bold" style={{ color: accent }}>{formatSignedMoney(changeValue)} ({token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%)</p>
     </div>
     <div className="mt-8">
@@ -843,7 +903,7 @@ function TokenDetail({ token, onBack, onSend, onReceive, onTrade }: { token: Wal
       <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {token.symbol === "BTC" ? "99" : "12"} here</span></div><button type="button" className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? "momentum is picking up" : "watching this level closely"}</span></button></section>
       <p className="mt-10 text-base leading-7 text-white/55">Market activity is displayed for simulation and interface-preview purposes. Prices may update from the connected market-data source.</p>
     </div>
-    <div className="sticky bottom-0 z-20 mt-auto flex items-center gap-4 border-t border-white/[0.04] bg-black/85 px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 backdrop-blur-2xl"><div className="min-w-0 flex-1"><span className="block text-sm text-white/45">Market capitalization</span><strong className="mt-1 block truncate text-lg">{formatMoney(Math.max(token.price * 1_000_000, 296_800))}</strong></div><button type="button" onClick={onTrade} className="min-w-[44%] rounded-full bg-[#a295f3] px-7 py-4 text-xl font-semibold text-black transition hover:bg-[#b6aaff] active:scale-[.98]">Trade</button></div>
+    <div className="sticky bottom-0 z-20 mt-auto flex items-center gap-4 border-t border-white/[0.04] bg-black/85 px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 backdrop-blur-2xl"><div className="min-w-0 flex-1"><span className="block text-sm text-white/45">Market capitalization</span><strong className="mt-1 block truncate text-lg">{formatCompactMoney(token.marketCap)}</strong></div><button type="button" onClick={onTrade} className="min-w-[44%] rounded-full bg-[#a295f3] px-7 py-4 text-xl font-semibold text-black transition hover:bg-[#b6aaff] active:scale-[.98]">Trade</button></div>
   </div>;
 }
 
@@ -881,22 +941,20 @@ export function DownloadWallet() {
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const latestMarketSnapshot = useRef<LiveMarketSnapshot>({ prices: {}, changes: {}, images: {}, marketCaps: {} });
 
   const liveSymbols = liveMarketSymbols;
 
-  useLivePrices(liveSymbols, (prices, changes) => {
-    setTokens((current) =>
-      current.map((token) => ({
-        ...token,
-        price: prices[token.symbol] ?? token.price,
-        change24h: changes[token.symbol] ?? token.change24h,
-      })),
-    );
+  useLivePrices(liveSymbols, (prices, changes, images, marketCaps) => {
+    const snapshot = { prices, changes, images, marketCaps };
+    latestMarketSnapshot.current = snapshot;
+    setTokens((current) => applyLiveMarketSnapshot(current, snapshot));
   });
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setTokens(mergeLiveTokenCatalogue(getTokens()));
+      const loadedTokens = mergeLiveTokenCatalogue(migrateLegacyReferenceHoldings(getTokens()));
+      setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
       setProfile(readStorage(profileStorageKey, defaultProfile));
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
       if (!window.localStorage.getItem(notificationStorageKey)) setNotificationPromptOpen(true);
