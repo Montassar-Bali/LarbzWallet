@@ -69,6 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    void fetch("/api/wallet-security/logout", { method: "POST", credentials: "same-origin" });
+    window.sessionStorage.removeItem("phantom_wallet_unlocked_at");
     logoutUser();
     setUser(null);
     router.push("/activate");

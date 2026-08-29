@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  WalletCards,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -34,6 +35,8 @@ import { defaultTokens, liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
+import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
+import { walletLedgerEvent } from "@/lib/wallet-ledger";
 
 type TrustTab = "home" | "swap" | "discover" | "browser";
 type Appearance = "light" | "dark";
@@ -523,10 +526,12 @@ function TrustHome({
 }) {
   const [query, setQuery] = useState("");
   const [assetMode, setAssetMode] = useState<"crypto" | "nfts">("crypto");
-  const filteredTokens = tokens.filter((token) => {
-    const normalized = query.trim().toLowerCase();
-    return !normalized || token.name.toLowerCase().includes(normalized) || token.symbol.toLowerCase().includes(normalized);
-  });
+  const filteredTokens = [...tokens]
+    .filter((token) => {
+      const normalized = query.trim().toLowerCase();
+      return !normalized || token.name.toLowerCase().includes(normalized) || token.symbol.toLowerCase().includes(normalized);
+    })
+    .sort((a, b) => b.balance * b.price - a.balance * a.price || a.name.localeCompare(b.name));
 
   return (
     <>
@@ -975,6 +980,8 @@ function SettingsModal({
   onSave,
   onAddToken,
   onClearActivity,
+  onAccounts,
+  onSecurity,
 }: {
   profile: TrustProfile;
   tokens: WalletToken[];
@@ -983,6 +990,8 @@ function SettingsModal({
   onSave: (profile: TrustProfile, balances: Record<string, number>) => void;
   onAddToken: () => void;
   onClearActivity: () => void;
+  onAccounts: () => void;
+  onSecurity: () => void;
 }) {
   const [walletName, setWalletName] = useState(profile.walletName);
   const [currency, setCurrency] = useState<CurrencyCode>(profile.currency);
@@ -1041,6 +1050,10 @@ function SettingsModal({
       <button type="button" onClick={onAddToken} className={"mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed text-sm font-bold " + (dark ? "border-white/20 text-white/65 hover:bg-white/5" : "border-[#b9c9dd] text-[#52627b] hover:bg-[#f5f8fc]")}>
         <Plus className="h-4 w-4" /> Add simulated token
       </button>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <button type="button" onClick={onAccounts} className={"flex h-12 items-center justify-center gap-2 rounded-2xl border text-xs font-bold " + (dark ? "border-white/15 text-white/75" : "border-[#d5deea] text-[#52627b]")}><WalletCards className="h-4 w-4" /> Accounts</button>
+        <button type="button" onClick={onSecurity} className={"flex h-12 items-center justify-center gap-2 rounded-2xl border text-xs font-bold " + (dark ? "border-white/15 text-white/75" : "border-[#d5deea] text-[#52627b]")}><ShieldCheck className="h-4 w-4" /> Security</button>
+      </div>
       <div className="mt-5 grid grid-cols-2 gap-3">
         <button type="button" onClick={onClearActivity} className={"h-11 rounded-2xl border text-xs font-bold " + (dark ? "border-[#df5e70]/30 text-[#df8792]" : "border-[#ffd4d8] text-[#c8495d]")}>Clear activity</button>
         <button type="button" onClick={() => onSave({ walletName: walletName.trim() || "Main wallet", currency, appearance }, Object.fromEntries(Object.entries(balances).map(([id, value]) => [id, Number(value) || 0])))} className="h-11 rounded-2xl bg-[#4e91f5] text-xs font-black text-white">Save settings</button>
@@ -1156,6 +1169,7 @@ const defaultTrustTransactions: WalletActivity[] = [
 ];
 
 export function TrustWallet() {
+  const runtime = useWalletRuntime();
   const [tokens, setTokens] = useState<WalletToken[]>([]);
   const [transactions, setTransactions] = useState<WalletActivity[]>([]);
   const [profile, setProfile] = useState<TrustProfile>(defaultTrustProfile);
@@ -1193,8 +1207,15 @@ export function TrustWallet() {
     }, 0);
 
     document.documentElement.dataset.walletTheme = "trust";
+    const refreshSharedWallet = () => {
+      setTokens(readStorage<WalletToken[]>(TRUST_TOKENS_KEY, createTrustTokens()));
+      setTransactions(readStorage<WalletActivity[]>(TRUST_TRANSACTIONS_KEY, []));
+      setProfile((current) => ({ ...current, ...readStorage<TrustProfile>(TRUST_PROFILE_KEY, current) }));
+    };
+    window.addEventListener(walletLedgerEvent, refreshSharedWallet);
     return () => {
       window.clearTimeout(timeoutId);
+      window.removeEventListener(walletLedgerEvent, refreshSharedWallet);
       delete document.documentElement.dataset.walletTheme;
     };
   }, []);
@@ -1213,6 +1234,7 @@ export function TrustWallet() {
     setProfile(nextProfile);
     writeStorage(TRUST_TOKENS_KEY, nextTokens);
     writeStorage(TRUST_PROFILE_KEY, nextProfile);
+    runtime.replaceCurrentBalances(Object.fromEntries(nextTokens.map((token) => [token.symbol, token.balance])));
     setSettingsOpen(false);
     notify("Trust-style wallet settings saved locally.");
   };
@@ -1228,6 +1250,8 @@ export function TrustWallet() {
     const nextTokens = [...tokens, nextToken];
     setTokens(nextTokens);
     writeStorage(TRUST_TOKENS_KEY, nextTokens);
+    runtime.updateMarketAssets(nextTokens);
+    runtime.replaceCurrentBalances(Object.fromEntries(nextTokens.map((token) => [token.symbol, token.balance])));
     setAddTokenOpen(false);
     setSettingsOpen(false);
     notify(nextToken.symbol + " added to your simulated wallet.");
@@ -1268,6 +1292,12 @@ export function TrustWallet() {
     notify((input.type === "receive" ? "Received " : "Sent ") + formatAmount(input.amount) + " " + input.tokenSymbol + " in simulation.");
   };
 
+  const openSharedTransaction = (kind: TransactionKind) => {
+    setSelectedToken(null);
+    if (kind === "send") runtime.openTransfer();
+    else runtime.openReceive();
+  };
+
   return (
     <main className={"min-h-[100dvh] " + (dark ? "bg-[#07101c]" : "bg-[#07162a]")}>
       <div className={"relative mx-auto h-[100dvh] w-full max-w-[35rem] overflow-hidden shadow-2xl " + (dark ? "bg-[#101319] text-white" : "bg-[#f6f8fc] text-[#1d2433]")}>
@@ -1285,10 +1315,10 @@ export function TrustWallet() {
               onSettings={() => setSettingsOpen(true)}
               onNotice={notify}
               onSelectToken={setSelectedToken}
-              onTransaction={setTransactionKind}
+              onTransaction={openSharedTransaction}
             />
           ) : tab === "swap" ? (
-            <SwapScreen tokens={tokens} dark={dark} onNotice={notify} onTransaction={setTransactionKind} />
+            <SwapScreen tokens={tokens} dark={dark} onNotice={notify} onTransaction={openSharedTransaction} />
           ) : tab === "discover" ? (
             <DiscoverScreen tokens={tokens} dark={dark} currency={profile.currency} onSelectToken={setSelectedToken} onNotice={notify} />
           ) : (
@@ -1303,10 +1333,10 @@ export function TrustWallet() {
             </button>
           ))}
         </nav>
-        {settingsOpen ? <SettingsModal profile={profile} tokens={tokens} dark={dark} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onAddToken={() => { setSettingsOpen(false); setAddTokenOpen(true); }} onClearActivity={clearActivity} /> : null}
+        {settingsOpen ? <SettingsModal profile={profile} tokens={tokens} dark={dark} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onAddToken={() => { setSettingsOpen(false); setAddTokenOpen(true); }} onClearActivity={clearActivity} onAccounts={() => { setSettingsOpen(false); runtime.openAccounts(); }} onSecurity={() => { setSettingsOpen(false); runtime.openSecurity(); }} /> : null}
         {addTokenOpen ? <AddTokenModal dark={dark} onClose={() => setAddTokenOpen(false)} onSave={addToken} /> : null}
         {transactionKind ? <TransactionModal kind={transactionKind} tokens={tokens} dark={dark} onClose={() => setTransactionKind(null)} onSubmit={handleTransaction} /> : null}
-        {selectedToken ? <TokenDetailModal token={selectedToken} currency={profile.currency} dark={dark} onClose={() => setSelectedToken(null)} onTransaction={setTransactionKind} onNotice={notify} /> : null}
+        {selectedToken ? <TokenDetailModal token={selectedToken} currency={profile.currency} dark={dark} onClose={() => setSelectedToken(null)} onTransaction={openSharedTransaction} onNotice={notify} /> : null}
         {notice ? <Notice message={notice} dark={dark} /> : null}
         <span className={"pointer-events-none fixed bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase tracking-[.25em] " + (dark ? "text-white/15" : "text-[#aeb8c6]")}>Simulation</span>
       </div>

@@ -46,6 +46,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
+import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
 import {
   createTransaction,
   deleteToken,
@@ -54,6 +55,7 @@ import {
   saveToken,
 } from "@/lib/wallet";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
+import { walletLedgerEvent } from "@/lib/wallet-ledger";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
@@ -531,7 +533,7 @@ function NotificationPrompt({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SideDrawer({ profile, onClose, onProfile, onWatchlist, onHistory, onSettings, onNotice }: { profile: ProfileRecord; onClose: () => void; onProfile: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onNotice: (message: string) => void }) {
+function SideDrawer({ profile, onClose, onAccounts, onProfile, onWatchlist, onHistory, onSettings, onNotice }: { profile: ProfileRecord; onClose: () => void; onAccounts: () => void; onProfile: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onNotice: (message: string) => void }) {
   const item = (icon: LucideIcon, label: string, onClick: () => void) => {
     const Icon = icon;
     return <button type="button" onClick={onClick} className="flex w-full items-center gap-5 px-1 py-4 text-left text-[20px] font-medium text-white transition hover:text-[#a295f3]"><Icon className="h-6 w-6" />{label}</button>;
@@ -547,7 +549,7 @@ function SideDrawer({ profile, onClose, onProfile, onWatchlist, onHistory, onSet
         </div>
         <button type="button" onClick={() => onNotice("Connect X is available in simulation mode.")} className="mt-6 flex items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
         <div className="mt-10">
-          <button type="button" onClick={onClose} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A1</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
+          <button type="button" onClick={onAccounts} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
           {item(UserRound, "Profile", onProfile)}
           {item(MessageCircle, "Chats", () => onNotice("Chats are available in simulation mode."))}
           {item(Heart, "Watchlist", onWatchlist)}
@@ -576,6 +578,7 @@ function HomeView({
   onSearch,
   onActions,
   onOpenWatchlist,
+  onAccounts,
   onExecuteTrade,
   perpPositions,
   onOpenPerp,
@@ -596,6 +599,7 @@ function HomeView({
   onSearch: (value: string) => void;
   onActions: () => void;
   onOpenWatchlist: () => void;
+  onAccounts: () => void;
   onExecuteTrade: (trade: TradeRequest) => boolean;
   perpPositions: PerpPosition[];
   onOpenPerp: (token: WalletToken) => void;
@@ -647,7 +651,7 @@ function HomeView({
 
       {tab === "Home" ? (
         <section className="px-5 pb-40 pt-8">
-          <button type="button" onClick={() => onNotify("Account switching is available in simulation mode.")} className="flex max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button>
+          <button type="button" onClick={onAccounts} className="flex max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button>
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -1392,6 +1396,7 @@ function TokenEditor({ token, onClose, onSave }: { token: WalletToken | null; on
 }
 
 export function DownloadWallet() {
+  const runtime = useWalletRuntime();
   const [tokens, setTokens] = useState<WalletToken[]>([]);
   const [profile, setProfile] = useState<ProfileRecord>(defaultProfile);
   const [activeTab, setActiveTab] = useState<Tab>("Home");
@@ -1400,7 +1405,7 @@ export function DownloadWallet() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [tokenEditorOpen, setTokenEditorOpen] = useState(false);
   const [editingToken, setEditingToken] = useState<WalletToken | null>(null);
-  const [flow, setFlow] = useState<TokenFlow>("send");
+  const [flow] = useState<TokenFlow>("send");
   const [selectedToken, setSelectedToken] = useState<WalletToken | null>(null);
   const [sendAmount, setSendAmount] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -1426,6 +1431,12 @@ export function DownloadWallet() {
   });
 
   useEffect(() => {
+    const refreshSharedWallet = () => {
+      const loadedTokens = mergeLiveTokenCatalogue(getTokens());
+      setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
+      setProfile(readStorage(profileStorageKey, defaultProfile));
+      setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
+    };
     const timeoutId = window.setTimeout(() => {
       const loadedTokens = mergeLiveTokenCatalogue(migrateLegacyReferenceHoldings(getTokens()));
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
@@ -1444,7 +1455,11 @@ export function DownloadWallet() {
       }) : []);
       if (!window.localStorage.getItem(notificationStorageKey)) setNotificationPromptOpen(true);
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    window.addEventListener(walletLedgerEvent, refreshSharedWallet);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener(walletLedgerEvent, refreshSharedWallet);
+    };
   }, []);
 
   const notify = (message: string) => {
@@ -1479,8 +1494,8 @@ export function DownloadWallet() {
 
   const openAction = (action: Action) => {
     setActionsOpen(false);
-    if (action === "Send") { setFlow("send"); setView("token-picker"); return; }
-    if (action === "Receive") { setView("receive"); return; }
+    if (action === "Send") { runtime.openTransfer(); return; }
+    if (action === "Receive") { runtime.openReceive(); return; }
     if (action === "Add Cash") { setView("add-cash"); return; }
     setActiveTab("Trade");
   };
@@ -1496,13 +1511,17 @@ export function DownloadWallet() {
     setProfile(nextProfile);
     const updated = tokens.map((token) => balances[token.id] === undefined ? token : saveToken({ ...token, balance: balances[token.id] }));
     setTokens(updated);
-      setView("home");
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(updated.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
+    runtime.renameCurrentAccount(nextProfile.accountName);
+    setView("home");
     notify("Profile saved in simulation.");
   };
 
   const saveEditedToken = (form: TokenForm) => {
     const saved = saveToken({ id: form.id, name: form.name, symbol: form.symbol, price: Number(form.price), balance: Number(form.balance), change24h: Number(form.change24h), image: form.image.trim() || "https://placehold.co/64x64/1d1d1f/ffffff?text=T" });
     setTokens((current) => { const next = [...current]; const index = next.findIndex((token) => token.id === saved.id); if (index >= 0) next[index] = saved; else next.push(saved); return next; });
+    runtime.updateMarketAssets([...tokens.filter((token) => token.id !== saved.id), saved]);
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.id === saved.id ? saved.balance : token.balance])), [saved.symbol]: saved.balance, USD: profile.cash });
     setEditingToken(null);
     setTokenEditorOpen(false);
     notify(`${saved.name} saved to your simulated wallet.`);
@@ -1510,6 +1529,7 @@ export function DownloadWallet() {
 
   const removeToken = (token: WalletToken) => {
     setTokens(deleteToken(token.id));
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((item) => [item.symbol, item.id === token.id ? 0 : item.balance])), USD: profile.cash });
     setWatchlistSymbols((current) => {
       const next = current.filter((symbol) => symbol !== token.symbol);
       writeStorage(watchlistStorageKey, next);
@@ -1542,6 +1562,10 @@ export function DownloadWallet() {
       writeStorage(profileStorageKey, nextProfile);
       setProfile(nextProfile);
     }
+    runtime.replaceCurrentBalances({
+      ...Object.fromEntries(tokens.map((token) => [token.symbol, Math.max(0, token.balance + (deltas.get(token.symbol) ?? 0))])),
+      USD: Math.max(0, nextCash),
+    });
 
     const payLabel = payAsset === "CASH" ? formatMoney(payAmount) : `${formatAmount(payAmount)} ${payAsset}`;
     const receiveLabel = receiveAsset === "CASH" ? formatMoney(receiveAmount) : `${formatAmount(receiveAmount)} ${receiveAsset}`;
@@ -1575,6 +1599,7 @@ export function DownloadWallet() {
     writeStorage(perpPositionsStorageKey, nextPositions);
     setProfile(nextProfile);
     writeStorage(profileStorageKey, nextProfile);
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     notify(`Opened ${leverage}x ${side} on ${symbol}.`);
     return null;
   };
@@ -1591,6 +1616,7 @@ export function DownloadWallet() {
     writeStorage(perpPositionsStorageKey, nextPositions);
     setProfile(nextProfile);
     writeStorage(profileStorageKey, nextProfile);
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     notify(`Closed ${position.symbol} ${position.side} · ${formatSignedMoney(pnl - closingFee)} after fee.`);
   };
 
@@ -1598,6 +1624,7 @@ export function DownloadWallet() {
     if (!selectedToken || amount <= 0) return;
     const saved = saveToken({ ...selectedToken, balance: selectedToken.balance + amount });
     setTokens((current) => current.map((token) => token.id === saved.id ? saved : token));
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.id === saved.id ? saved.balance : token.balance])), USD: profile.cash });
     setSelectedToken(saved);
     setView("home");
     notify(`${formatAmount(amount)} ${saved.symbol} added to your simulated wallet.`);
@@ -1608,6 +1635,7 @@ export function DownloadWallet() {
     const nextProfile = { ...profile, cash: profile.cash + amount };
     writeStorage(profileStorageKey, nextProfile);
     setProfile(nextProfile);
+    runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     setView("home");
     notify(`${formatMoney(amount)} added to your simulated cash balance.`);
   };
@@ -1633,7 +1661,7 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
@@ -1647,10 +1675,10 @@ export function DownloadWallet() {
           {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
           {view === "buy" && currentToken ? <BuyScreen token={currentToken} onClose={() => { resetSend(); setView("home"); }} onBuy={buyToken} /> : null}
           {view === "perp-market" && currentPerpToken ? <PerpMarketScreen token={currentPerpToken} cashBalance={profile.cash} positions={perpPositions} onBack={() => { setView("home"); setActiveTab(perpOriginTab); }} onOpenPosition={openPerpPosition} onClosePosition={closePerpPosition} /> : null}
-          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
+          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
-          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); setView("history"); }} onSettings={() => { setDrawerOpen(false); setView("profile"); }} onNotice={notify} /> : null}
+          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}

@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# local wallet simulator security records
+/.data/
+
 # next.js
 /.next/
 /out/

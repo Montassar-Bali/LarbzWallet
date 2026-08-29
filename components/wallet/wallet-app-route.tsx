@@ -6,6 +6,7 @@ import { AlternateWallet } from "@/components/wallet/alternate-wallet";
 import { DownloadWalletWithSplash } from "@/components/wallet/download-wallet-splash";
 import { LedgerWallet } from "@/components/wallet/ledger-wallet";
 import { TrustWallet } from "@/components/wallet/trust-wallet";
+import { WalletRuntimeProvider } from "@/components/wallet/wallet-runtime";
 import type { WalletThemeId } from "@/config/wallets";
 import { defaultWalletTheme } from "@/config/wallets";
 import { getWalletTheme, isWalletThemeId, setWalletTheme } from "@/lib/wallet";
@@ -44,15 +45,15 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
   }, [initialTheme]);
 
   if (themeId === "ghost") {
-    return <DownloadWalletWithSplash />;
+    return <WalletRuntimeProvider walletId="ghost"><DownloadWalletWithSplash /></WalletRuntimeProvider>;
   }
 
   if (themeId === "trust") {
-    return <TrustWallet />;
+    return <WalletRuntimeProvider walletId="trust"><TrustWallet /></WalletRuntimeProvider>;
   }
 
   if (themeId === "ledger") {
-    return <LedgerWallet />;
+    return <WalletRuntimeProvider walletId="ledger"><LedgerWallet /></WalletRuntimeProvider>;
   }
 
   return <AlternateWallet themeId={themeId} />;

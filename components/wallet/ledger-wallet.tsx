@@ -24,6 +24,8 @@ import { liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
+import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
+import { walletLedgerEvent } from "@/lib/wallet-ledger";
 
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
@@ -524,6 +526,7 @@ function HomeScreen({
   onNotice,
   onAssets,
   onHistory,
+  onAccounts,
   onToken,
 }: {
   tokens: WalletToken[];
@@ -536,18 +539,11 @@ function HomeScreen({
   onNotice: (message: string) => void;
   onAssets: () => void;
   onHistory: () => void;
+  onAccounts: () => void;
   onToken: (token: WalletToken) => void;
 }) {
   const visibleTokens = useMemo(() => {
-    const order = ["ETH", "TRX", "BTC", "SOL", "USDC", "USDT", "BNB"];
-    return [...tokens].sort((a, b) => {
-      const aOrder = order.indexOf(a.symbol);
-      const bOrder = order.indexOf(b.symbol);
-      if (aOrder === -1 && bOrder === -1) return b.balance * b.price - a.balance * a.price;
-      if (aOrder === -1) return 1;
-      if (bOrder === -1) return -1;
-      return aOrder - bOrder;
-    }).slice(0, 8);
+    return [...tokens].sort((a, b) => b.balance * b.price - a.balance * a.price || a.name.localeCompare(b.name)).slice(0, 8);
   }, [tokens]);
 
   const change = total === 0 ? 0 : visibleTokens.reduce((sum, token) => sum + token.change24h * token.balance * token.price, 0) / Math.max(total, 1);
@@ -605,7 +601,7 @@ function HomeScreen({
       <section>
         <div className="grid grid-cols-2 rounded-xl border border-white/10 bg-black/40 p-1">
           <button type="button" className="rounded-lg bg-[#090909] py-3 text-sm font-bold">Assets</button>
-          <button type="button" onClick={() => onNotice("Accounts are simulated as Ledger Main.")} className="rounded-lg py-3 text-sm font-bold text-white/75 hover:text-white">Accounts</button>
+          <button type="button" onClick={onAccounts} className="rounded-lg py-3 text-sm font-bold text-white/75 hover:text-white">Accounts</button>
         </div>
         <div className="mt-4 space-y-1">
           {visibleTokens.map((token) => <AssetRow key={token.id} token={token} currency={currency} rate={rate} onClick={() => onToken(token)} />)}
@@ -627,7 +623,7 @@ function AssetsScreen({ tokens, currency, rate, onToken, onHome }: { tokens: Wal
   return (
     <main className="space-y-5 px-4 pb-28 pt-6 sm:px-7">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold tracking-[0.18em] text-white/45">PORTFOLIO</p><h1 className="mt-1 text-3xl font-bold">All assets</h1></div><button type="button" onClick={onHome} className="rounded-full bg-white/[0.08] px-4 py-2 text-sm font-bold">Home</button></div>
-      <div className="space-y-1 rounded-2xl bg-white/[0.025] p-3">{tokens.map((token) => <AssetRow key={token.id} token={token} currency={currency} rate={rate} onClick={() => onToken(token)} />)}</div>
+      <div className="space-y-1 rounded-2xl bg-white/[0.025] p-3">{[...tokens].sort((a, b) => b.balance * b.price - a.balance * a.price || a.name.localeCompare(b.name)).map((token) => <AssetRow key={token.id} token={token} currency={currency} rate={rate} onClick={() => onToken(token)} />)}</div>
     </main>
   );
 }
@@ -650,6 +646,7 @@ function HistoryScreen({ records, tokens, currency, rate, onHome, onAdd }: { rec
 }
 
 export function LedgerWallet() {
+  const runtime = useWalletRuntime();
   const [view, setView] = useState<LedgerView>("home");
   const [activeTab, setActiveTab] = useState<BottomTab>("Home");
   const [tokens, setTokens] = useState<WalletToken[]>([]);
@@ -687,7 +684,15 @@ export function LedgerWallet() {
       setRecords(storedRecords);
     }, 0);
 
-    return () => window.clearTimeout(timeout);
+    const refreshSharedWallet = () => {
+      setTokens(ensureLedgerTokens(readStorage<WalletToken[]>(LEDGER_TOKENS_KEY, [])));
+      setRecords(readStorage<WalletActivity[]>(LEDGER_TRANSACTIONS_KEY, []));
+    };
+    window.addEventListener(walletLedgerEvent, refreshSharedWallet);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener(walletLedgerEvent, refreshSharedWallet);
+    };
   }, []);
 
   const selectedCurrency = currencies.find((item) => item.code === currency) ?? currencies[0];
@@ -714,6 +719,7 @@ export function LedgerWallet() {
   function savePortfolio() {
     const next = tokens.map((token) => portfolioSymbols.includes(token.symbol) && editValues[token.symbol] !== undefined ? { ...token, balance: Math.max(0, Number(editValues[token.symbol]) || 0) } : token);
     persistTokens(next);
+    runtime.replaceCurrentBalances(Object.fromEntries(next.map((token) => [token.symbol, token.balance])));
     setPortfolioOpen(false);
     notify("Portfolio saved");
   }
@@ -736,12 +742,8 @@ export function LedgerWallet() {
   }
 
   function openTransaction(type: TransactionType = "receive") {
-    setTransactionType(type);
-    setTransactionCrypto(tokens[0]?.symbol ?? "BTC");
-    setTransactionAmount("");
-    setTransactionDate(today());
-    setTransactionTime(nowTime());
-    setTransactionOpen(true);
+    if (type === "send") runtime.openTransfer();
+    else runtime.openReceive();
   }
 
   function submitTransaction(event: FormEvent<HTMLFormElement>) {
@@ -800,7 +802,7 @@ export function LedgerWallet() {
       <div className="relative mx-auto min-h-[100dvh] max-w-[560px] overflow-hidden bg-black">
         <div className="pointer-events-none fixed inset-0 mx-auto max-w-[560px] opacity-80" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(91, 37, 128, .25), transparent 28%), radial-gradient(circle at 90% 65%, rgba(65, 24, 103, .18), transparent 30%)" }} />
         <div className="relative">
-          {view === "home" ? <HomeScreen tokens={tokens} records={records} currency={currency} rate={selectedCurrency.rate} total={total} onEdit={openPortfolio} onTransaction={openTransaction} onNotice={notify} onAssets={() => setView("assets")} onHistory={() => setView("history")} onToken={(token) => notify(`${token.name} selected`)} /> : null}
+          {view === "home" ? <HomeScreen tokens={tokens} records={records} currency={currency} rate={selectedCurrency.rate} total={total} onEdit={openPortfolio} onTransaction={openTransaction} onNotice={notify} onAssets={() => setView("assets")} onHistory={runtime.openHistory} onAccounts={runtime.openAccounts} onToken={(token) => notify(`${token.name} selected`)} /> : null}
           {view === "assets" ? <AssetsScreen tokens={tokens} currency={currency} rate={selectedCurrency.rate} onToken={(token) => notify(`${token.name} selected`)} onHome={() => setView("home")} /> : null}
           {view === "history" ? <HistoryScreen records={records} tokens={tokens} currency={currency} rate={selectedCurrency.rate} onHome={() => setView("home")} onAdd={() => openTransaction("receive")} /> : null}
         </div>
