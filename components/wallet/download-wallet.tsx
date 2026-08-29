@@ -62,6 +62,7 @@ type View =
   | "home"
   | "profile"
   | "history"
+  | "watchlist"
   | "token-picker"
   | "send-recipient"
   | "send-amount"
@@ -107,6 +108,8 @@ type LiveMarketSnapshot = {
 
 const profileStorageKey = "larpz_download_profile";
 const notificationStorageKey = "larpz_download_notifications_prompted";
+const watchlistStorageKey = "larpz_download_watchlist";
+const defaultWatchlistSymbols = ["BTC", "ETH", "SOL"];
 
 const defaultProfile: ProfileRecord = {
   username: "larperwallet",
@@ -450,7 +453,7 @@ function NotificationPrompt({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SideDrawer({ profile, onClose, onProfile, onHistory, onSettings, onNotice }: { profile: ProfileRecord; onClose: () => void; onProfile: () => void; onHistory: () => void; onSettings: () => void; onNotice: (message: string) => void }) {
+function SideDrawer({ profile, onClose, onProfile, onWatchlist, onHistory, onSettings, onNotice }: { profile: ProfileRecord; onClose: () => void; onProfile: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onNotice: (message: string) => void }) {
   const item = (icon: LucideIcon, label: string, onClick: () => void) => {
     const Icon = icon;
     return <button type="button" onClick={onClick} className="flex w-full items-center gap-5 px-1 py-4 text-left text-[20px] font-medium text-white transition hover:text-[#a295f3]"><Icon className="h-6 w-6" />{label}</button>;
@@ -469,7 +472,7 @@ function SideDrawer({ profile, onClose, onProfile, onHistory, onSettings, onNoti
           <button type="button" onClick={onClose} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A1</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
           {item(UserRound, "Profile", onProfile)}
           {item(MessageCircle, "Chats", () => onNotice("Chats are available in simulation mode."))}
-          {item(Heart, "Watchlist", () => onNotice("Your watchlist is shown on Home."))}
+          {item(Heart, "Watchlist", onWatchlist)}
           {item(Clock3, "Activity", onHistory)}
         </div>
         <div className="mt-auto space-y-1">
@@ -487,12 +490,14 @@ function HomeView({
   tab,
   cashVisible,
   tokenQuery,
+  watchlistSymbols,
   actionsOpen,
   onTab,
   onMenu,
   onCash,
   onSearch,
   onActions,
+  onOpenWatchlist,
   onToken,
   onNotify,
 }: {
@@ -501,12 +506,14 @@ function HomeView({
   tab: Tab;
   cashVisible: boolean;
   tokenQuery: string;
+  watchlistSymbols: string[];
   actionsOpen: boolean;
   onTab: (tab: Tab) => void;
   onMenu: () => void;
   onCash: () => void;
   onSearch: (value: string) => void;
   onActions: () => void;
+  onOpenWatchlist: () => void;
   onToken: (token: WalletToken) => void;
   onNotify: (message: string) => void;
 }) {
@@ -527,6 +534,12 @@ function HomeView({
         token.symbol.toLowerCase().includes(query),
     );
   }, [displayTokens, tokenQuery]);
+  const watchlistTokens = useMemo(
+    () => watchlistSymbols
+      .map((symbol) => tokens.find((token) => token.symbol === symbol))
+      .filter((token): token is WalletToken => Boolean(token)),
+    [tokens, watchlistSymbols],
+  );
   const displayTotal = displayTokens.reduce(
     (sum, token) => sum + token.balance * token.price,
     profile.cash,
@@ -554,14 +567,14 @@ function HomeView({
 
           <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><Banknote className="h-6 w-6 text-white/50" />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
-          <WatchlistPromo onBrowse={() => onNotify("Opening the HyperEVM watchlist preview.")} />
+          <WatchlistPromo tokens={watchlistTokens} onBrowse={onOpenWatchlist} />
 
           <SectionHeading>Token</SectionHeading>
           <div className="mt-4 space-y-2.5">
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
           </div>
-          {showingReference ? <><PerpsSection tokens={tokens} onNotify={onNotify} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections onNotify={onNotify} /></> : null}
+          {showingReference ? <><PerpsSection tokens={tokens} onNotify={onNotify} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onNotify={onNotify} /></> : null}
         </section>
       ) : tab === "Trade" ? <TradeView tokens={tokens} onToken={onToken} onNotify={onNotify} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
 
@@ -579,21 +592,22 @@ function SectionHeading({ children, action }: { children: ReactNode; action?: ()
   return <button type="button" onClick={action} className="mt-8 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-6 w-6 text-white/65" /></button>;
 }
 
-function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
+function WatchlistPromo({ tokens, onBrowse }: { tokens: WalletToken[]; onBrowse: () => void }) {
   const [visible, setVisible] = useState(true);
+  const featuredToken = tokens[0];
   if (!visible) return null;
   return (
     <aside className="relative mt-6 min-h-[170px] overflow-hidden rounded-[1.8rem] border border-white/[0.04] bg-[linear-gradient(145deg,#171719,#101011)] p-6">
       <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-[#202022] text-white/65"><X className="h-5 w-5" /></button>
       <div className="relative z-10 max-w-[63%]">
         <p className="text-xs font-bold uppercase tracking-[.08em] text-[#a99bf7]">Watchlist</p>
-        <h2 className="mt-3 text-[24px] font-semibold leading-[1.08] tracking-[-.04em]">What&apos;s moving on HyperEVM?</h2>
-        <button type="button" onClick={onBrowse} className="mt-5 flex items-center gap-1 text-base font-semibold text-[#a99bf7]">Browse <ChevronRight className="h-4 w-4" /></button>
+        <h2 className="mt-3 text-[24px] font-semibold leading-[1.08] tracking-[-.04em]">{featuredToken ? `${featuredToken.name} is ${featuredToken.change24h >= 0 ? "up" : "down"} ${Math.abs(featuredToken.change24h).toFixed(2)}%` : "Follow the markets that matter"}</h2>
+        <button type="button" onClick={onBrowse} className="mt-5 flex items-center gap-1 text-base font-semibold text-[#a99bf7]">{tokens.length ? "View watchlist" : "Add currencies"} <ChevronRight className="h-4 w-4" /></button>
       </div>
       <div className="absolute -bottom-3 -right-4 grid h-40 w-40 place-items-center rounded-[2.25rem] border border-[#6ff4d8]/15 bg-[#171a19] text-[#73f4db] shadow-[0_0_50px_rgba(115,244,219,.08)]">
         <span className="absolute inset-4 rounded-full border border-[#73f4db]/15" />
         <span className="absolute inset-8 rounded-full border border-[#73f4db]/25" />
-        <Infinity className="h-20 w-20 stroke-[1.5]" />
+        {featuredToken ? <div className="relative z-10 flex flex-col items-center gap-2"><TokenIcon token={featuredToken} size="large" /><span className={`rounded-full bg-black/55 px-2.5 py-1 text-xs font-bold ${featuredToken.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{featuredToken.change24h >= 0 ? "+" : ""}{featuredToken.change24h.toFixed(2)}%</span></div> : <Infinity className="h-20 w-20 stroke-[1.5]" />}
       </div>
     </aside>
   );
@@ -620,7 +634,7 @@ function PredictionsStrip({ onNotify }: { onNotify: (message: string) => void })
   );
 }
 
-function DiscoverySections({ onNotify }: { onNotify: (message: string) => void }) {
+function DiscoverySections({ watchlistTokens, onWatchlist, onToken, onNotify }: { watchlistTokens: WalletToken[]; onWatchlist: () => void; onToken: (token: WalletToken) => void; onNotify: (message: string) => void }) {
   const explore = [
     { icon: Infinity, title: "Perps", description: "Go long or short on leading markets" },
     { icon: Sparkles, title: "Predictions", description: "Trade outcomes across crypto and culture" },
@@ -629,11 +643,12 @@ function DiscoverySections({ onNotify }: { onNotify: (message: string) => void }
   return (
     <>
       <section>
-        <SectionHeading action={() => onNotify("Watchlist opened.")}>Watchlist</SectionHeading>
-        <button type="button" onClick={() => onNotify("Search for assets to add to your watchlist.")} className="mt-4 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left">
+        <SectionHeading action={onWatchlist}>Watchlist</SectionHeading>
+        {watchlistTokens.length ? <div className="mt-4 space-y-2.5">{watchlistTokens.slice(0, 5).map((token) => <button key={token.id} type="button" onClick={() => onToken(token)} className="flex w-full items-center gap-4 rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-4 py-3 text-left transition hover:bg-[#222223]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block truncate text-lg">{token.name}</strong><span className="mt-0.5 block text-base text-white/50">{token.symbol}</span></span><span className="shrink-0 text-right"><span className="block text-lg">{formatPrice(token.price)}</span><span className={`mt-0.5 block text-base font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button>)}</div> : <button type="button" onClick={onWatchlist} className="mt-4 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left">
           <Heart className="h-7 w-7 text-[#a99bf7]" />
-          <span className="min-w-0"><strong className="block truncate text-lg">Follow what matters</strong><span className="mt-1 block truncate text-base text-white/55">Find assets or live markets to track</span></span>
-        </button>
+          <span className="min-w-0"><strong className="block truncate text-lg">Follow what matters</strong><span className="mt-1 block truncate text-base text-white/55">Find currencies and live markets to track</span></span>
+        </button>}
+        {watchlistTokens.length > 0 ? <button type="button" onClick={onWatchlist} className="mt-3 w-full py-2 text-center text-base font-semibold text-[#a99bf7]">Manage watchlist</button> : null}
       </section>
       <section>
         <SectionHeading>Explore</SectionHeading>
@@ -648,6 +663,45 @@ function DiscoverySections({ onNotify }: { onNotify: (message: string) => void }
         <button type="button" onClick={() => onNotify("Disclosures opened.")} className="mt-3 flex items-center gap-2 py-3 text-left text-base text-white/35"><Info className="h-4 w-4" /> View disclosures</button>
       </section>
     </>
+  );
+}
+
+function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }: { tokens: WalletToken[]; watchlistSymbols: string[]; onBack: () => void; onToken: (token: WalletToken) => void; onToggle: (token: WalletToken) => void }) {
+  const [query, setQuery] = useState("");
+  const filteredTokens = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return [...tokens]
+      .filter((token) => token.symbol !== "BFS")
+      .filter((token) => !normalizedQuery || token.name.toLowerCase().includes(normalizedQuery) || token.symbol.toLowerCase().includes(normalizedQuery))
+      .sort((a, b) => {
+        const aWatched = watchlistSymbols.includes(a.symbol);
+        const bWatched = watchlistSymbols.includes(b.symbol);
+        if (aWatched !== bWatched) return aWatched ? -1 : 1;
+        return (b.marketCap ?? 0) - (a.marketCap ?? 0) || a.name.localeCompare(b.name);
+      });
+  }, [query, tokens, watchlistSymbols]);
+  const watchedCount = watchlistSymbols.filter((symbol) => tokens.some((token) => token.symbol === symbol)).length;
+
+  return (
+    <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+32px)]">
+      <ScreenHeader title="Watchlist" onBack={onBack} />
+      <div className="px-4 pb-12">
+        <div className="mt-4 rounded-[1.7rem] border border-white/[0.04] bg-[linear-gradient(145deg,#211d2c,#151517)] p-5">
+          <div className="flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#a295f3] text-black"><Heart className="h-7 w-7 fill-current" /></span><div><h1 className="text-2xl font-semibold tracking-[-.04em]">Your currencies</h1><p className="mt-1 text-base text-white/50">{watchedCount} {watchedCount === 1 ? "currency" : "currencies"} followed</p></div></div>
+        </div>
+
+        <label className="mt-5 flex items-center gap-3 rounded-full bg-[#202022] px-5 py-4 text-white/45"><Search className="h-5 w-5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search currencies" aria-label="Search watchlist currencies" className="min-w-0 flex-1 bg-transparent text-[17px] text-white outline-none placeholder:text-white/35" /></label>
+
+        <div className="mb-3 mt-8 flex items-end justify-between px-1"><div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Markets</p><h2 className="mt-1 text-[28px] font-semibold tracking-[-.05em]">Add currencies</h2></div><span className="pb-1 text-sm text-white/40">Live prices</span></div>
+        <div className="overflow-hidden rounded-[1.7rem] border border-white/[0.04] bg-[#191919]">
+          {filteredTokens.map((token) => {
+            const isWatched = watchlistSymbols.includes(token.symbol);
+            return <div key={token.id} className="flex items-center border-b border-white/[0.055] px-4 py-3 last:border-0"><button type="button" onClick={() => onToken(token)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block truncate text-[18px]">{token.name}</strong><span className="mt-0.5 block text-[15px] text-white/45">{token.symbol}</span></span><span className="shrink-0 text-right"><span className="block text-[17px]">{formatPrice(token.price)}</span><span className={`mt-0.5 block text-[15px] font-semibold ${token.change24h < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button><button type="button" onClick={() => onToggle(token)} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="ml-3 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#252527] transition hover:bg-[#303033]"><Heart className={`h-5 w-5 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white/55"}`} /></button></div>;
+          })}
+          {filteredTokens.length === 0 ? <div className="px-5 py-12 text-center"><Search className="mx-auto h-8 w-8 text-white/25" /><p className="mt-3 text-lg text-white/55">No currencies found.</p></div> : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -878,9 +932,8 @@ function TransactionDetail({ record, onClose }: { record: WalletActivity; onClos
   return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">View on Explorer</button></div>;
 }
 
-function TokenDetail({ token, onBack, onSend, onReceive, onTrade }: { token: WalletToken; onBack: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
+function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onReceive, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
   const [period, setPeriod] = useState("LIVE");
-  const [favorite, setFavorite] = useState(false);
   const positive = token.change24h >= 0;
   const accent = positive ? "#00e676" : "#ff1744";
   const changeValue = token.price * (token.change24h / 100);
@@ -897,7 +950,7 @@ function TokenDetail({ token, onBack, onSend, onReceive, onTrade }: { token: Wal
   return <div className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0">
     <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+10px)] backdrop-blur-2xl">
       <button type="button" onClick={onBack} aria-label="Go back" className="mx-auto block h-1.5 w-20 rounded-full bg-white/45" />
-      <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={() => setFavorite((value) => !value)} aria-label={favorite ? "Remove from favorites" : "Add to favorites"} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${favorite ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
+      <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
     </div>
     <div className="px-5 pt-3">
       <h1 className="text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}</h1>
@@ -951,6 +1004,8 @@ export function DownloadWallet() {
   const [sentRecord, setSentRecord] = useState<WalletActivity | null>(null);
   const [records, setRecords] = useState<WalletActivity[]>([]);
   const [tokenQuery, setTokenQuery] = useState("");
+  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(defaultWatchlistSymbols);
+  const [tokenDetailOrigin, setTokenDetailOrigin] = useState<"home" | "watchlist">("home");
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -970,6 +1025,11 @@ export function DownloadWallet() {
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
       setProfile(readStorage(profileStorageKey, defaultProfile));
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
+      const storedWatchlist = readStorage<unknown>(watchlistStorageKey, defaultWatchlistSymbols);
+      const normalizedWatchlist = Array.isArray(storedWatchlist)
+        ? [...new Set(storedWatchlist.filter((symbol): symbol is string => typeof symbol === "string").map((symbol) => symbol.toUpperCase()))]
+        : defaultWatchlistSymbols;
+      setWatchlistSymbols(normalizedWatchlist);
       if (!window.localStorage.getItem(notificationStorageKey)) setNotificationPromptOpen(true);
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -982,6 +1042,22 @@ export function DownloadWallet() {
 
 
   const resetSend = () => { setSelectedToken(null); setSendAmount(""); setRecipient(""); };
+
+  const openTokenDetail = (token: WalletToken, origin: "home" | "watchlist" = "home") => {
+    setSelectedToken(token);
+    setTokenDetailOrigin(origin);
+    setView("token-detail");
+  };
+
+  const toggleWatchlist = (token: WalletToken) => {
+    const isWatched = watchlistSymbols.includes(token.symbol);
+    const next = isWatched
+      ? watchlistSymbols.filter((symbol) => symbol !== token.symbol)
+      : [...watchlistSymbols, token.symbol];
+    setWatchlistSymbols(next);
+    writeStorage(watchlistStorageKey, next);
+    notify(`${token.name} ${isWatched ? "removed from" : "added to"} your watchlist.`);
+  };
 
   const openAction = (action: Action) => {
     setActionsOpen(false);
@@ -1016,6 +1092,11 @@ export function DownloadWallet() {
 
   const removeToken = (token: WalletToken) => {
     setTokens(deleteToken(token.id));
+    setWatchlistSymbols((current) => {
+      const next = current.filter((symbol) => symbol !== token.symbol);
+      writeStorage(watchlistStorageKey, next);
+      return next;
+    });
     notify(`${token.name} deleted from your simulated wallet.`);
   };
 
@@ -1049,15 +1130,18 @@ export function DownloadWallet() {
     setView("sent");
   };
 
-  const currentToken = selectedToken;
+  const currentToken = selectedToken
+    ? tokens.find((token) => token.id === selectedToken.id) ?? selectedToken
+    : null;
 
   return (
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onToken={(token) => { setSelectedToken(token); setView("token-detail"); }} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
+          {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
           {view === "token-picker" ? <TokenPicker tokens={tokens} flow={flow} onClose={() => { resetSend(); setView("home"); }} onSelect={pickToken} /> : null}
           {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
           {view === "send-amount" && currentToken ? <SendAmountScreen token={currentToken} amount={sendAmount} onAmount={setSendAmount} onBack={() => setView("send-recipient")} onNext={() => setView("send-summary")} /> : null}
@@ -1067,10 +1151,10 @@ export function DownloadWallet() {
           {view === "receive" ? <ReceiveScreen profile={profile} onClose={() => setView("home")} /> : null}
           {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
           {view === "buy" && currentToken ? <BuyScreen token={currentToken} onClose={() => { resetSend(); setView("home"); }} onBuy={buyToken} /> : null}
-          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} onBack={() => { setSelectedToken(null); setView("home"); }} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
+          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => { setFlow("send"); setView("send-recipient"); }} onReceive={() => setView("receive")} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
-          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onHistory={() => { setDrawerOpen(false); setView("history"); }} onSettings={() => { setDrawerOpen(false); setView("profile"); }} onNotice={notify} /> : null}
+          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); setView("history"); }} onSettings={() => { setDrawerOpen(false); setView("profile"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}
