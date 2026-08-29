@@ -379,7 +379,7 @@ function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "sma
 
   return (
     <span
-      className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full font-bold shadow-[inset_0_1px_2px_rgba(255,255,255,.35)] ${dimensions}`}
+      className={`relative isolate grid shrink-0 place-items-center overflow-hidden rounded-full font-bold shadow-[inset_0_1px_2px_rgba(255,255,255,.35)] ${dimensions}`}
       style={{ background: visual.background, color: visual.foreground ?? "white" }}
     >
       <TokenGlyph token={token} />
@@ -448,7 +448,7 @@ function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; a
 
 function ScreenHeader({ title, onBack, action, actionLabel }: { title: string; onBack: () => void; action?: () => void; actionLabel?: string }) {
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between bg-black/90 px-4 pb-5 pt-[calc(env(safe-area-inset-top)+18px)] backdrop-blur-lg">
+    <header className="sticky top-0 z-50 flex items-center justify-between bg-black px-4 pb-5 pt-[calc(env(safe-area-inset-top)+18px)]">
       <button type="button" onClick={onBack} aria-label="Go back" className="grid h-12 w-12 place-items-center rounded-full bg-[#242426] text-white transition hover:bg-[#303033]"><ArrowLeft className="h-6 w-6" /></button>
       <h1 className="text-[23px] font-semibold tracking-[-0.04em]">{title}</h1>
       {actionLabel ? <button type={action ? "button" : "submit"} onClick={action} className="px-1 text-[20px] font-medium text-[#a295f3]">{actionLabel}</button> : <span className="w-12" />}
