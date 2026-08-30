@@ -328,7 +328,7 @@ export async function executeRemoteTransfer({
   const destinationId = typeof destinationAccountId === "string" ? destinationAccountId.slice(0, 180) : null;
   const address = typeof destinationAddress === "string" ? destinationAddress.trim() : "";
   if (!destinationId && !/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(address)) {
-    throw new RemoteWalletError("INVALID_ADDRESS", "Enter the receiving user's complete simulated wallet address.");
+    throw new RemoteWalletError("INVALID_ADDRESS", "Enter the receiving user's complete wallet address.");
   }
   const symbol = typeof tokenSymbol === "string" ? tokenSymbol.toUpperCase() : "";
   const numericAmount = Number(amount);

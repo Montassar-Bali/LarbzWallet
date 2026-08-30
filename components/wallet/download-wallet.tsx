@@ -65,6 +65,9 @@ type View =
   | "profile"
   | "history"
   | "watchlist"
+  | "community"
+  | "support"
+  | "disclosures"
   | "token-picker"
   | "send-recipient"
   | "send-amount"
@@ -144,10 +147,18 @@ type MarketChartPoint = {
   price: number;
 };
 
+type CommunityMessage = {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+};
+
 const profileStorageKey = "larpz_download_profile";
 const notificationStorageKey = "larpz_download_notifications_prompted";
 const watchlistStorageKey = "larpz_download_watchlist";
 const perpPositionsStorageKey = "larpz_download_perp_positions";
+const communityMessagesStorageKey = "larpz_download_community_messages";
 const defaultWatchlistSymbols = ["BTC", "ETH", "SOL"];
 
 const defaultProfile: ProfileRecord = {
@@ -525,7 +536,7 @@ function NotificationPrompt({ onClose }: { onClose: () => void }) {
       <section className="w-full max-w-[510px] rounded-[2rem] border border-white/10 bg-[#1d1d1f] px-6 pb-5 pt-8 text-center shadow-[0_24px_80px_rgba(0,0,0,.8)]" aria-label="Enable notifications">
         <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[#29283b] text-[#a295f3]"><Bell className="h-10 w-10" /></div>
         <h2 className="mt-7 text-[24px] font-semibold tracking-[-0.04em]">Enable notifications</h2>
-        <p className="mx-auto mt-5 max-w-[390px] text-[18px] leading-[1.45] text-white/60">Get notified when wallet activity arrives, including simulated receives and live incoming transfers.</p>
+        <p className="mx-auto mt-5 max-w-[390px] text-[18px] leading-[1.45] text-white/60">Get notified when wallet activity arrives, including incoming transfers and price updates.</p>
         <button type="button" onClick={enableNotifications} className="mt-7 w-full rounded-full bg-[#a295f3] px-5 py-4 text-[18px] font-medium text-black transition hover:bg-[#b4aaff]">Enable Notifications</button>
         <button type="button" onClick={dismiss} className="mt-3 w-full rounded-full bg-[#29292b] px-5 py-4 text-[18px] text-white/70 transition hover:bg-[#343436]">Not Now</button>
       </section>
@@ -533,7 +544,7 @@ function NotificationPrompt({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SideDrawer({ profile, onClose, onAccounts, onProfile, onWatchlist, onHistory, onSettings, onNotice }: { profile: ProfileRecord; onClose: () => void; onAccounts: () => void; onProfile: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onNotice: (message: string) => void }) {
+function SideDrawer({ profile, onClose, onAccounts, onProfile, onCommunity, onWatchlist, onHistory, onSettings, onSupport, onNotice }: { profile: ProfileRecord; onClose: () => void; onAccounts: () => void; onProfile: () => void; onCommunity: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onSupport: () => void; onNotice: (message: string) => void }) {
   const item = (icon: LucideIcon, label: string, onClick: () => void) => {
     const Icon = icon;
     return <button type="button" onClick={onClick} className="flex w-full items-center gap-5 px-1 py-4 text-left text-[20px] font-medium text-white transition hover:text-[#a295f3]"><Icon className="h-6 w-6" />{label}</button>;
@@ -547,17 +558,17 @@ function SideDrawer({ profile, onClose, onAccounts, onProfile, onWatchlist, onHi
           <div><LockAvatar value={profile.avatar} /><p className="mt-6 text-[25px] font-semibold tracking-[-0.04em]">@{profile.username}</p></div>
           <button type="button" onClick={() => { void navigator.clipboard?.writeText(profile.address); onNotice("Wallet address copied."); }} aria-label="Copy wallet address" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022] text-white/75 transition hover:text-white"><Copy className="h-5 w-5" /></button>
         </div>
-        <button type="button" onClick={() => onNotice("Connect X is available in simulation mode.")} className="mt-6 flex items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
+        <button type="button" onClick={onProfile} className="mt-6 flex items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
         <div className="mt-10">
           <button type="button" onClick={onAccounts} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
           {item(UserRound, "Profile", onProfile)}
-          {item(MessageCircle, "Chats", () => onNotice("Chats are available in simulation mode."))}
+          {item(MessageCircle, "Chats", onCommunity)}
           {item(Heart, "Watchlist", onWatchlist)}
           {item(Clock3, "Activity", onHistory)}
         </div>
         <div className="mt-auto space-y-1">
           {item(Settings, "Settings", onSettings)}
-          {item(CircleHelp, "Help & Support", () => onNotice("Help & Support is available in simulation mode."))}
+          {item(CircleHelp, "Help & Support", onSupport)}
         </div>
       </aside>
     </div>
@@ -584,7 +595,9 @@ function HomeView({
   onOpenPerp,
   onClosePerp,
   onToken,
-  onNotify,
+  onCommunity,
+  onSupport,
+  onDisclosures,
 }: {
   tokens: WalletToken[];
   profile: ProfileRecord;
@@ -605,7 +618,9 @@ function HomeView({
   onOpenPerp: (token: WalletToken) => void;
   onClosePerp: (position: PerpPosition) => void;
   onToken: (token: WalletToken) => void;
-  onNotify: (message: string) => void;
+  onCommunity: () => void;
+  onSupport: () => void;
+  onDisclosures: () => void;
 }) {
   const referenceTokens = useMemo(() => referenceHomeTokens(tokens), [tokens]);
   const displayTokens = useMemo(
@@ -651,7 +666,7 @@ function HomeView({
 
       {tab === "Home" ? (
         <section className="px-5 pb-40 pt-8">
-          <button type="button" onClick={onAccounts} className="flex max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button>
+          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="shrink-0 text-[11px] font-semibold uppercase tracking-[.08em] text-white/30">Demo · No real funds</span></div>
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -664,9 +679,9 @@ function HomeView({
             {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
           </div>
-          {showingReference ? <><PerpsSection tokens={tokens} positions={perpPositions} onOpen={onOpenPerp} /><PredictionsStrip onNotify={onNotify} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onNotify={onNotify} /></> : null}
+          {showingReference ? <><PerpsSection tokens={tokens} positions={perpPositions} onOpen={onOpenPerp} /><PredictionsStrip onOpen={() => onTab("Predictions")} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onCommunity={onCommunity} onSupport={onSupport} onDisclosures={onDisclosures} /></> : null}
         </section>
-      ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView onNotify={onNotify} /> : <ExploreView onNotify={onNotify} />}
+      ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView /> : <ExploreView onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onSupport={onSupport} />}
 
       <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
@@ -700,17 +715,17 @@ function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
   );
 }
 
-function PredictionsStrip({ onNotify }: { onNotify: (message: string) => void }) {
+function PredictionsStrip({ onOpen }: { onOpen: () => void }) {
   const predictions = [
     { title: "BTC Up or Down · 5m", time: "Live now", live: true },
     { title: "ETH above $4K?", time: "Closes in 2h", live: false },
   ];
   return (
     <section>
-      <SectionHeading action={() => onNotify("Predictions opened.")}>Predictions</SectionHeading>
+      <SectionHeading action={onOpen}>Predictions</SectionHeading>
       <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {predictions.map((prediction) => (
-          <button key={prediction.title} type="button" onClick={() => onNotify(`${prediction.title} is a simulated market.`)} className="min-h-40 min-w-[78%] rounded-[1.7rem] border border-white/[0.035] bg-[#191919] p-5 text-left transition hover:bg-[#222223] sm:min-w-[58%]">
+          <button key={prediction.title} type="button" onClick={onOpen} className="min-h-40 min-w-[78%] rounded-[1.7rem] border border-white/[0.035] bg-[#191919] p-5 text-left transition hover:bg-[#222223] sm:min-w-[58%]">
             <div className="flex items-start justify-between"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#f7931a] text-2xl font-bold text-white">₿</span>{prediction.live ? <span className="flex items-center gap-1 text-base font-bold text-[#ff1744]"><Radio className="h-4 w-4" /> Live</span> : null}</div>
             <p className="mt-7 truncate text-xl font-semibold">{prediction.title}</p>
             <p className="mt-1 text-base text-white/55">{prediction.time}</p>
@@ -721,11 +736,11 @@ function PredictionsStrip({ onNotify }: { onNotify: (message: string) => void })
   );
 }
 
-function DiscoverySections({ watchlistTokens, onWatchlist, onToken, onNotify }: { watchlistTokens: WalletToken[]; onWatchlist: () => void; onToken: (token: WalletToken) => void; onNotify: (message: string) => void }) {
+function DiscoverySections({ watchlistTokens, onWatchlist, onToken, onPerps, onPredictions, onMarkets, onCommunity, onSupport, onDisclosures }: { watchlistTokens: WalletToken[]; onWatchlist: () => void; onToken: (token: WalletToken) => void; onPerps: () => void; onPredictions: () => void; onMarkets: () => void; onCommunity: () => void; onSupport: () => void; onDisclosures: () => void }) {
   const explore = [
-    { icon: Infinity, title: "Perps", description: "Go long or short on leading markets" },
-    { icon: Sparkles, title: "Predictions", description: "Trade outcomes across crypto and culture" },
-    { icon: TrendingUp, title: "Stocks", description: "Discover tokenized market opportunities" },
+    { icon: Infinity, title: "Perps", description: "Go long or short on leading markets", action: onPerps },
+    { icon: Sparkles, title: "Predictions", description: "Follow outcomes across crypto and culture", action: onPredictions },
+    { icon: TrendingUp, title: "Markets", description: "Discover live currency opportunities", action: onMarkets },
   ];
   return (
     <>
@@ -740,14 +755,14 @@ function DiscoverySections({ watchlistTokens, onWatchlist, onToken, onNotify }: 
       <section>
         <SectionHeading>Explore</SectionHeading>
         <div className="mt-4 space-y-2.5">
-          {explore.map(({ icon: Icon, title, description }) => <button key={title} type="button" onClick={() => onNotify(`${title} opened.`)} className="flex w-full items-center gap-4 rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#222223]"><Icon className="h-7 w-7 text-[#a99bf7]" /><span className="min-w-0"><strong className="block text-lg">{title}</strong><span className="mt-1 block truncate text-base text-white/55">{description}</span></span></button>)}
+          {explore.map(({ icon: Icon, title, description, action }) => <button key={title} type="button" onClick={action} className="flex w-full items-center gap-4 rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#222223]"><Icon className="h-7 w-7 text-[#a99bf7]" /><span className="min-w-0"><strong className="block text-lg">{title}</strong><span className="mt-1 block truncate text-base text-white/55">{description}</span></span></button>)}
         </div>
       </section>
       <section className="pb-4">
         <SectionHeading>Support</SectionHeading>
-        <button type="button" onClick={() => onNotify("FAQ opened.")} className="mt-5 flex w-full items-center justify-between py-3 text-left text-xl font-semibold">View FAQ <ChevronRight className="h-5 w-5 text-white/55" /></button>
-        <button type="button" onClick={() => onNotify("Support chat opened.")} className="flex w-full items-center justify-between py-3 text-left text-xl font-semibold">Chat with us <ChevronRight className="h-5 w-5 text-white/55" /></button>
-        <button type="button" onClick={() => onNotify("Disclosures opened.")} className="mt-3 flex items-center gap-2 py-3 text-left text-base text-white/35"><Info className="h-4 w-4" /> View disclosures</button>
+        <button type="button" onClick={onSupport} className="mt-5 flex w-full items-center justify-between py-3 text-left text-xl font-semibold">View FAQ <ChevronRight className="h-5 w-5 text-white/55" /></button>
+        <button type="button" onClick={onCommunity} className="flex w-full items-center justify-between py-3 text-left text-xl font-semibold">Chat with us <ChevronRight className="h-5 w-5 text-white/55" /></button>
+        <button type="button" onClick={onDisclosures} className="mt-3 flex items-center gap-2 py-3 text-left text-base text-white/35"><Info className="h-4 w-4" /> View disclosures</button>
       </section>
     </>
   );
@@ -992,7 +1007,7 @@ function PerpMarketScreen({ token, cashBalance, positions, onBack, onOpenPositio
         <div className="mt-3 overflow-hidden rounded-[1.5rem] border border-white/[0.04] bg-[#151516] text-[15px]"><PerpMetric label="Position size" value={formatMoney(notional)} /><PerpMetric label="Entry price" value={formatPrice(token.price)} /><PerpMetric label="Liquidation price" value={formatPrice(liquidationPrice)} /><PerpMetric label="Opening fee · 0.05%" value={formatMoney(openingFee)} /></div>
         {error ? <p role="alert" className="mt-3 rounded-2xl bg-[#ff1744]/12 px-4 py-3 text-center text-sm font-medium text-[#ff7189]">{error}</p> : null}
         <button type="button" onClick={submit} disabled={!collateralValue || token.price <= 0} className={`mt-4 w-full rounded-full px-5 py-4 text-lg font-bold transition active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-35 ${side === "long" ? "bg-[#00e676] text-black" : "bg-[#ff1744] text-white"}`}>Open {leverage}x {side}</button>
-        <p className="mt-3 text-center text-xs leading-5 text-white/35">Simulation only. No real funds or blockchain transactions are used.</p>
+        <p className="mt-3 text-center text-xs leading-5 text-white/35">Positions use your wallet balance with live market pricing.</p>
 
         <div className="mt-9 flex items-center justify-between"><h2 className="text-[28px] font-semibold tracking-[-.05em]">Your positions</h2><span className="text-sm text-white/45">{tokenPositions.length} open</span></div>
         <div className="mt-4 space-y-3">{tokenPositions.map((position) => <PerpPositionCard key={position.id} position={position} currentPrice={token.price} onClose={() => onClosePosition(position)} />)}{tokenPositions.length === 0 ? <div className="rounded-[1.6rem] bg-[#191919] px-5 py-8 text-center"><Infinity className="mx-auto h-8 w-8 text-[#a99bf7]" /><p className="mt-3 text-lg font-semibold">No open {token.symbol} positions</p><p className="mt-1 text-sm text-white/45">Choose long or short to open one.</p></div> : null}</div>
@@ -1013,23 +1028,26 @@ function PerpPositionCard({ position, currentPrice, onClose }: { position: PerpP
   return <article className="rounded-[1.6rem] border border-white/[0.04] bg-[#191919] p-5"><div className="flex items-start justify-between"><div className="flex items-center gap-2"><span className={`rounded-lg px-2 py-1 text-xs font-bold uppercase ${position.side === "long" ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#ff1744]/15 text-[#ff5573]"}`}>{position.side}</span><strong className="text-lg">{position.symbol} · {position.leverage}x</strong></div><span className={`text-right text-lg font-bold ${pnl < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}>{formatSignedMoney(pnl)}<small className="block text-xs">{pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%</small></span></div><div className="mt-5 grid grid-cols-3 gap-2 text-sm"><div><span className="block text-white/40">Entry</span><strong className="mt-1 block truncate">{formatPrice(position.entryPrice)}</strong></div><div><span className="block text-white/40">Mark</span><strong className="mt-1 block truncate">{formatPrice(currentPrice)}</strong></div><div><span className="block text-white/40">Equity</span><strong className="mt-1 block truncate">{formatMoney(equity)}</strong></div></div><button type="button" onClick={onClose} className={`mt-5 w-full rounded-full px-4 py-3 font-semibold ${liquidated ? "bg-[#ff1744] text-white" : "bg-[#303033] text-white"}`}>{liquidated ? "Settle liquidated position" : "Close position"}</button></article>;
 }
 
-function PredictionsView({ onNotify }: { onNotify: (message: string) => void }) {
+function PredictionsView() {
+  const [expandedMarket, setExpandedMarket] = useState<string | null>(null);
+  const [followedMarkets, setFollowedMarkets] = useState<string[]>([]);
   const markets = [
     { title: "BTC Up or Down · 5m", meta: "Live · 1,284 traders", chance: "52% Up" },
     { title: "Will ETH close above $4,000?", meta: "Ends today · 842 traders", chance: "64% Yes" },
     { title: "Solana above $200 this week?", meta: "Ends Friday · 506 traders", chance: "39% Yes" },
   ];
-  return <section className="px-4 pb-48 pt-7"><div className="flex items-end justify-between"><div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Live markets</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Predictions</h1></div><Radio className="h-7 w-7 text-[#ff1744]" /></div><p className="mt-4 max-w-md text-lg leading-7 text-white/55">Follow fast-moving simulated markets across crypto, finance, and culture.</p><div className="mt-8 space-y-3">{markets.map((market, index) => <button key={market.title} type="button" onClick={() => onNotify(`${market.title} opened.`)} className="w-full rounded-[1.7rem] border border-white/[0.04] bg-[#191919] p-5 text-left transition hover:bg-[#232323]"><div className="flex items-start justify-between"><span className={`grid h-12 w-12 place-items-center rounded-full ${index === 0 ? "bg-[#f7931a]" : index === 1 ? "bg-[#e9e9ec] text-black" : "bg-black"} text-xl font-bold`}>{index === 0 ? "₿" : index === 1 ? "◆" : "≋"}</span><span className="rounded-full bg-[#28252f] px-3 py-2 text-sm font-bold text-[#b5a7ff]">{market.chance}</span></div><h2 className="mt-6 text-xl font-semibold">{market.title}</h2><p className="mt-2 text-base text-white/50">{market.meta}</p></button>)}</div></section>;
+  const toggleFollow = (title: string) => setFollowedMarkets((current) => current.includes(title) ? current.filter((item) => item !== title) : [...current, title]);
+  return <section className="px-4 pb-48 pt-7"><div className="flex items-end justify-between"><div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Live markets</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Predictions</h1></div><Radio className="h-7 w-7 text-[#ff1744]" /></div><p className="mt-4 max-w-md text-lg leading-7 text-white/55">Follow fast-moving markets across crypto, finance, and culture.</p><div className="mt-8 space-y-3">{markets.map((market, index) => { const expanded = expandedMarket === market.title; const followed = followedMarkets.includes(market.title); return <article key={market.title} className="overflow-hidden rounded-[1.7rem] border border-white/[0.04] bg-[#191919]"><button type="button" onClick={() => setExpandedMarket(expanded ? null : market.title)} aria-expanded={expanded} className="w-full p-5 text-left transition hover:bg-[#232323]"><div className="flex items-start justify-between"><span className={`grid h-12 w-12 place-items-center rounded-full ${index === 0 ? "bg-[#f7931a]" : index === 1 ? "bg-[#e9e9ec] text-black" : "bg-black"} text-xl font-bold`}>{index === 0 ? "₿" : index === 1 ? "◆" : "≋"}</span><span className="rounded-full bg-[#28252f] px-3 py-2 text-sm font-bold text-[#b5a7ff]">{market.chance}</span></div><h2 className="mt-6 text-xl font-semibold">{market.title}</h2><p className="mt-2 text-base text-white/50">{market.meta}</p></button>{expanded ? <div className="border-t border-white/[0.05] px-5 py-4"><p className="text-sm leading-6 text-white/50">Track this market from the Predictions tab and return any time to see the latest probability.</p><button type="button" onClick={() => toggleFollow(market.title)} aria-pressed={followed} className={`mt-4 w-full rounded-full px-4 py-3 font-semibold ${followed ? "bg-[#2a2732] text-[#b5a7ff]" : "bg-[#a295f3] text-black"}`}>{followed ? "Following" : "Follow market"}</button></div> : null}</article>; })}</div></section>;
 }
 
-function ExploreView({ onNotify }: { onNotify: (message: string) => void }) {
+function ExploreView({ onPerps, onPredictions, onMarkets, onSupport }: { onPerps: () => void; onPredictions: () => void; onMarkets: () => void; onSupport: () => void }) {
   const features = [
-    { icon: Infinity, title: "Perpetuals", detail: "Long or short hundreds of markets" },
-    { icon: Sparkles, title: "Predictions", detail: "Trade outcomes in live markets" },
-    { icon: LineChart, title: "Stocks", detail: "Explore tokenized equities" },
-    { icon: Headphones, title: "Live support", detail: "Get help from the wallet team" },
+    { icon: Infinity, title: "Perpetuals", detail: "Long or short leading markets", action: onPerps },
+    { icon: Sparkles, title: "Predictions", detail: "Follow outcomes in live markets", action: onPredictions },
+    { icon: LineChart, title: "Token markets", detail: "Explore live currency prices", action: onMarkets },
+    { icon: Headphones, title: "Help & Support", detail: "Browse answers and contact options", action: onSupport },
   ];
-  return <section className="px-4 pb-48 pt-7"><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Discover</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Explore everything</h1><div className="mt-8 space-y-3">{features.map(({ icon: Icon, title, detail }) => <button key={title} type="button" onClick={() => onNotify(`${title} opened.`)} className="flex w-full items-center gap-5 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><Icon className="h-6 w-6" /></span><span className="min-w-0 flex-1"><strong className="block text-xl">{title}</strong><span className="mt-1 block truncate text-base text-white/50">{detail}</span></span><ChevronRight className="h-5 w-5 text-white/35" /></button>)}</div><div className="mt-10 rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><h2 className="text-2xl font-semibold">Need a hand?</h2><p className="mt-2 text-base leading-6 text-white/55">Browse common questions or start a conversation with support.</p><button type="button" onClick={() => onNotify("Help & Support opened.")} className="mt-6 rounded-full bg-[#a295f3] px-5 py-3 font-semibold text-black">Help & Support</button></div></section>;
+  return <section className="px-4 pb-48 pt-7"><p className="text-sm font-bold uppercase tracking-[.12em] text-[#a99bf7]">Discover</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.06em]">Explore everything</h1><div className="mt-8 space-y-3">{features.map(({ icon: Icon, title, detail, action }) => <button key={title} type="button" onClick={action} className="flex w-full items-center gap-5 rounded-[1.7rem] border border-white/[0.04] bg-[#191919] px-5 py-5 text-left transition hover:bg-[#232323]"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><Icon className="h-6 w-6" /></span><span className="min-w-0 flex-1"><strong className="block text-xl">{title}</strong><span className="mt-1 block truncate text-base text-white/50">{detail}</span></span><ChevronRight className="h-5 w-5 text-white/35" /></button>)}</div><div className="mt-10 rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><h2 className="text-2xl font-semibold">Need a hand?</h2><p className="mt-2 text-base leading-6 text-white/55">Browse common questions or start a conversation with support.</p><button type="button" onClick={onSupport} className="mt-6 rounded-full bg-[#a295f3] px-5 py-3 font-semibold text-black">Help & Support</button></div></section>;
 }
 
 function PerpsSection({ tokens, positions, onOpen }: { tokens: WalletToken[]; positions: PerpPosition[]; onOpen: (token: WalletToken) => void }) {
@@ -1147,7 +1165,18 @@ function TokenPicker({ tokens, flow, onClose, onSelect }: { tokens: WalletToken[
 function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const recent = ["Account 1", "Main Wallet", "Trading"];
   const addresses = ["Account 1", "Main Wallet", "Trading", "Savings"];
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-28"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input autoFocus value={recipient} onChange={(event) => onRecipient(event.target.value)} placeholder="To: username or address" className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" aria-label="Scan address" className="text-white/80"><QrCode className="h-7 w-7" /></button></div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></div>;
+  const [pasteError, setPasteError] = useState("");
+  const pasteAddress = async () => {
+    try {
+      const value = await navigator.clipboard.readText();
+      if (!value.trim()) throw new Error("Clipboard is empty.");
+      onRecipient(value.trim());
+      setPasteError("");
+    } catch {
+      setPasteError("Allow clipboard access, then try again.");
+    }
+  };
+  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-28"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input autoFocus value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></div>;
 }
 
 function SendAmountScreen({ token, amount, onAmount, onBack, onNext }: { token: WalletToken; amount: string; onAmount: (value: string) => void; onBack: () => void; onNext: () => void }) {
@@ -1177,7 +1206,7 @@ function SentScreen({ token, amount, recipient, onClose, onHistory }: { token: W
 }
 
 function ReceiveScreen({ profile, onClose }: { profile: ProfileRecord; onClose: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-64 w-64 place-items-center rounded-3xl bg-white p-5"><QrCode className="h-full w-full text-black" /></div><p className="mt-10 text-center text-[20px] text-white/65">Your simulated wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
+  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-64 w-64 place-items-center rounded-3xl bg-white p-5"><QrCode className="h-full w-full text-black" /></div><p className="mt-10 text-center text-[20px] text-white/65">Your wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
 }
 
 function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: () => void; onAdd: (amount: number) => void }) {
@@ -1193,11 +1222,46 @@ function BuyScreen({ token, onClose, onBuy }: { token: WalletToken; onClose: () 
 }
 
 function HistoryScreen({ records, onBack, onRecord }: { records: WalletActivity[]; onBack: () => void; onRecord: (record: WalletActivity) => void }) {
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-20"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Close history" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">History</h1><button type="button" onClick={() => undefined} aria-label="More history options" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><MoreHorizontal className="h-7 w-7" /></button></div>{records.length === 0 ? <p className="mt-40 text-center text-[20px] text-white/55">No recent activity</p> : <div className="mt-12 space-y-3">{records.map((record) => <button key={record.id} type="button" onClick={() => onRecord(record)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-5 py-5 text-left"><span className={`grid h-12 w-12 place-items-center rounded-full ${record.type === "send" ? "bg-[#f21b3f]" : "bg-[#20b486]"} text-black`}>{record.type === "send" ? <ArrowUpRight className="h-6 w-6" /> : <ArrowDownLeft className="h-6 w-6" />}</span><span className="min-w-0 flex-1"><span className="block text-[19px] capitalize">{record.type} {record.tokenSymbol}</span><span className="mt-1 block text-[15px] text-white/50">{shortAddress(record.counterpartyLabel)}</span></span><span className="text-right"><span className="block text-[18px]">{record.amount} {record.tokenSymbol}</span><span className="mt-1 block text-[14px] text-white/50">{new Date(record.date).toLocaleDateString()}</span></span></button>)}</div>}</div>;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "send" | "receive">("all");
+  const visibleRecords = filter === "all" ? records : records.filter((record) => record.type === filter);
+  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-20"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Close history" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">History</h1><button type="button" onClick={() => setFiltersOpen((current) => !current)} aria-label="Filter history" aria-expanded={filtersOpen} className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><MoreHorizontal className="h-7 w-7" /></button></div>{filtersOpen ? <div className="mt-5 flex gap-2 rounded-[1.3rem] bg-[#19191b] p-2">{(["all", "send", "receive"] as const).map((value) => <button key={value} type="button" onClick={() => { setFilter(value); setFiltersOpen(false); }} aria-pressed={filter === value} className={`flex-1 rounded-full px-3 py-2.5 text-sm font-semibold capitalize ${filter === value ? "bg-[#a295f3] text-black" : "text-white/55"}`}>{value === "all" ? "All" : value === "send" ? "Sent" : "Received"}</button>)}</div> : null}{visibleRecords.length === 0 ? <p className="mt-40 text-center text-[20px] text-white/55">No {filter === "all" ? "recent" : filter === "send" ? "sent" : "received"} activity</p> : <div className="mt-12 space-y-3">{visibleRecords.map((record) => <button key={record.id} type="button" onClick={() => onRecord(record)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-5 py-5 text-left"><span className={`grid h-12 w-12 place-items-center rounded-full ${record.type === "send" ? "bg-[#f21b3f]" : "bg-[#20b486]"} text-black`}>{record.type === "send" ? <ArrowUpRight className="h-6 w-6" /> : <ArrowDownLeft className="h-6 w-6" />}</span><span className="min-w-0 flex-1"><span className="block text-[19px] capitalize">{record.type} {record.tokenSymbol}</span><span className="mt-1 block text-[15px] text-white/50">{shortAddress(record.counterpartyLabel)}</span></span><span className="text-right"><span className="block text-[18px]">{record.amount} {record.tokenSymbol}</span><span className="mt-1 block text-[14px] text-white/50">{new Date(record.date).toLocaleDateString()}</span></span></button>)}</div>}</div>;
+}
+
+function CommunityScreen({ username, onBack }: { username: string; onBack: () => void }) {
+  const starterMessages: CommunityMessage[] = [
+    { id: "market-1", author: "marketwatch", text: "SOL and BTC live prices are updating now.", createdAt: new Date(0).toISOString() },
+  ];
+  const [messages, setMessages] = useState<CommunityMessage[]>(() => readStorage(communityMessagesStorageKey, starterMessages));
+  const [draft, setDraft] = useState("");
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    const next = [...messages, { id: createId("chat"), author: username || "wallet-user", text, createdAt: new Date().toISOString() }];
+    setMessages(next);
+    writeStorage(communityMessagesStorageKey, next);
+    setDraft("");
+  };
+  return <div className="absolute inset-0 z-40 flex flex-col bg-black"><ScreenHeader title="Community Chat" onBack={onBack} /><div className="flex-1 space-y-3 overflow-y-auto px-4 py-6">{messages.map((message) => <article key={message.id} className={`max-w-[88%] rounded-[1.4rem] px-4 py-3 ${message.author === username ? "ml-auto bg-[#a295f3] text-black" : "bg-[#1d1d1f]"}`}><strong className={`block text-sm ${message.author === username ? "text-black/60" : "text-[#a99bf7]"}`}>@{message.author}</strong><p className="mt-1 text-[17px] leading-6">{message.text}</p>{message.createdAt !== new Date(0).toISOString() ? <time className={`mt-2 block text-xs ${message.author === username ? "text-black/45" : "text-white/35"}`}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time> : null}</article>)}</div><form onSubmit={submit} className="flex items-center gap-3 border-t border-white/[0.05] bg-black/90 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-3 backdrop-blur-xl"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write a message" aria-label="Community message" className="min-w-0 flex-1 rounded-full bg-[#202022] px-5 py-4 text-[17px] outline-none placeholder:text-white/35" /><button type="submit" disabled={!draft.trim()} aria-label="Send community message" className="grid h-13 w-13 shrink-0 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-35"><Send className="h-6 w-6" /></button></form></div>;
+}
+
+function SupportScreen({ onBack, onCommunity }: { onBack: () => void; onCommunity: () => void }) {
+  const [openQuestion, setOpenQuestion] = useState<string | null>(null);
+  const questions = [
+    { question: "How do I move funds between my wallets?", answer: "Open Send, choose the source and destination wallet accounts, select a currency and confirm the transfer." },
+    { question: "Why is a balance different on another wallet?", answer: "Phantom, Ledger and Trust keep separate balances. Choose the intended wallet and account before confirming." },
+    { question: "How do I manage my watchlist?", answer: "Open Watchlist from the side menu, then use the heart next to any live currency." },
+  ];
+  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Help & Support" onBack={onBack} /><section className="px-4 py-6"><div className="rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><CircleHelp className="h-10 w-10 text-[#a99bf7]" /><h1 className="mt-5 text-3xl font-semibold tracking-[-.05em]">How can we help?</h1><p className="mt-2 leading-6 text-white/55">Browse the common questions below or open Community Chat.</p></div><h2 className="mb-3 mt-9 text-sm font-bold uppercase tracking-[.12em] text-white/45">Frequently asked questions</h2><div className="space-y-2">{questions.map(({ question, answer }) => { const open = openQuestion === question; return <article key={question} className="overflow-hidden rounded-[1.35rem] bg-[#191919]"><button type="button" onClick={() => setOpenQuestion(open ? null : question)} aria-expanded={open} className="flex w-full items-center justify-between gap-4 px-5 py-5 text-left text-lg font-semibold"><span>{question}</span><ChevronDown className={`h-5 w-5 shrink-0 text-white/45 transition ${open ? "rotate-180" : ""}`} /></button>{open ? <p className="border-t border-white/[0.05] px-5 py-4 leading-6 text-white/55">{answer}</p> : null}</article>; })}</div><button type="button" onClick={onCommunity} className="mt-8 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black"><MessageCircle className="h-5 w-5" /> Open Community Chat</button></section></div>;
+}
+
+function DisclosuresScreen({ onBack }: { onBack: () => void }) {
+  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Disclosures" onBack={onBack} /><section className="space-y-3 px-4 py-6"><div className="rounded-[1.7rem] bg-[#191919] p-6"><Info className="h-8 w-8 text-[#a99bf7]" /><h1 className="mt-5 text-2xl font-semibold">About this wallet</h1><p className="mt-3 leading-7 text-white/55">This experience does not hold, send, or receive real cryptocurrency. Market prices may be live, but all portfolio actions stay inside the app.</p></div><div className="rounded-[1.7rem] bg-[#191919] p-6"><h2 className="text-xl font-semibold">Market data</h2><p className="mt-3 leading-7 text-white/55">Prices can be delayed or temporarily unavailable and should not be used for financial decisions.</p></div><button type="button" onClick={onBack} className="w-full rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black">Done</button></section></div>;
 }
 
 function TransactionDetail({ record, onClose }: { record: WalletActivity; onClose: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">View on Explorer</button></div>;
+  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
 }
 
 function useLiveMarketChart(symbol: string, period: string, livePrice: number) {
@@ -1277,8 +1341,9 @@ function LiveMarketChart({ points, loading, unavailable, symbol, period }: { poi
   );
 }
 
-function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
+function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onReceive, onTrade, onChat }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void; onChat: () => void }) {
   const [period, setPeriod] = useState("LIVE");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [dismissOffset, setDismissOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartY = useRef<number | null>(null);
@@ -1340,7 +1405,7 @@ function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTr
       >
         <span className="block h-1.5 w-20 rounded-full bg-white/45" />
       </button>
-      <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" aria-label="More asset options" className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button></div></div>
+      <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="relative flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" onClick={() => setMoreOpen((current) => !current)} aria-label="More asset options" aria-expanded={moreOpen} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button>{moreOpen ? <div className="absolute right-0 top-14 z-30 min-w-48 overflow-hidden rounded-[1.2rem] border border-white/[0.06] bg-[#252527] p-1.5 shadow-2xl"><button type="button" onClick={onSend} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><Send className="h-5 w-5 text-[#a99bf7]" /> Send {token.symbol}</button><button type="button" onClick={onReceive} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><QrCode className="h-5 w-5 text-[#a99bf7]" /> Receive</button><button type="button" onClick={() => { onToggleWatchlist(); setMoreOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><Heart className="h-5 w-5 text-[#a99bf7]" /> {isWatched ? "Unfollow" : "Follow"}</button></div> : null}</div></div>
     </div>
     <div className="px-5 pt-3">
       <h1 className="flex items-center gap-2 text-[clamp(2.4rem,12vw,4rem)] font-semibold leading-none tracking-[-.065em]">{token.name}<ChevronDown className="mt-2 h-7 w-7 text-white/55" /></h1>
@@ -1353,7 +1418,7 @@ function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTr
     </div>
     <div className="px-5 pb-28">
       {token.balance > 0 ? <section className="mt-12"><SectionHeading>Your positions</SectionHeading><button type="button" onClick={onSend} className="mt-4 flex w-full items-center gap-4 py-3 text-left"><TokenIcon token={token} size="small" /><span className="min-w-0 flex-1"><strong className="block text-xl">{token.symbol} <span className="font-normal text-white/55">{token.name}</span></strong><span className="mt-1 block text-base text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span><span className="text-right"><span className="block text-lg">{formatMoney(token.price * token.balance)}</span><span className={`mt-1 block font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{formatSignedMoney(token.price * token.balance * token.change24h / 100)}</span></span><ChevronRight className="h-6 w-6 text-white/55" /></button></section> : null}
-      <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {liveChatCount} here</span></div><button type="button" className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? `${token.symbol} momentum is picking up` : `watching ${token.symbol} support closely`}</span></button></section>
+      <section className="mt-11"><div className="flex items-center justify-between"><SectionHeading>Live Chat</SectionHeading><span className="mt-10 flex items-center gap-2 text-lg text-[#00e676]"><span className="h-2.5 w-2.5 rounded-full bg-[#00e676]" /> {liveChatCount} here</span></div><button type="button" onClick={onChat} className="mt-5 flex w-full items-center gap-4 rounded-[1.6rem] border border-white/[0.035] bg-[#191919] px-5 py-5 text-left"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#292633] text-[#a99bf7]"><MessageCircle className="h-5 w-5" /></span><span className="truncate text-lg"><strong>@marketwatch</strong> {positive ? `${token.symbol} momentum is picking up` : `watching ${token.symbol} support closely`}</span></button></section>
     </div>
     <div className="sticky bottom-0 z-20 mt-auto flex items-center gap-4 border-t border-white/[0.04] bg-black/85 px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 backdrop-blur-2xl"><div className="min-w-0 flex-1"><span className="block text-sm text-white/45">Market capitalization</span><strong className="mt-1 block truncate text-lg">{formatCompactMoney(token.marketCap)}</strong></div><button type="button" onClick={onTrade} className="min-w-[44%] rounded-full bg-[#a295f3] px-7 py-4 text-xl font-semibold text-black transition hover:bg-[#b6aaff] active:scale-[.98]">Trade</button></div>
   </div>;
@@ -1371,7 +1436,7 @@ function TokenEditor({ token, onClose, onSave }: { token: WalletToken | null; on
     if (!form.name.trim() || !form.symbol.trim() || ![price, balance, change24h].every(Number.isFinite) || price < 0 || balance < 0) { setError("Enter a name, symbol, and valid numeric values."); return; }
     onSave({ ...form, name: form.name.trim(), symbol: form.symbol.trim().toUpperCase(), price: String(price), balance: String(balance), change24h: String(change24h) });
   };
-  return <div className="absolute inset-0 z-[60] flex items-end justify-center bg-black/75 px-3 pb-3 backdrop-blur-sm sm:items-center"><section className="max-h-[92svh] w-full max-w-[510px] overflow-y-auto rounded-[2rem] bg-[#1d1d1f] p-6" aria-label={token ? `Edit ${token.name}` : "Add token"}><div className="flex items-center justify-between"><div><h2 className="text-[22px] font-semibold">{token ? `Edit ${token.name}` : "Add Token"}</h2><p className="mt-1 text-sm text-white/45">Simulation-only wallet data.</p></div><button type="button" onClick={onClose} aria-label="Close token editor"><X className="h-6 w-6" /></button></div><form onSubmit={submit} className="mt-7 space-y-3">{(["name", "symbol", "price", "balance", "change24h", "image"] as (keyof TokenForm)[]).map((field) => <label key={field} className="block rounded-2xl bg-[#29292b] px-4 py-3 text-sm text-white/55"><span>{field === "change24h" ? "24h %" : field === "image" ? "Image URL" : field[0].toUpperCase() + field.slice(1)}</span><input type={field === "price" || field === "balance" || field === "change24h" ? "number" : field === "image" ? "url" : "text"} inputMode={field === "price" || field === "balance" || field === "change24h" ? "decimal" : undefined} value={form[field] ?? ""} onChange={(event) => update(field, event.target.value)} className="mt-1 block w-full bg-transparent text-[17px] text-white outline-none" /></label>)}{error ? <p className="rounded-xl bg-[#f21b3f]/15 px-4 py-3 text-sm text-[#ff91a2]">{error}</p> : null}<div className="flex gap-3 pt-3"><button type="button" onClick={onClose} className="flex-1 rounded-full bg-[#29292b] px-4 py-4 text-[17px] text-white/70">Cancel</button><button type="submit" className="flex-1 rounded-full bg-[#a295f3] px-4 py-4 text-[17px] font-medium text-black">Save Token</button></div></form></section></div>;
+  return <div className="absolute inset-0 z-[60] flex items-end justify-center bg-black/75 px-3 pb-3 backdrop-blur-sm sm:items-center"><section className="max-h-[92svh] w-full max-w-[510px] overflow-y-auto rounded-[2rem] bg-[#1d1d1f] p-6" aria-label={token ? `Edit ${token.name}` : "Add token"}><div className="flex items-center justify-between"><div><h2 className="text-[22px] font-semibold">{token ? `Edit ${token.name}` : "Add Token"}</h2><p className="mt-1 text-sm text-white/45">Portfolio data is stored for this wallet.</p></div><button type="button" onClick={onClose} aria-label="Close token editor"><X className="h-6 w-6" /></button></div><form onSubmit={submit} className="mt-7 space-y-3">{(["name", "symbol", "price", "balance", "change24h", "image"] as (keyof TokenForm)[]).map((field) => <label key={field} className="block rounded-2xl bg-[#29292b] px-4 py-3 text-sm text-white/55"><span>{field === "change24h" ? "24h %" : field === "image" ? "Image URL" : field[0].toUpperCase() + field.slice(1)}</span><input type={field === "price" || field === "balance" || field === "change24h" ? "number" : field === "image" ? "url" : "text"} inputMode={field === "price" || field === "balance" || field === "change24h" ? "decimal" : undefined} value={form[field] ?? ""} onChange={(event) => update(field, event.target.value)} className="mt-1 block w-full bg-transparent text-[17px] text-white outline-none" /></label>)}{error ? <p className="rounded-xl bg-[#f21b3f]/15 px-4 py-3 text-sm text-[#ff91a2]">{error}</p> : null}<div className="flex gap-3 pt-3"><button type="button" onClick={onClose} className="flex-1 rounded-full bg-[#29292b] px-4 py-4 text-[17px] text-white/70">Cancel</button><button type="submit" className="flex-1 rounded-full bg-[#a295f3] px-4 py-4 text-[17px] font-medium text-black">Save Token</button></div></form></section></div>;
 }
 
 export function DownloadWallet() {
@@ -1505,7 +1570,7 @@ export function DownloadWallet() {
     runtime.replaceCurrentBalances({ ...Object.fromEntries(updated.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     runtime.renameCurrentAccount(nextProfile.accountName);
     setView("home");
-    notify("Profile saved in simulation.");
+    notify("Profile saved.");
   };
 
   const saveEditedToken = (form: TokenForm) => {
@@ -1515,7 +1580,7 @@ export function DownloadWallet() {
     runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.id === saved.id ? saved.balance : token.balance])), [saved.symbol]: saved.balance, USD: profile.cash });
     setEditingToken(null);
     setTokenEditorOpen(false);
-    notify(`${saved.name} saved to your simulated wallet.`);
+    notify(`${saved.name} saved to your wallet.`);
   };
 
   const removeToken = (token: WalletToken) => {
@@ -1526,7 +1591,7 @@ export function DownloadWallet() {
       writeStorage(watchlistStorageKey, next);
       return next;
     });
-    notify(`${token.name} deleted from your simulated wallet.`);
+    notify(`${token.name} deleted from your wallet.`);
   };
 
   const executeMarketTrade = ({ payAsset, receiveAsset, payAmount, receiveAmount }: TradeRequest) => {
@@ -1618,7 +1683,7 @@ export function DownloadWallet() {
     runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.id === saved.id ? saved.balance : token.balance])), USD: profile.cash });
     setSelectedToken(saved);
     setView("home");
-    notify(`${formatAmount(amount)} ${saved.symbol} added to your simulated wallet.`);
+    notify(`${formatAmount(amount)} ${saved.symbol} added to your wallet.`);
   };
 
   const addCash = (amount: number) => {
@@ -1628,7 +1693,7 @@ export function DownloadWallet() {
     setProfile(nextProfile);
     runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     setView("home");
-    notify(`${formatMoney(amount)} added to your simulated cash balance.`);
+    notify(`${formatMoney(amount)} added to your cash balance.`);
   };
 
   const completeSend = () => {
@@ -1636,7 +1701,7 @@ export function DownloadWallet() {
     const amount = Number(sendAmount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > selectedToken.balance) return;
     const savedToken = saveToken({ ...selectedToken, balance: selectedToken.balance - amount });
-    const record = createTransaction({ type: "send", tokenSymbol: selectedToken.symbol, amount, counterpartyLabel: recipient || "Demo recipient", date: new Date().toISOString(), status: "completed", recipientId: recipient });
+    const record = createTransaction({ type: "send", tokenSymbol: selectedToken.symbol, amount, counterpartyLabel: recipient || "Recipient", date: new Date().toISOString(), status: "completed", recipientId: recipient });
     setTokens((current) => current.map((token) => token.id === savedToken.id ? savedToken : token));
     setRecords((current) => [record, ...current]);
     setSentRecord(record);
@@ -1652,10 +1717,13 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onNotify={notify} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
+          {view === "community" ? <CommunityScreen username={profile.username} onBack={() => setView("home")} /> : null}
+          {view === "support" ? <SupportScreen onBack={() => setView("home")} onCommunity={() => setView("community")} /> : null}
+          {view === "disclosures" ? <DisclosuresScreen onBack={() => setView("home")} /> : null}
           {view === "token-picker" ? <TokenPicker tokens={tokens} flow={flow} onClose={() => { resetSend(); setView("home"); }} onSelect={pickToken} /> : null}
           {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
           {view === "send-amount" && currentToken ? <SendAmountScreen token={currentToken} amount={sendAmount} onAmount={setSendAmount} onBack={() => setView("send-recipient")} onNext={() => setView("send-summary")} /> : null}
@@ -1666,10 +1734,10 @@ export function DownloadWallet() {
           {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
           {view === "buy" && currentToken ? <BuyScreen token={currentToken} onClose={() => { resetSend(); setView("home"); }} onBuy={buyToken} /> : null}
           {view === "perp-market" && currentPerpToken ? <PerpMarketScreen token={currentPerpToken} cashBalance={profile.cash} positions={perpPositions} onBack={() => { setView("home"); setActiveTab(perpOriginTab); }} onOpenPosition={openPerpPosition} onClosePosition={closePerpPosition} /> : null}
-          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} /> : null}
+          {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} onChat={() => { setSelectedToken(null); setView("community"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
-          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onNotice={notify} /> : null}
+          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onCommunity={() => { setDrawerOpen(false); setView("community"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onSupport={() => { setDrawerOpen(false); setView("support"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}

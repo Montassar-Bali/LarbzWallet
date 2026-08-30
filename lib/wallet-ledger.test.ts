@@ -127,7 +127,7 @@ describe("shared wallet transfer repository", () => {
   it("rejects invalid and identical destinations", () => {
     const current = repository.getState();
     const source = selectedAccount(current, "ghost");
-    expect(() => repository.executeTransfer({ clientRequestId: "bad-address", sourceWalletId: "ghost", sourceAccountId: source.id, destinationAddress: "not-an-address", tokenSymbol: "SOL", amount: 1 })).toThrow(/valid simulated address/i);
+    expect(() => repository.executeTransfer({ clientRequestId: "bad-address", sourceWalletId: "ghost", sourceAccountId: source.id, destinationAddress: "not-an-address", tokenSymbol: "SOL", amount: 1 })).toThrow(/valid wallet address/i);
     expect(() => repository.executeTransfer({ clientRequestId: "same-account", sourceWalletId: "ghost", sourceAccountId: source.id, destinationWalletId: "ghost", destinationAccountId: source.id, tokenSymbol: "SOL", amount: 1 })).toThrow(/must be different/i);
   });
 

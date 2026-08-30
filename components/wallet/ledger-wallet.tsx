@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeft,
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
@@ -10,6 +11,8 @@ import {
   Compass,
   CreditCard,
   Home,
+  Eye,
+  EyeOff,
   LineChart,
   Plus,
   Repeat2,
@@ -29,9 +32,10 @@ import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
+const LEDGER_FEATURES_KEY = "larpz_ledger_features";
 
-  const portfolioSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
-  const ledgerLiveSymbols = liveMarketSymbols;
+const portfolioSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
+const ledgerLiveSymbols = liveMarketSymbols;
 
 const ledgerDefaults: Record<
   string,
@@ -62,9 +66,20 @@ const currencies = [
 ] as const;
 
 type CurrencyCode = (typeof currencies)[number]["code"];
-type LedgerView = "home" | "assets" | "history";
+type LedgerView = "home" | "assets" | "history" | "market" | "swap" | "earn" | "card";
 type BottomTab = "Home" | "Swap" | "Earn" | "Card";
 type TransactionType = "receive" | "send";
+type LedgerFeatures = {
+  earnPositions: Record<string, number>;
+  cardFrozen: boolean;
+  cardLimit: number;
+};
+
+const defaultLedgerFeatures: LedgerFeatures = {
+  earnPositions: {},
+  cardFrozen: false,
+  cardLimit: 500,
+};
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -205,9 +220,9 @@ function ActionButton({
   );
 }
 
-function MarketCard({ symbol, change, mood = false, viewAll = false }: { symbol: string; change: string; mood?: boolean; viewAll?: boolean }) {
+function MarketCard({ symbol, change, mood = false, viewAll = false, onClick }: { symbol: string; change: string; mood?: boolean; viewAll?: boolean; onClick: () => void }) {
   return (
-    <div className="flex h-[clamp(6rem,25vw,6.5rem)] min-w-[clamp(6rem,25vw,6.5rem)] snap-start flex-col items-center justify-center rounded-2xl bg-[#171717] px-3 text-center">
+    <button type="button" onClick={onClick} className="flex h-[clamp(6rem,25vw,6.5rem)] min-w-[clamp(6rem,25vw,6.5rem)] snap-start flex-col items-center justify-center rounded-2xl bg-[#171717] px-3 text-center transition hover:bg-[#242424] active:scale-[0.98]">
       {viewAll ? (
         <>
           <span className="mb-2 flex size-9 items-center justify-center rounded-full bg-[#383838] text-white/70"><ChevronRight size={18} /></span>
@@ -228,7 +243,7 @@ function MarketCard({ symbol, change, mood = false, viewAll = false }: { symbol:
           </span>
         </>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -523,7 +538,8 @@ function HomeScreen({
   total,
   onEdit,
   onTransaction,
-  onNotice,
+  onExplore,
+  onSwap,
   onAssets,
   onHistory,
   onAccounts,
@@ -536,7 +552,8 @@ function HomeScreen({
   total: number;
   onEdit: () => void;
   onTransaction: (type: TransactionType) => void;
-  onNotice: (message: string) => void;
+  onExplore: () => void;
+  onSwap: () => void;
   onAssets: () => void;
   onHistory: () => void;
   onAccounts: () => void;
@@ -555,8 +572,8 @@ function HomeScreen({
         <div className="relative flex items-center justify-between px-1">
           <IconButton icon={Wallet} label="Edit portfolio" onClick={onEdit} />
           <div className="flex gap-2">
-            <IconButton icon={Compass} label="Explore" onClick={() => onNotice("Market explorer is simulated in this wallet.")} />
-            <IconButton icon={Bell} label="Notifications" onClick={() => onNotice("No new simulated notifications.")} />
+            <IconButton icon={Compass} label="Explore" onClick={onExplore} />
+            <IconButton icon={Bell} label="Notifications" onClick={onHistory} />
             <IconButton icon={Settings} label="Edit portfolio" onClick={onEdit} />
           </div>
         </div>
@@ -564,13 +581,13 @@ function HomeScreen({
         <div className="relative px-1 pb-3 pt-9 text-center">
           <div className="relative mb-4 flex justify-center">
             <span className="rounded-full border border-[#a995f2]/25 bg-[#a995f2]/10 px-2.5 py-1 text-[0.58rem] font-bold tracking-[0.14em] text-[#c9bbff]">
-              SIMULATOR / LOCAL ONLY
+              Demo · No real funds
             </span>
           </div>
           <div className="flex items-end justify-center gap-1 overflow-hidden">
             <span className="truncate text-[clamp(2rem,10.5vw,4.3rem)] font-bold leading-none tracking-[-0.07em]">{formatMoney(total, currency)}</span>
           </div>
-          <button type="button" onClick={() => onNotice("Portfolio change is calculated from your simulated asset values.")} className="mt-5 rounded-full bg-[#4a484b] px-5 py-2 text-sm font-bold text-white/80 transition hover:bg-[#5a575b]">
+          <button type="button" onClick={onAssets} className="mt-5 rounded-full bg-[#4a484b] px-5 py-2 text-sm font-bold text-white/80 transition hover:bg-[#5a575b]">
             {change >= 0 ? "+" : ""}{change.toFixed(2)}% · Today <ChevronRight className="ml-1 inline-block" size={17} />
           </button>
         </div>
@@ -578,21 +595,21 @@ function HomeScreen({
 
       <section className="grid grid-cols-3 gap-3">
         <ActionButton icon={ArrowDownUp} label="Transfer" onClick={() => onTransaction("send")} />
-        <ActionButton icon={Repeat2} label="Swap" onClick={() => onNotice("Swap preview is available in this simulated wallet.")} />
+        <ActionButton icon={Repeat2} label="Swap" onClick={onSwap} />
         <ActionButton icon={Plus} label="Buy" onClick={() => onTransaction("receive")} />
       </section>
 
       <section>
-        <button type="button" onClick={() => onNotice("Market data is simulated for presentation.")} className="mb-3 flex items-center gap-1 text-left text-[clamp(1.2rem,5vw,1.55rem)] font-bold">Explore the market <ChevronRight size={22} /></button>
+        <button type="button" onClick={onExplore} className="mb-3 flex items-center gap-1 text-left text-[clamp(1.2rem,5vw,1.55rem)] font-bold">Explore the market <ChevronRight size={22} /></button>
         <div className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <MarketCard symbol="Mood" change="Neutral" mood />
-          <MarketCard symbol="View All" change="" viewAll />
+          <MarketCard symbol="Mood" change="Neutral" mood onClick={onExplore} />
+          <MarketCard symbol="View All" change="" viewAll onClick={onExplore} />
           {total > 0 ? (
             <>
-              <MarketCard symbol="FLR" change="+4.77%" />
-              <MarketCard symbol="CHZ" change="+2.10%" />
-              <MarketCard symbol="HYPE" change="+0.39%" />
-              <MarketCard symbol="SUI" change="-1.08%" />
+              <MarketCard symbol="FLR" change="+4.77%" onClick={onExplore} />
+              <MarketCard symbol="CHZ" change="+2.10%" onClick={onExplore} />
+              <MarketCard symbol="HYPE" change="+0.39%" onClick={onExplore} />
+              <MarketCard symbol="SUI" change="-1.08%" onClick={onExplore} />
             </>
           ) : null}
         </div>
@@ -619,6 +636,196 @@ function HomeScreen({
   );
 }
 
+function ScreenHeader({ eyebrow, title, onHome }: { eyebrow: string; title: string; onHome: () => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <button type="button" onClick={onHome} aria-label="Back to Ledger home" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white transition hover:bg-white/[0.14]">
+        <ArrowLeft size={21} />
+      </button>
+      <div className="min-w-0">
+        <p className="text-xs font-bold tracking-[0.18em] text-white/45">{eyebrow}</p>
+        <h1 className="mt-1 truncate text-3xl font-bold">{title}</h1>
+      </div>
+    </div>
+  );
+}
+
+function MarketScreen({ tokens, currency, rate, onToken, onHome }: { tokens: WalletToken[]; currency: CurrencyCode; rate: number; onToken: (token: WalletToken) => void; onHome: () => void }) {
+  const movers = [...tokens].sort((a, b) => b.change24h - a.change24h || b.price - a.price);
+
+  return (
+    <main className="space-y-6 px-4 pb-28 pt-6 sm:px-7">
+      <ScreenHeader eyebrow="MARKETS" title="Explore" onHome={onHome} />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-gradient-to-br from-[#583b8d] to-[#21192f] p-4">
+          <Compass className="text-[#c7b7ff]" size={24} />
+          <p className="mt-8 text-sm font-bold text-white/60">Top mover</p>
+          <p className="mt-1 text-2xl font-bold">{movers[0]?.symbol ?? "—"}</p>
+          <p className="mt-1 text-sm font-bold text-[#73d27f]">{movers[0] ? `${movers[0].change24h >= 0 ? "+" : ""}${movers[0].change24h.toFixed(2)}%` : "—"}</p>
+        </div>
+        <div className="rounded-2xl bg-gradient-to-br from-[#432431] to-[#21191e] p-4">
+          <LineChart className="text-[#f0a7ca]" size={24} />
+          <p className="mt-8 text-sm font-bold text-white/60">Assets tracked</p>
+          <p className="mt-1 text-2xl font-bold">{tokens.length}</p>
+          <p className="mt-1 text-sm text-white/50">Live prices</p>
+        </div>
+      </div>
+      <section>
+        <h2 className="mb-3 text-lg font-bold">Market assets</h2>
+        <div className="space-y-1 rounded-2xl bg-white/[0.025] p-3">
+          {movers.map((token) => <AssetRow key={token.id} token={{ ...token, balance: 1 }} currency={currency} rate={rate} onClick={() => onToken(token)} />)}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function SwapScreen({ tokens, currency, initialFrom, onHome, onSwap }: { tokens: WalletToken[]; currency: CurrencyCode; initialFrom?: string; onHome: () => void; onSwap: (from: string, to: string, amount: number) => boolean }) {
+  const tradable = tokens.filter((token) => token.price > 0);
+  const defaultFrom = tokenForSymbol(tradable, initialFrom ?? "") ?? tokenForSymbol(tradable, "BTC") ?? tradable[0];
+  const defaultTo = tokenForSymbol(tradable, defaultFrom?.symbol === "SOL" ? "ETH" : "SOL") ?? tradable.find((token) => token.symbol !== defaultFrom?.symbol) ?? defaultFrom;
+  const [from, setFrom] = useState(defaultFrom?.symbol ?? "");
+  const [to, setTo] = useState(defaultTo?.symbol ?? "");
+  const [amount, setAmount] = useState("");
+  const fromToken = tokenForSymbol(tradable, from) ?? defaultFrom;
+  const toToken = tokenForSymbol(tradable, to) ?? defaultTo;
+  const numericAmount = Number(amount);
+  const output = fromToken && toToken && Number.isFinite(numericAmount) && numericAmount > 0
+    ? numericAmount * fromToken.price / toToken.price * 0.997
+    : 0;
+  const canSwap = Boolean(fromToken && toToken && fromToken.symbol !== toToken.symbol && numericAmount > 0 && numericAmount <= fromToken.balance);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!fromToken || !toToken || !canSwap) return;
+    if (onSwap(fromToken.symbol, toToken.symbol, numericAmount)) setAmount("");
+  }
+
+  return (
+    <main className="space-y-6 px-4 pb-28 pt-6 sm:px-7">
+      <ScreenHeader eyebrow="EXCHANGE" title="Swap" onHome={onHome} />
+      <form onSubmit={submit} className="space-y-3">
+        <section className="rounded-3xl border border-white/8 bg-[#171717] p-5">
+          <div className="flex items-center justify-between text-sm font-semibold text-white/55"><span>You pay</span><button type="button" onClick={() => setAmount(String(fromToken?.balance ?? 0))} className="text-[#b8a5ff]">Max</button></div>
+          <div className="mt-4 flex items-center gap-3">
+            <input aria-label="Swap amount" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" className="min-w-0 flex-1 bg-transparent text-4xl font-bold outline-none placeholder:text-white/20" />
+            <select aria-label="Token to pay" value={fromToken?.symbol ?? ""} onChange={(event) => setFrom(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 font-bold outline-none">
+              {tradable.map((token) => <option key={token.symbol} value={token.symbol} disabled={token.symbol === toToken?.symbol}>{token.symbol}</option>)}
+            </select>
+          </div>
+          <p className="mt-4 text-sm text-white/45">Available: {formatAmount(fromToken?.balance ?? 0, fromToken?.symbol ?? "")} {fromToken?.symbol}</p>
+        </section>
+
+        <div className="relative z-10 flex h-0 justify-center">
+          <button type="button" aria-label="Switch swap tokens" onClick={() => { setFrom(toToken?.symbol ?? from); setTo(fromToken?.symbol ?? to); }} className="flex size-12 -translate-y-1/2 items-center justify-center rounded-full border-4 border-black bg-[#a995f2] text-black transition active:scale-95"><ArrowDownUp size={21} /></button>
+        </div>
+
+        <section className="rounded-3xl border border-white/8 bg-[#171717] p-5">
+          <p className="text-sm font-semibold text-white/55">You receive</p>
+          <div className="mt-4 flex items-center gap-3">
+            <p className="min-w-0 flex-1 truncate text-4xl font-bold">{output > 0 ? formatAmount(output, toToken?.symbol ?? "") : "0"}</p>
+            <select aria-label="Token to receive" value={toToken?.symbol ?? ""} onChange={(event) => setTo(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 font-bold outline-none">
+              {tradable.map((token) => <option key={token.symbol} value={token.symbol} disabled={token.symbol === fromToken?.symbol}>{token.symbol}</option>)}
+            </select>
+          </div>
+          <p className="mt-4 text-sm text-white/45">{toToken ? formatMoney(output * toToken.price, currency) : "—"} · 0.3% exchange fee</p>
+        </section>
+
+        <button type="submit" disabled={!canSwap} className="w-full rounded-2xl bg-[#b8a5ff] py-4 text-base font-bold text-[#15101e] transition enabled:hover:bg-[#c8baff] disabled:cursor-not-allowed disabled:opacity-35">
+          {!numericAmount ? "Enter an amount" : numericAmount > (fromToken?.balance ?? 0) ? "Insufficient balance" : "Review swap"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function EarnScreen({ tokens, positions, onHome, onStart, onWithdraw }: { tokens: WalletToken[]; positions: Record<string, number>; onHome: () => void; onStart: (symbol: string, amount: number) => boolean; onWithdraw: (symbol: string) => void }) {
+  const eligible = tokens.filter((token) => token.price > 0);
+  const firstAvailable = eligible.find((token) => token.balance > 0) ?? eligible[0];
+  const [symbol, setSymbol] = useState(firstAvailable?.symbol ?? "");
+  const [amount, setAmount] = useState("");
+  const token = tokenForSymbol(eligible, symbol) ?? firstAvailable;
+  const activePositions = Object.entries(positions).filter(([, value]) => value > 0);
+  const annualRate = symbol === "USDT" || symbol === "USDC" ? 4.8 : symbol === "SOL" ? 6.1 : 3.2;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const numericAmount = Number(amount);
+    if (token && onStart(token.symbol, numericAmount)) setAmount("");
+  }
+
+  return (
+    <main className="space-y-6 px-4 pb-28 pt-6 sm:px-7">
+      <ScreenHeader eyebrow="REWARDS" title="Earn" onHome={onHome} />
+      {activePositions.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="text-sm font-bold text-white/55">YOUR POSITIONS</h2>
+          {activePositions.map(([positionSymbol, positionAmount]) => (
+            <div key={positionSymbol} className="flex items-center gap-3 rounded-2xl bg-[#171717] p-4">
+              <TokenIcon symbol={positionSymbol} small />
+              <div className="min-w-0 flex-1"><p className="font-bold">{positionSymbol}</p><p className="text-sm text-white/50">{formatAmount(positionAmount, positionSymbol)} earning</p></div>
+              <button type="button" onClick={() => onWithdraw(positionSymbol)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-bold">Withdraw</button>
+            </div>
+          ))}
+        </section>
+      ) : null}
+      <form onSubmit={submit} className="rounded-3xl border border-white/8 bg-[#171717] p-5">
+        <div className="flex items-center justify-between"><p className="font-bold">Start earning</p><span className="rounded-full bg-[#2d5237] px-3 py-1 text-xs font-bold text-[#82dc91]">{annualRate.toFixed(1)}% APY</span></div>
+        <select aria-label="Asset to earn" value={token?.symbol ?? ""} onChange={(event) => setSymbol(event.target.value)} className="mt-5 w-full rounded-xl border border-white/8 bg-[#292929] px-4 py-3 font-bold outline-none">
+          {eligible.map((item) => <option key={item.symbol} value={item.symbol}>{item.name} ({item.symbol})</option>)}
+        </select>
+        <div className="mt-3 flex items-center rounded-xl border border-white/8 bg-[#292929] pr-3 focus-within:border-[#a995f2]">
+          <input aria-label="Amount to earn" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" className="min-w-0 flex-1 bg-transparent px-4 py-4 text-xl font-bold outline-none" />
+          <button type="button" onClick={() => setAmount(String(token?.balance ?? 0))} className="text-sm font-bold text-[#b8a5ff]">MAX</button>
+        </div>
+        <p className="mt-3 text-sm text-white/45">Available: {formatAmount(token?.balance ?? 0, token?.symbol ?? "")} {token?.symbol}</p>
+        <button type="submit" className="mt-5 w-full rounded-2xl bg-[#b8a5ff] py-4 font-bold text-[#15101e]">Start earning</button>
+      </form>
+    </main>
+  );
+}
+
+function CardScreen({ total, currency, frozen, limit, records, onHome, onToggleFrozen, onSaveLimit, onHistory }: { total: number; currency: CurrencyCode; frozen: boolean; limit: number; records: WalletActivity[]; onHome: () => void; onToggleFrozen: () => void; onSaveLimit: (limit: number) => void; onHistory: () => void }) {
+  const [showNumber, setShowNumber] = useState(false);
+  const [draftLimit, setDraftLimit] = useState(String(limit));
+
+  return (
+    <main className="space-y-6 px-4 pb-28 pt-6 sm:px-7">
+      <ScreenHeader eyebrow="LEDGER CARD" title="Card" onHome={onHome} />
+      <section className="relative overflow-hidden rounded-[2rem] border border-white/15 bg-gradient-to-br from-[#b8a5ff] via-[#735fa9] to-[#282033] p-6 text-[#17111f] shadow-2xl">
+        <div className="absolute -right-10 -top-10 size-40 rounded-full bg-white/15 blur-2xl" />
+        <div className="relative flex items-start justify-between"><p className="text-lg font-black tracking-[0.12em]">LEDGER</p><CreditCard size={28} /></div>
+        <p className="relative mt-16 text-xl font-bold tracking-[0.18em]">{showNumber ? "5412  8940  2731  4242" : "••••  ••••  ••••  4242"}</p>
+        <div className="relative mt-7 flex items-end justify-between"><div><p className="text-[0.62rem] font-bold opacity-60">AVAILABLE</p><p className="mt-1 text-lg font-black">{formatMoney(total, currency)}</p></div><span className="rounded-full bg-black/15 px-3 py-1 text-xs font-bold">{frozen ? "FROZEN" : "ACTIVE"}</span></div>
+      </section>
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={() => setShowNumber((current) => !current)} className="flex items-center justify-center gap-2 rounded-2xl bg-[#171717] py-4 text-sm font-bold">{showNumber ? <EyeOff size={19} /> : <Eye size={19} />}{showNumber ? "Hide details" : "Show details"}</button>
+        <button type="button" onClick={onToggleFrozen} className="rounded-2xl bg-[#171717] py-4 text-sm font-bold">{frozen ? "Unfreeze card" : "Freeze card"}</button>
+      </div>
+      <section className="rounded-2xl bg-[#171717] p-5">
+        <label className="text-sm font-bold text-white/60" htmlFor="ledger-card-limit">Monthly spending limit</label>
+        <div className="mt-3 flex gap-2"><input id="ledger-card-limit" type="number" min="0" step="10" value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-white/8 bg-[#292929] px-4 py-3 outline-none focus:border-[#a995f2]" /><button type="button" onClick={() => onSaveLimit(Math.max(0, Number(draftLimit) || 0))} className="rounded-xl bg-[#b8a5ff] px-5 font-bold text-[#15101e]">Save</button></div>
+        <p className="mt-3 text-xs text-white/45">Current limit: {formatMoney(limit, currency)}</p>
+      </section>
+      <button type="button" onClick={onHistory} className="flex w-full items-center justify-between rounded-2xl bg-[#171717] px-5 py-4 text-left"><span><span className="block font-bold">Card activity</span><span className="mt-1 block text-sm text-white/45">{records.length} wallet transactions</span></span><ChevronRight size={20} /></button>
+    </main>
+  );
+}
+
+function TokenDetailModal({ token, currency, rate, onClose, onTransfer, onReceive, onSwap }: { token: WalletToken; currency: CurrencyCode; rate: number; onClose: () => void; onTransfer: () => void; onReceive: () => void; onSwap: () => void }) {
+  const value = token.balance * token.price * rate;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <section className="w-full max-w-[520px] rounded-t-[2rem] border border-white/10 bg-[#171717] p-6 pb-8 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-3"><TokenIcon symbol={token.symbol} /><div><h2 className="text-xl font-bold">{token.name}</h2><p className="text-sm text-white/45">{token.symbol}</p></div></div><button type="button" aria-label="Close asset details" onClick={onClose} className="flex size-10 items-center justify-center rounded-full bg-white/[0.08]"><X size={20} /></button></div>
+        <div className="mt-8 rounded-2xl bg-black/25 p-5"><p className="text-sm text-white/50">Your balance</p><p className="mt-2 text-3xl font-bold">{formatAmount(token.balance, token.symbol)} {token.symbol}</p><p className="mt-2 text-lg text-white/60">{formatMoney(value, currency)}</p></div>
+        <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-black/25 p-4"><div><p className="text-xs text-white/45">PRICE</p><p className="mt-1 font-bold">{formatMoney(token.price * rate, currency)}</p></div><div><p className="text-xs text-white/45">24H CHANGE</p><p className={`mt-1 font-bold ${token.change24h >= 0 ? "text-[#73d27f]" : "text-[#d87888]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</p></div></div>
+        <div className="mt-5 grid grid-cols-3 gap-2"><button type="button" onClick={onTransfer} className="rounded-xl bg-[#292929] py-3 text-sm font-bold">Transfer</button><button type="button" onClick={onReceive} className="rounded-xl bg-[#292929] py-3 text-sm font-bold">Buy</button><button type="button" onClick={onSwap} className="rounded-xl bg-[#b8a5ff] py-3 text-sm font-bold text-[#15101e]">Swap</button></div>
+      </section>
+    </div>
+  );
+}
+
 function AssetsScreen({ tokens, currency, rate, onToken, onHome }: { tokens: WalletToken[]; currency: CurrencyCode; rate: number; onToken: (token: WalletToken) => void; onHome: () => void }) {
   return (
     <main className="space-y-5 px-4 pb-28 pt-6 sm:px-7">
@@ -639,7 +846,7 @@ function HistoryScreen({ records, tokens, currency, rate, onHome, onAdd }: { rec
   return (
     <main className="space-y-5 px-4 pb-28 pt-6 sm:px-7">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold tracking-[0.18em] text-white/45">ACTIVITY</p><h1 className="mt-1 text-3xl font-bold">Transaction history</h1></div><button type="button" onClick={onAdd} className="flex size-11 items-center justify-center rounded-full bg-[#a995f2] text-black"><Plus size={22} /></button></div>
-      {Object.keys(groups).length > 0 ? Object.entries(groups).map(([date, items]) => <section key={date}><div className="rounded-xl bg-[#292929] px-4 py-3 text-sm font-bold text-white/70">{date}</div><div className="divide-y divide-white/8">{items.map((record) => <HistoryRow key={record.id} record={record} currency={currency} rate={rate} tokens={tokens} />)}</div></section>) : <p className="rounded-xl bg-white/[0.04] px-4 py-5 text-sm text-white/50">No simulated transactions yet.</p>}
+      {Object.keys(groups).length > 0 ? Object.entries(groups).map(([date, items]) => <section key={date}><div className="rounded-xl bg-[#292929] px-4 py-3 text-sm font-bold text-white/70">{date}</div><div className="divide-y divide-white/8">{items.map((record) => <HistoryRow key={record.id} record={record} currency={currency} rate={rate} tokens={tokens} />)}</div></section>) : <p className="rounded-xl bg-white/[0.04] px-4 py-5 text-sm text-white/50">No transactions yet.</p>}
       <button type="button" onClick={onHome} className="w-full rounded-full border border-white/25 py-3 text-sm font-bold">Back to home</button>
     </main>
   );
@@ -663,6 +870,9 @@ export function LedgerWallet() {
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDate, setTransactionDate] = useState("");
   const [transactionTime, setTransactionTime] = useState("");
+  const [selectedToken, setSelectedToken] = useState<WalletToken | null>(null);
+  const [preferredSwapSymbol, setPreferredSwapSymbol] = useState<string>();
+  const [features, setFeatures] = useState<LedgerFeatures>(defaultLedgerFeatures);
   const [notice, setNotice] = useState("");
 
   useLivePrices(ledgerLiveSymbols, (prices, changes) => {
@@ -703,8 +913,17 @@ export function LedgerWallet() {
     return () => window.clearTimeout(timeoutId);
   }, [runtime.currentAccount, runtime.state]);
 
+  useEffect(() => {
+    if (!runtime.currentAccount) return;
+    const accountId = runtime.currentAccount.id;
+    const timeoutId = window.setTimeout(() => {
+      setFeatures(readStorage<LedgerFeatures>(`${LEDGER_FEATURES_KEY}:${accountId}`, defaultLedgerFeatures));
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [runtime.currentAccount]);
+
   const selectedCurrency = currencies.find((item) => item.code === currency) ?? currencies[0];
-  const total = tokens.reduce((sum, token) => sum + token.balance * token.price * selectedCurrency.rate, 0);
+  const total = tokens.reduce((sum, token) => sum + (token.balance + (features.earnPositions[token.symbol] ?? 0)) * token.price * selectedCurrency.rate, 0);
 
   function notify(message: string) {
     setNotice(message);
@@ -717,6 +936,29 @@ export function LedgerWallet() {
     writeStorage(LEDGER_TOKENS_KEY, normalized);
   }
 
+  function persistFeatures(next: LedgerFeatures) {
+    setFeatures(next);
+    const accountId = runtime.currentAccount?.id;
+    if (accountId) writeStorage(`${LEDGER_FEATURES_KEY}:${accountId}`, next);
+  }
+
+  function updateRuntimeBalances(next: WalletToken[]) {
+    persistTokens(next);
+    runtime.replaceCurrentBalances(Object.fromEntries(next.map((token) => [token.symbol, token.balance])));
+  }
+
+  function goHome() {
+    setView("home");
+    setActiveTab("Home");
+  }
+
+  function openSwap(symbol?: string) {
+    setSelectedToken(null);
+    setPreferredSwapSymbol(symbol);
+    setView("swap");
+    setActiveTab("Swap");
+  }
+
   function openPortfolio() {
     const values: Record<string, string> = {};
     for (const symbol of portfolioSymbols) values[symbol] = String(tokenForSymbol(tokens, symbol)?.balance ?? 0);
@@ -726,8 +968,7 @@ export function LedgerWallet() {
 
   function savePortfolio() {
     const next = tokens.map((token) => portfolioSymbols.includes(token.symbol) && editValues[token.symbol] !== undefined ? { ...token, balance: Math.max(0, Number(editValues[token.symbol]) || 0) } : token);
-    persistTokens(next);
-    runtime.replaceCurrentBalances(Object.fromEntries(next.map((token) => [token.symbol, token.balance])));
+    updateRuntimeBalances(next);
     setPortfolioOpen(false);
     notify("Portfolio saved");
   }
@@ -744,7 +985,9 @@ export function LedgerWallet() {
       image: "",
       updatedAt: new Date().toISOString(),
     };
-    persistTokens(existing ? tokens.map((item) => item.id === existing.id ? token : item) : [...tokens, token]);
+    const nextTokens = existing ? tokens.map((item) => item.id === existing.id ? token : item) : [...tokens, token];
+    runtime.updateMarketAssets(nextTokens);
+    updateRuntimeBalances(nextTokens);
     setCustomTokenOpen(false);
     notify(`${input.symbol} added to portfolio`);
   }
@@ -769,10 +1012,10 @@ export function LedgerWallet() {
       type: transactionType,
       tokenSymbol: transactionCrypto,
       amount,
-      counterpartyLabel: transactionType === "receive" ? "Demo sender" : "Demo recipient",
+      counterpartyLabel: transactionType === "receive" ? "Manual sender" : "Manual recipient",
       date,
       status: "completed",
-      note: "SIMULATED TRANSACTION",
+      note: "MANUAL TRANSACTION",
     };
     const nextRecords = [record, ...records];
     setRecords(nextRecords);
@@ -792,17 +1035,90 @@ export function LedgerWallet() {
     notify("Transaction history cleared");
   }
 
+  function completeSwap(fromSymbol: string, toSymbol: string, amount: number) {
+    const fromToken = tokenForSymbol(tokens, fromSymbol);
+    const toToken = tokenForSymbol(tokens, toSymbol);
+    if (!fromToken || !toToken || fromSymbol === toSymbol || !Number.isFinite(amount) || amount <= 0) {
+      notify("Choose two different assets and enter a valid amount");
+      return false;
+    }
+    if (amount > fromToken.balance) {
+      notify(`Not enough ${fromSymbol}`);
+      return false;
+    }
+
+    const received = amount * fromToken.price / toToken.price * 0.997;
+    const nextTokens = tokens.map((token) => {
+      if (token.symbol === fromSymbol) return { ...token, balance: token.balance - amount };
+      if (token.symbol === toSymbol) return { ...token, balance: token.balance + received };
+      return token;
+    });
+    updateRuntimeBalances(nextTokens);
+
+    const timestamp = new Date().toISOString();
+    const nextRecords: WalletActivity[] = [
+      { id: createId("ledger-swap-in"), type: "receive", tokenSymbol: toSymbol, amount: received, counterpartyLabel: `${fromSymbol} swap`, date: timestamp, status: "completed", note: "TOKEN SWAP" },
+      { id: createId("ledger-swap-out"), type: "send", tokenSymbol: fromSymbol, amount, counterpartyLabel: `${toSymbol} swap`, date: timestamp, status: "completed", note: "TOKEN SWAP" },
+      ...records,
+    ];
+    setRecords(nextRecords);
+    writeStorage(LEDGER_TRANSACTIONS_KEY, nextRecords);
+    notify(`Swapped ${formatAmount(amount, fromSymbol)} ${fromSymbol} for ${formatAmount(received, toSymbol)} ${toSymbol}`);
+    return true;
+  }
+
+  function startEarning(symbol: string, amount: number) {
+    const token = tokenForSymbol(tokens, symbol);
+    if (!token || !Number.isFinite(amount) || amount <= 0) {
+      notify("Enter an amount greater than zero");
+      return false;
+    }
+    if (amount > token.balance) {
+      notify(`Not enough ${symbol}`);
+      return false;
+    }
+    updateRuntimeBalances(tokens.map((item) => item.symbol === symbol ? { ...item, balance: item.balance - amount } : item));
+    persistFeatures({ ...features, earnPositions: { ...features.earnPositions, [symbol]: (features.earnPositions[symbol] ?? 0) + amount } });
+    notify(`${formatAmount(amount, symbol)} ${symbol} moved to Earn`);
+    return true;
+  }
+
+  function withdrawEarnings(symbol: string) {
+    const amount = features.earnPositions[symbol] ?? 0;
+    if (amount <= 0) return;
+    const token = tokenForSymbol(tokens, symbol);
+    if (!token) {
+      notify(`${symbol} is not available in this account`);
+      return;
+    }
+    updateRuntimeBalances(tokens.map((item) => item.symbol === symbol ? { ...item, balance: item.balance + amount } : item));
+    persistFeatures({ ...features, earnPositions: { ...features.earnPositions, [symbol]: 0 } });
+    notify(`${formatAmount(amount, symbol)} ${symbol} returned to your balance`);
+  }
+
+  function toggleCardFrozen() {
+    const next = { ...features, cardFrozen: !features.cardFrozen };
+    persistFeatures(next);
+    notify(next.cardFrozen ? "Card frozen" : "Card active");
+  }
+
+  function saveCardLimit(limit: number) {
+    persistFeatures({ ...features, cardLimit: limit });
+    notify("Spending limit saved");
+  }
+
   function changeBottomTab(tab: BottomTab) {
     setActiveTab(tab);
     if (tab === "Home") {
-      setView("home");
+      goHome();
       return;
     }
     if (tab === "Swap") {
-      notify("Swap preview is available in this simulated wallet.");
+      setPreferredSwapSymbol(undefined);
+      setView("swap");
       return;
     }
-    notify(`${tab} is available as a simulated Ledger tab.`);
+    setView(tab === "Earn" ? "earn" : "card");
   }
 
   return (
@@ -810,9 +1126,13 @@ export function LedgerWallet() {
       <div className="relative mx-auto min-h-[100dvh] max-w-[560px] overflow-hidden bg-black">
         <div className="pointer-events-none fixed inset-0 mx-auto max-w-[560px] opacity-80" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(91, 37, 128, .25), transparent 28%), radial-gradient(circle at 90% 65%, rgba(65, 24, 103, .18), transparent 30%)" }} />
         <div className="relative">
-          {view === "home" ? <HomeScreen tokens={tokens} records={records} currency={currency} rate={selectedCurrency.rate} total={total} onEdit={openPortfolio} onTransaction={openTransaction} onNotice={notify} onAssets={() => setView("assets")} onHistory={runtime.openHistory} onAccounts={runtime.openAccounts} onToken={(token) => notify(`${token.name} selected`)} /> : null}
-          {view === "assets" ? <AssetsScreen tokens={tokens} currency={currency} rate={selectedCurrency.rate} onToken={(token) => notify(`${token.name} selected`)} onHome={() => setView("home")} /> : null}
-          {view === "history" ? <HistoryScreen records={records} tokens={tokens} currency={currency} rate={selectedCurrency.rate} onHome={() => setView("home")} onAdd={() => openTransaction("receive")} /> : null}
+          {view === "home" ? <HomeScreen tokens={tokens} records={records} currency={currency} rate={selectedCurrency.rate} total={total} onEdit={openPortfolio} onTransaction={openTransaction} onExplore={() => setView("market")} onSwap={() => openSwap()} onAssets={() => setView("assets")} onHistory={() => setView("history")} onAccounts={runtime.openAccounts} onToken={setSelectedToken} /> : null}
+          {view === "assets" ? <AssetsScreen tokens={tokens} currency={currency} rate={selectedCurrency.rate} onToken={setSelectedToken} onHome={goHome} /> : null}
+          {view === "history" ? <HistoryScreen records={records} tokens={tokens} currency={currency} rate={selectedCurrency.rate} onHome={goHome} onAdd={() => openTransaction("receive")} /> : null}
+          {view === "market" ? <MarketScreen tokens={tokens} currency={currency} rate={selectedCurrency.rate} onToken={setSelectedToken} onHome={goHome} /> : null}
+          {view === "swap" ? <SwapScreen tokens={tokens} currency={currency} initialFrom={preferredSwapSymbol} onHome={goHome} onSwap={completeSwap} /> : null}
+          {view === "earn" ? <EarnScreen tokens={tokens} positions={features.earnPositions} onHome={goHome} onStart={startEarning} onWithdraw={withdrawEarnings} /> : null}
+          {view === "card" ? <CardScreen total={total} currency={currency} frozen={features.cardFrozen} limit={features.cardLimit} records={records} onHome={goHome} onToggleFrozen={toggleCardFrozen} onSaveLimit={saveCardLimit} onHistory={() => setView("history")} /> : null}
         </div>
 
         <BottomNav active={activeTab} onChange={changeBottomTab} />
@@ -822,6 +1142,7 @@ export function LedgerWallet() {
         {currencyOpen ? <CurrencyPicker selected={currency} onSelect={(value) => { setCurrency(value); setCurrencyOpen(false); }} onClose={() => setCurrencyOpen(false)} /> : null}
         {customTokenOpen ? <CustomTokenModal onSave={addCustomToken} onClose={() => setCustomTokenOpen(false)} /> : null}
         {transactionOpen ? <TransactionModal type={transactionType} crypto={transactionCrypto} amount={transactionAmount} date={transactionDate} time={transactionTime} tokens={tokens} onType={setTransactionType} onCrypto={setTransactionCrypto} onAmount={setTransactionAmount} onDate={setTransactionDate} onTime={setTransactionTime} onSubmit={submitTransaction} onClear={clearTransactions} onClose={() => setTransactionOpen(false)} /> : null}
+        {selectedToken ? <TokenDetailModal token={selectedToken} currency={currency} rate={selectedCurrency.rate} onClose={() => setSelectedToken(null)} onTransfer={() => { runtime.openTransfer(selectedToken.symbol); setSelectedToken(null); }} onReceive={() => { runtime.openReceive(); setSelectedToken(null); }} onSwap={() => openSwap(selectedToken.symbol)} /> : null}
       </div>
     </div>
   );

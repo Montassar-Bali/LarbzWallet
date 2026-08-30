@@ -36,7 +36,7 @@ import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
-import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
+import { tokensForWalletAccount, transactionsForAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 
 type TrustTab = "home" | "swap" | "discover" | "browser";
 type Appearance = "light" | "dark";
@@ -288,21 +288,27 @@ function WalletIdentity({
   dark,
   balanceVisible,
   onToggleBalance,
-  onNotice,
+  onAccounts,
+  onCopyAddress,
+  onReceive,
+  onShare,
 }: {
   profile: TrustProfile;
   total: number;
   dark: boolean;
   balanceVisible: boolean;
   onToggleBalance: () => void;
-  onNotice: (message: string) => void;
+  onAccounts: () => void;
+  onCopyAddress: () => void;
+  onReceive: () => void;
+  onShare: () => void;
 }) {
   return (
     <>
       <div className="mt-5 flex items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => onNotice("Wallet switcher opened in simulation mode.")}
+          onClick={onAccounts}
           className="flex min-w-0 items-center gap-2 text-left"
         >
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#4d91f7] text-lg font-black text-white shadow-lg shadow-blue-500/20">
@@ -319,15 +325,15 @@ function WalletIdentity({
         </button>
         <div className="flex items-center gap-1">
           {[
-            { label: "Copy wallet address", icon: Copy },
-            { label: "Show wallet QR", icon: QrCode },
-            { label: "Share wallet link", icon: Link2 },
-          ].map(({ label, icon: Icon }) => (
+            { label: "Copy wallet address", icon: Copy, action: onCopyAddress },
+            { label: "Show wallet QR", icon: QrCode, action: onReceive },
+            { label: "Share wallet link", icon: Link2, action: onShare },
+          ].map(({ label, icon: Icon, action }) => (
             <button
               key={label}
               type="button"
               aria-label={label}
-              onClick={() => onNotice(label + " is simulated.")}
+              onClick={action}
               className={
                 "grid h-9 w-9 place-items-center rounded-full " +
                 (dark ? "text-white/65 hover:bg-white/10" : "text-[#738096] hover:bg-[#eaf0f8]")
@@ -392,11 +398,11 @@ function ActionButton({
 function FundingBanner({
   dark,
   onDeposit,
-  onNotice,
+  onDismiss,
 }: {
   dark: boolean;
   onDeposit: () => void;
-  onNotice: (message: string) => void;
+  onDismiss: () => void;
 }) {
   return (
     <section
@@ -411,7 +417,7 @@ function FundingBanner({
       <div className="pointer-events-none absolute -bottom-8 left-16 h-24 w-24 rounded-full bg-[#a9dcff]/30 blur-2xl" />
       <button
         type="button"
-        onClick={() => onNotice("Funding banner dismissed in simulation.")}
+        onClick={onDismiss}
         aria-label="Dismiss funding banner"
         className={"absolute right-3 top-3 " + (dark ? "text-white/45" : "text-[#9aa8bb]")}
       >
@@ -424,7 +430,7 @@ function FundingBanner({
         <div className="min-w-0 pr-5">
           <p className={"text-sm font-black " + (dark ? "text-white" : "text-[#26344b]")}>Add funds from exchange</p>
           <p className={"mt-1 text-xs leading-5 " + (dark ? "text-white/55" : "text-[#738197]")}>
-            Move crypto into your simulated wallet
+            Add funds to this wallet account
           </p>
           <button
             type="button"
@@ -448,19 +454,19 @@ function ActivityPreview({
   transactions,
   dark,
   currency,
-  onNotice,
+  onSeeAll,
 }: {
   transactions: WalletActivity[];
   dark: boolean;
   currency: CurrencyCode;
-  onNotice: (message: string) => void;
+  onSeeAll: () => void;
 }) {
   return (
     <section className="mt-8">
       <SectionHeading
         dark={dark}
         action={
-          <button type="button" onClick={() => onNotice("All activity opened in simulation mode.")} className={"text-xs font-bold " + (dark ? "text-[#75aefb]" : "text-[#397dd4]")}>
+          <button type="button" onClick={onSeeAll} className={"text-xs font-bold " + (dark ? "text-[#75aefb]" : "text-[#397dd4]")}>
             See all
           </button>
         }
@@ -469,7 +475,7 @@ function ActivityPreview({
       </SectionHeading>
       <div className={"mt-2 divide-y rounded-2xl px-2 " + (dark ? "divide-white/10 bg-white/[.03]" : "divide-[#edf0f5] bg-white")}>
         {transactions.length === 0 ? (
-          <p className={"px-3 py-5 text-sm " + (dark ? "text-white/45" : "text-[#8b96a8]")}>No simulated activity yet.</p>
+          <p className={"px-3 py-5 text-sm " + (dark ? "text-white/45" : "text-[#8b96a8]")}>No activity yet.</p>
         ) : (
           transactions.slice(0, 3).map((transaction) => (
             <div key={transaction.id} className="flex items-center gap-3 py-3">
@@ -481,7 +487,7 @@ function ActivityPreview({
                   {transaction.type === "receive" ? "Received" : "Sent"} {transaction.tokenSymbol}
                 </span>
                 <span className={"block text-xs " + (dark ? "text-white/40" : "text-[#929cad]")}>
-                  {formatDate(transaction.date)} · Simulated
+                  {formatDate(transaction.date)}
                 </span>
               </span>
               <span className={"text-right text-sm font-bold " + (transaction.type === "receive" ? "text-[#2caa73]" : dark ? "text-white/75" : "text-[#59677c]")}>
@@ -508,9 +514,13 @@ function TrustHome({
   balanceVisible,
   onToggleBalance,
   onSettings,
-  onNotice,
   onSelectToken,
   onTransaction,
+  onAccounts,
+  onHistory,
+  onCopyAddress,
+  onShare,
+  onDiscover,
 }: {
   tokens: WalletToken[];
   transactions: WalletActivity[];
@@ -520,12 +530,17 @@ function TrustHome({
   balanceVisible: boolean;
   onToggleBalance: () => void;
   onSettings: () => void;
-  onNotice: (message: string) => void;
   onSelectToken: (token: WalletToken) => void;
   onTransaction: (kind: TransactionKind) => void;
+  onAccounts: () => void;
+  onHistory: () => void;
+  onCopyAddress: () => void;
+  onShare: () => void;
+  onDiscover: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [assetMode, setAssetMode] = useState<"crypto" | "nfts">("crypto");
+  const [fundingVisible, setFundingVisible] = useState(true);
   const filteredTokens = [...tokens]
     .filter((token) => {
       const normalized = query.trim().toLowerCase();
@@ -548,7 +563,7 @@ function TrustHome({
         <button
           type="button"
           aria-label="Open notifications"
-          onClick={() => onNotice("Notifications are simulated for this wallet.")}
+          onClick={onHistory}
           className={"grid h-11 w-11 place-items-center rounded-full " + (dark ? "bg-white/10 text-white" : "bg-white text-[#52627b] shadow-sm shadow-[#b7c4d5]/30")}
         >
           <Bell className="h-[19px] w-[19px]" />
@@ -568,7 +583,17 @@ function TrustHome({
           </button>
         ) : null}
       </label>
-      <WalletIdentity profile={profile} total={total} dark={dark} balanceVisible={balanceVisible} onToggleBalance={onToggleBalance} onNotice={onNotice} />
+      <WalletIdentity
+        profile={profile}
+        total={total}
+        dark={dark}
+        balanceVisible={balanceVisible}
+        onToggleBalance={onToggleBalance}
+        onAccounts={onAccounts}
+        onCopyAddress={onCopyAddress}
+        onReceive={() => onTransaction("receive")}
+        onShare={onShare}
+      />
       <div className="mt-6 flex items-start justify-between gap-2">
         {actionItems.map(({ label, icon: Icon }) => (
           <ActionButton
@@ -579,14 +604,16 @@ function TrustHome({
             onClick={() => {
               if (label === "Send" || label === "Receive") {
                 onTransaction(label.toLowerCase() as TransactionKind);
+              } else if (label === "Buy") {
+                onTransaction("receive");
               } else {
-                onNotice(label + " is available in simulation mode.");
+                onDiscover();
               }
             }}
           />
         ))}
       </div>
-      <FundingBanner dark={dark} onDeposit={() => onTransaction("receive")} onNotice={onNotice} />
+      {fundingVisible ? <FundingBanner dark={dark} onDeposit={() => onTransaction("receive")} onDismiss={() => setFundingVisible(false)} /> : null}
       <section className="mt-8">
         <div className={"flex items-center gap-7 border-b " + (dark ? "border-white/10" : "border-[#e3e9f2]")}>
           {(["crypto", "nfts"] as const).map((mode) => (
@@ -609,7 +636,7 @@ function TrustHome({
             <SectionHeading
               dark={dark}
               action={
-                <button type="button" onClick={() => onNotice("Token management is simulated.")} className={"text-xs font-bold " + (dark ? "text-[#75aefb]" : "text-[#397dd4]")}>
+                <button type="button" onClick={onSettings} className={"text-xs font-bold " + (dark ? "text-[#75aefb]" : "text-[#397dd4]")}>
                   Manage
                 </button>
               }
@@ -627,12 +654,12 @@ function TrustHome({
         ) : (
           <div className={"mt-4 rounded-3xl p-6 text-center " + (dark ? "bg-white/[.04]" : "bg-white shadow-sm shadow-[#b7c4d5]/20")}>
             <Sparkles className={"mx-auto h-8 w-8 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-            <p className={"mt-3 text-sm font-bold " + (dark ? "text-white" : "text-[#303c50]")}>No NFTs in this simulation</p>
-            <p className={"mt-1 text-xs leading-5 " + (dark ? "text-white/45" : "text-[#8b96a8]")}>NFT support is shown as a preview only.</p>
+            <p className={"mt-3 text-sm font-bold " + (dark ? "text-white" : "text-[#303c50]")}>No NFTs yet</p>
+            <p className={"mt-1 text-xs leading-5 " + (dark ? "text-white/45" : "text-[#8b96a8]")}>Collectibles added to this wallet will appear here.</p>
           </div>
         )}
       </section>
-      <ActivityPreview transactions={transactions} dark={dark} currency={profile.currency} onNotice={onNotice} />
+      <ActivityPreview transactions={transactions} dark={dark} currency={profile.currency} onSeeAll={onHistory} />
     </>
   );
 }
@@ -669,17 +696,18 @@ function WalletSelect({
 function SwapScreen({
   tokens,
   dark,
-  onNotice,
   onTransaction,
+  onSwap,
 }: {
   tokens: WalletToken[];
   dark: boolean;
-  onNotice: (message: string) => void;
   onTransaction: (kind: TransactionKind) => void;
+  onSwap: (fromSymbol: string, toSymbol: string, amount: number) => { ok: boolean; message: string };
 }) {
   const [from, setFrom] = useState(tokens[0]?.symbol ?? "USDT");
   const [to, setTo] = useState(tokens[1]?.symbol ?? "BTC");
   const [amount, setAmount] = useState("");
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const fromToken = tokens.find((token) => token.symbol === from) ?? tokens[0];
   const toToken = tokens.find((token) => token.symbol === to) ?? tokens[1] ?? tokens[0];
   const output = fromToken && toToken && Number(amount) > 0 ? (Number(amount) * fromToken.price) / Math.max(toToken.price, 0.000001) : 0;
@@ -695,7 +723,7 @@ function SwapScreen({
           <RefreshCw className="h-5 w-5" />
         </span>
       </div>
-      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Preview a swap using your simulated balances. Nothing is sent to a network.</p>
+      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Convert one asset balance into another using the latest available prices.</p>
       <div className={"mt-7 rounded-3xl p-4 " + (dark ? "bg-[#1c2129]" : "bg-white shadow-sm shadow-[#b7c4d5]/25")}>
         <label className={"text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>You pay</label>
         <div className="mt-2 flex gap-2">
@@ -720,18 +748,31 @@ function SwapScreen({
         </div>
         <div className={"mt-4 flex items-center justify-between text-xs " + (dark ? "text-white/40" : "text-[#8994a6]")}>
           <span>Rate</span>
-          <span>{fromToken && toToken ? "1 " + from + " ≈ " + formatAmount(fromToken.price / Math.max(toToken.price, 0.000001)) + " " + to : "Simulation rate"}</span>
+          <span>{fromToken && toToken ? "1 " + from + " ≈ " + formatAmount(fromToken.price / Math.max(toToken.price, 0.000001)) + " " + to : "Rate unavailable"}</span>
         </div>
       </div>
-      <button type="button" onClick={() => onNotice(output > 0 ? "Swap preview created. No real transaction was sent." : "Enter an amount to preview the swap.")} className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#4e91f5] text-sm font-black text-white shadow-lg shadow-blue-500/20">
-        Preview swap <ChevronRight className="h-4 w-4" />
+      {feedback ? (
+        <p className={"mt-4 rounded-2xl px-4 py-3 text-sm font-semibold " + (feedback.ok ? "bg-[#dff7eb] text-[#248a60]" : "bg-[#ffe7e9] text-[#c8495d]")}>
+          {feedback.message}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => {
+          const result = onSwap(from, to, Number(amount));
+          setFeedback(result);
+          if (result.ok) setAmount("");
+        }}
+        className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#4e91f5] text-sm font-black text-white shadow-lg shadow-blue-500/20"
+      >
+        Swap tokens <ChevronRight className="h-4 w-4" />
       </button>
       <button type="button" onClick={() => onTransaction("receive")} className={"mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-sm font-bold " + (dark ? "border-white/10 text-white/70" : "border-[#e1e7f0] text-[#52627b]")}>
-        Add simulated funds <Plus className="h-4 w-4" />
+        Add funds <Plus className="h-4 w-4" />
       </button>
       <div className={"mt-6 flex gap-3 rounded-2xl p-4 text-xs leading-5 " + (dark ? "bg-[#1c2129] text-white/45" : "bg-white text-[#7f8a9d] shadow-sm")}>
         <ShieldCheck className={"mt-0.5 h-4 w-4 shrink-0 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-        Trust-style simulation only. Wallet balances are stored locally on this device.
+        Quotes use current market prices. Completed swaps update both asset balances immediately.
       </div>
     </section>
   );
@@ -742,36 +783,42 @@ function DiscoverScreen({
   dark,
   currency,
   onSelectToken,
-  onNotice,
 }: {
   tokens: WalletToken[];
   dark: boolean;
   currency: CurrencyCode;
   onSelectToken: (token: WalletToken) => void;
-  onNotice: (message: string) => void;
 }) {
+  const [guideOpen, setGuideOpen] = useState(false);
+  const movers = [...tokens].sort((a, b) => b.change24h - a.change24h);
+
   return (
     <section>
       <p className={"text-xs font-black uppercase tracking-[.2em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Discover</p>
       <h1 className={"mt-2 text-3xl font-black tracking-tight " + (dark ? "text-white" : "text-[#1d2433]")}>Explore crypto</h1>
-      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Browse simulated market cards and open any asset for details.</p>
+      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Browse market cards and open any asset for price and balance details.</p>
       <div className="mt-6 grid grid-cols-2 gap-3">
         {[
-          { title: "Market movers", body: "Assets with the biggest simulated changes.", color: "from-[#4e91f5] to-[#76c7ff]" },
-          { title: "Learn crypto", body: "Helpful wallet tips, shown as a preview.", color: "from-[#8c65e8] to-[#d17bff]" },
+          { title: "Market movers", body: "Open today’s strongest asset.", color: "from-[#4e91f5] to-[#76c7ff]", action: () => movers[0] && onSelectToken(movers[0]) },
+          { title: "Learn crypto", body: "Read practical wallet safety tips.", color: "from-[#8c65e8] to-[#d17bff]", action: () => setGuideOpen((open) => !open) },
         ].map((card) => (
-          <button key={card.title} type="button" onClick={() => onNotice(card.title + " opened in simulation mode.")} className={"rounded-3xl bg-gradient-to-br p-4 text-left text-white " + card.color}>
+          <button key={card.title} type="button" onClick={card.action} className={"rounded-3xl bg-gradient-to-br p-4 text-left text-white " + card.color}>
             <Sparkles className="h-5 w-5" />
             <p className="mt-8 text-sm font-black">{card.title}</p>
             <p className="mt-1 text-xs leading-5 text-white/75">{card.body}</p>
           </button>
         ))}
       </div>
-      <SectionHeading dark={dark} action={<button type="button" onClick={() => onNotice("Token list is already showing all simulated assets.")} className={"text-xs font-bold " + (dark ? "text-[#75aefb]" : "text-[#397dd4]")}>View all</button>}>
+      {guideOpen ? (
+        <div className={"mt-3 rounded-2xl p-4 text-xs leading-5 " + (dark ? "bg-[#1c2129] text-white/65" : "bg-white text-[#637087] shadow-sm")}>
+          Verify recipient addresses, review the asset and amount before sending, and never share a recovery phrase or private key.
+        </div>
+      ) : null}
+      <SectionHeading dark={dark}>
         Popular assets
       </SectionHeading>
       <div className={"mt-2 rounded-2xl p-2 " + (dark ? "bg-[#1c2129]" : "bg-white shadow-sm")}>
-        {[...tokens].sort((a, b) => b.change24h - a.change24h).slice(0, 6).map((token) => (
+        {movers.map((token) => (
           <TrustTokenRow key={token.id} token={token} currency={currency} dark={dark} onClick={() => onSelectToken(token)} />
         ))}
       </div>
@@ -779,37 +826,64 @@ function DiscoverScreen({
   );
 }
 
-function BrowserScreen({ dark, onNotice }: { dark: boolean; onNotice: (message: string) => void }) {
-  const links = ["Trust-style help center", "Market overview", "Wallet safety guide"];
+function BrowserScreen({ dark }: { dark: boolean }) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState("");
+  const links = [
+    { title: "Wallet help center", summary: "Learn how wallet accounts and transfers work.", body: "Use Receive to view an account address, Send to move an asset, and Activity to review completed transfers." },
+    { title: "Market overview", summary: "Review prices and daily movement.", body: "Open Discover to compare current asset prices and 24-hour performance, then select a token for more detail." },
+    { title: "Wallet safety guide", summary: "Protect access to your wallet.", body: "Use device security, verify every recipient, and never disclose a recovery phrase, private key, or unlock code." },
+  ];
+  const normalized = query.trim().toLowerCase();
+  const filteredLinks = links.filter((link) => !normalized || link.title.toLowerCase().includes(normalized) || link.summary.toLowerCase().includes(normalized));
+  const selectedLink = links.find((link) => link.title === selected);
+
+  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSelected(filteredLinks[0]?.title ?? "");
+  };
+
   return (
     <section>
       <p className={"text-xs font-black uppercase tracking-[.2em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Browser</p>
       <h1 className={"mt-2 text-3xl font-black tracking-tight " + (dark ? "text-white" : "text-[#1d2433]")}>Web3 browser</h1>
-      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>A safe, local preview of wallet browsing tools.</p>
-      <div className={"mt-6 flex items-center gap-3 rounded-2xl px-4 py-3 " + (dark ? "bg-[#1c2129]" : "bg-white shadow-sm")}>
+      <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Search wallet guides and market information.</p>
+      <form onSubmit={submitSearch} className={"mt-6 flex items-center gap-3 rounded-2xl px-4 py-3 " + (dark ? "bg-[#1c2129]" : "bg-white shadow-sm")}>
         <Globe className={"h-5 w-5 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-        <input placeholder="Search a simulated website" className={"min-w-0 flex-1 bg-transparent text-sm outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#303c50] placeholder:text-[#9aa6b8]")} />
-        <button type="button" onClick={() => onNotice("Browser search is simulated.")} aria-label="Search browser" className={"rounded-full p-1 " + (dark ? "text-white/60" : "text-[#7c879a]")}>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search guides" className={"min-w-0 flex-1 bg-transparent text-sm outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#303c50] placeholder:text-[#9aa6b8]")} />
+        <button type="submit" aria-label="Search browser" className={"rounded-full p-1 " + (dark ? "text-white/60" : "text-[#7c879a]")}>
           <Search className="h-4 w-4" />
         </button>
-      </div>
+      </form>
+      {selectedLink ? (
+        <article className={"mt-4 rounded-2xl p-4 " + (dark ? "bg-[#252b35] text-white" : "bg-[#eaf3ff] text-[#303c50]")}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-black">{selectedLink.title}</h2>
+              <p className={"mt-2 text-xs leading-5 " + (dark ? "text-white/55" : "text-[#637087]")}>{selectedLink.body}</p>
+            </div>
+            <button type="button" onClick={() => setSelected("")} aria-label="Close guide"><X className="h-4 w-4" /></button>
+          </div>
+        </article>
+      ) : null}
       <div className="mt-6 space-y-3">
-        {links.map((link, index) => (
-          <button key={link} type="button" onClick={() => onNotice(link + " opened in simulation mode.")} className={"flex w-full items-center gap-3 rounded-2xl p-4 text-left " + (dark ? "bg-[#1c2129] hover:bg-[#232a34]" : "bg-white shadow-sm hover:bg-[#f4f7fb]")}>
+        {filteredLinks.map((link, index) => (
+          <button key={link.title} type="button" onClick={() => setSelected(link.title)} className={"flex w-full items-center gap-3 rounded-2xl p-4 text-left " + (dark ? "bg-[#1c2129] hover:bg-[#232a34]" : "bg-white shadow-sm hover:bg-[#f4f7fb]")}>
             <span className={"grid h-10 w-10 place-items-center rounded-full " + (dark ? "bg-white/10 text-[#75aefb]" : "bg-[#eaf3ff] text-[#4e91f5]")}>
               {index === 0 ? <CircleHelp className="h-5 w-5" /> : index === 1 ? <Sparkles className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className={"block text-sm font-bold " + (dark ? "text-white" : "text-[#303c50]")}>{link}</span>
-              <span className={"mt-1 block text-xs " + (dark ? "text-white/40" : "text-[#8b96a8]")}>No external connection</span>
+              <span className={"block text-sm font-bold " + (dark ? "text-white" : "text-[#303c50]")}>{link.title}</span>
+              <span className={"mt-1 block text-xs " + (dark ? "text-white/40" : "text-[#8b96a8]")}>{link.summary}</span>
             </span>
             <ChevronRight className={"h-4 w-4 " + (dark ? "text-white/30" : "text-[#aab3c1]")} />
           </button>
         ))}
+        {filteredLinks.length === 0 ? <p className={"rounded-2xl p-4 text-sm " + (dark ? "bg-[#1c2129] text-white/45" : "bg-white text-[#7f8a9d]")}>No matching guides.</p> : null}
       </div>
       <div className={"mt-6 flex gap-3 rounded-2xl p-4 text-xs leading-5 " + (dark ? "bg-[#1c2129] text-white/45" : "bg-white text-[#7f8a9d] shadow-sm")}>
         <ShieldCheck className={"mt-0.5 h-4 w-4 shrink-0 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-        This browser does not request seed phrases, private keys, or real wallet connections.
+        These guides never request seed phrases, private keys, or wallet credentials.
       </div>
     </section>
   );
@@ -847,16 +921,16 @@ function TransactionModal({
       type,
       tokenSymbol,
       amount: parsedAmount,
-      counterpartyLabel: counterparty.trim() || "Simulated contact",
+      counterpartyLabel: counterparty.trim() || "Wallet contact",
       date: new Date(date + "T" + time).toISOString(),
     });
   };
 
   return (
-    <ModalBackdrop dark={dark} onClose={onClose} label="Add simulated transaction">
+    <ModalBackdrop dark={dark} onClose={onClose} label="Add transaction">
       <div className="flex items-center justify-between">
         <div>
-          <p className={"text-xs font-black uppercase tracking-[.18em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Simulation</p>
+          <p className={"text-xs font-black uppercase tracking-[.18em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Transaction</p>
           <h2 className="mt-2 text-2xl font-black">Add transaction</h2>
         </div>
         <button type="button" onClick={onClose} aria-label="Close transaction form" className={"rounded-full p-2 " + (dark ? "text-white/60 hover:bg-white/10" : "text-[#7d899d] hover:bg-[#eef3f9]")}>
@@ -895,7 +969,7 @@ function TransactionModal({
         </div>
         {error ? <p className="rounded-2xl bg-[#ffe7e9] px-4 py-3 text-sm font-semibold text-[#c8495d]">{error}</p> : null}
       <button type="submit" className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4e91f5] text-sm font-black text-white">
-          Save simulated transaction <Check className="h-4 w-4" />
+          Save transaction <Check className="h-4 w-4" />
         </button>
       </form>
     </ModalBackdrop>
@@ -908,15 +982,15 @@ function TokenDetailModal({
   dark,
   onClose,
   onTransaction,
-  onNotice,
 }: {
   token: WalletToken;
   currency: CurrencyCode;
   dark: boolean;
   onClose: () => void;
   onTransaction: (kind: TransactionKind) => void;
-  onNotice: (message: string) => void;
 }) {
+  const [period, setPeriod] = useState("1D");
+
   return (
     <ModalBackdrop dark={dark} onClose={onClose} label={token.name + " details"} align="center">
       <div className="flex items-center justify-between">
@@ -924,7 +998,7 @@ function TokenDetailModal({
           <TokenIcon token={token} size="large" />
           <div>
             <h2 className="text-2xl font-black">{token.name}</h2>
-            <p className={"mt-1 text-sm " + (dark ? "text-white/45" : "text-[#8994a6]")}>{token.symbol} · Simulated asset</p>
+            <p className={"mt-1 text-sm " + (dark ? "text-white/45" : "text-[#8994a6]")}>{token.symbol} · Wallet asset</p>
           </div>
         </div>
         <button type="button" onClick={onClose} aria-label="Close token details" className={"rounded-full p-2 " + (dark ? "text-white/60 hover:bg-white/10" : "text-[#7d899d] hover:bg-[#eef3f9]")}>
@@ -939,7 +1013,7 @@ function TokenDetailModal({
         <p className={"text-sm font-bold " + (token.change24h >= 0 ? "text-[#2caa73]" : "text-[#df5e70]")}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</p>
       </div>
       <div className={"mt-5 rounded-3xl p-3 " + (dark ? "bg-[#20252d]" : "bg-[#f4f7fb]")}>
-        <svg viewBox="0 0 384 150" className="h-36 w-full" role="img" aria-label={"Simulated " + token.symbol + " price chart"}>
+        <svg viewBox="0 0 384 150" className="h-36 w-full" role="img" aria-label={token.symbol + " price chart"}>
           <defs>
             <linearGradient id="trust-chart-fill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="#4e91f5" stopOpacity=".4" />
@@ -950,7 +1024,7 @@ function TokenDetailModal({
           <polyline points={chartPoints} fill="none" stroke="#4e91f5" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
         </svg>
         <div className={"flex justify-between px-1 text-[10px] font-bold " + (dark ? "text-white/35" : "text-[#9aa6b8]")}>
-          {["1H", "1D", "1W", "1M", "1Y", "ALL"].map((period) => <button key={period} type="button" onClick={() => onNotice(period + " chart selected in simulation.")} className={period === "1D" ? "text-[#4e91f5]" : ""}>{period}</button>)}
+          {["1H", "1D", "1W", "1M", "1Y", "ALL"].map((option) => <button key={option} type="button" onClick={() => setPeriod(option)} className={option === period ? "text-[#4e91f5]" : ""}>{option}</button>)}
         </div>
       </div>
       <div className="mt-5 flex items-end justify-between">
@@ -999,7 +1073,7 @@ function SettingsModal({
   const [balances, setBalances] = useState<Record<string, string>>(() => Object.fromEntries(tokens.map((token) => [token.id, String(token.balance)])));
 
   return (
-    <ModalBackdrop dark={dark} onClose={onClose} label="Trust Wallet simulation settings">
+    <ModalBackdrop dark={dark} onClose={onClose} label="Trust Wallet settings">
       <div className="flex items-center justify-between">
         <div>
           <p className={"text-xs font-black uppercase tracking-[.18em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Wallet settings</p>
@@ -1034,8 +1108,8 @@ function SettingsModal({
       </label>
       <div className="mt-6">
         <div className="flex items-center justify-between">
-          <p className={"text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Simulated balances</p>
-          <span className={"text-[10px] font-black uppercase tracking-widest " + (dark ? "text-white/30" : "text-[#a4aebb]")}>Local only</span>
+          <p className={"text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Wallet balances</p>
+          <span className={"text-[10px] font-black uppercase tracking-widest " + (dark ? "text-white/30" : "text-[#a4aebb]")}>Editable balances</span>
         </div>
         <div className="mt-2 space-y-2">
           {tokens.map((token) => (
@@ -1048,7 +1122,7 @@ function SettingsModal({
         </div>
       </div>
       <button type="button" onClick={onAddToken} className={"mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed text-sm font-bold " + (dark ? "border-white/20 text-white/65 hover:bg-white/5" : "border-[#b9c9dd] text-[#52627b] hover:bg-[#f5f8fc]")}>
-        <Plus className="h-4 w-4" /> Add simulated token
+        <Plus className="h-4 w-4" /> Add token
       </button>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <button type="button" onClick={onAccounts} className={"flex h-12 items-center justify-center gap-2 rounded-2xl border text-xs font-bold " + (dark ? "border-white/15 text-white/75" : "border-[#d5deea] text-[#52627b]")}><WalletCards className="h-4 w-4" /> Accounts</button>
@@ -1060,7 +1134,7 @@ function SettingsModal({
       </div>
       <div className={"mt-5 flex gap-3 rounded-2xl p-4 text-xs leading-5 " + (dark ? "bg-[#20252d] text-white/45" : "bg-[#f4f7fb] text-[#7f8a9d]")}>
         <Palette className={"mt-0.5 h-4 w-4 shrink-0 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-        This is a Trust-style wallet simulation. It never asks for recovery phrases or private keys.
+        Wallet customization never asks for recovery phrases or private keys.
       </div>
     </ModalBackdrop>
   );
@@ -1093,7 +1167,7 @@ function AddTokenModal({
   };
 
   return (
-    <ModalBackdrop dark={dark} onClose={onClose} label="Add simulated token" align="center">
+    <ModalBackdrop dark={dark} onClose={onClose} label="Add token" align="center">
       <div className="flex items-center justify-between">
         <div>
           <p className={"text-xs font-black uppercase tracking-[.18em] " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")}>Local asset</p>
@@ -1151,20 +1225,20 @@ const defaultTrustTransactions: WalletActivity[] = [
     type: "receive",
     tokenSymbol: "USDC",
     amount: 45,
-    counterpartyLabel: "Simulation",
+    counterpartyLabel: "Wallet transfer",
     date: "2026-05-15T14:16:00.000Z",
     status: "completed",
-    note: "SIMULATED TRANSACTION",
+    note: "DEMO TRANSACTION",
   },
   {
     id: "trust-seed-2",
     type: "send",
     tokenSymbol: "SOL",
     amount: 0.02,
-    counterpartyLabel: "Simulation",
+    counterpartyLabel: "Wallet transfer",
     date: "2026-04-14T22:07:00.000Z",
     status: "completed",
-    note: "SIMULATED TRANSACTION",
+    note: "DEMO TRANSACTION",
   },
 ];
 
@@ -1230,10 +1304,111 @@ export function TrustWallet() {
 
   const dark = profile.appearance === "dark";
   const total = useMemo(() => tokens.reduce((sum, token) => sum + token.price * token.balance, 0), [tokens]);
+  const activeProfile = { ...profile, walletName: runtime.currentAccount?.name ?? profile.walletName };
+  const visibleTransactions = useMemo<WalletActivity[]>(() => {
+    if (!runtime.state || !runtime.currentAccount) return transactions;
+    const accountId = runtime.currentAccount.id;
+    const sharedTransactions = transactionsForAccount(runtime.state, accountId).map((transaction) => {
+      const received = transaction.destinationAccountId === accountId;
+      return {
+        id: transaction.id,
+        type: received ? "receive" as const : "send" as const,
+        tokenSymbol: transaction.tokenSymbol,
+        amount: transaction.amount,
+        counterpartyLabel: received ? transaction.senderAddress : transaction.recipientAddress,
+        date: transaction.timestamp,
+        status: transaction.status,
+        note: "DEMO TRANSFER",
+      };
+    });
+    const sharedIds = new Set(sharedTransactions.map((transaction) => transaction.id));
+    return [...sharedTransactions, ...transactions.filter((transaction) => !sharedIds.has(transaction.id))]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [runtime.currentAccount, runtime.state, transactions]);
 
   const notify = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2400);
+  };
+
+  const copyWalletAddress = async () => {
+    const address = runtime.currentAccount?.address;
+    if (!address) {
+      notify("Wallet address is still loading.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(address);
+      notify("Wallet address copied.");
+    } catch {
+      notify("Could not copy the address. Open Receive to copy it manually.");
+    }
+  };
+
+  const shareWalletAddress = async () => {
+    const address = runtime.currentAccount?.address;
+    if (!address) {
+      notify("Wallet address is still loading.");
+      return;
+    }
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: activeProfile.walletName, text: "Trust Wallet address: " + address });
+        notify("Wallet address shared.");
+        return;
+      }
+      await navigator.clipboard.writeText(address);
+      notify("Sharing is unavailable, so the address was copied.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      notify("Could not share the wallet address.");
+    }
+  };
+
+  const performSwap = (fromSymbol: string, toSymbol: string, swapAmount: number) => {
+    if (!Number.isFinite(swapAmount) || swapAmount <= 0) return { ok: false, message: "Enter an amount greater than zero." };
+    if (fromSymbol === toSymbol) return { ok: false, message: "Choose two different assets." };
+    const fromToken = tokens.find((token) => token.symbol === fromSymbol);
+    const toToken = tokens.find((token) => token.symbol === toSymbol);
+    if (!fromToken || !toToken || fromToken.price <= 0 || toToken.price <= 0) return { ok: false, message: "A current market price is unavailable for this pair." };
+    if (swapAmount > fromToken.balance) return { ok: false, message: "Not enough " + fromSymbol + " balance." };
+
+    const receivedAmount = (swapAmount * fromToken.price) / toToken.price;
+    const updatedAt = new Date().toISOString();
+    const nextTokens = tokens.map((token) => {
+      if (token.id === fromToken.id) return { ...token, balance: token.balance - swapAmount, updatedAt };
+      if (token.id === toToken.id) return { ...token, balance: token.balance + receivedAmount, updatedAt };
+      return token;
+    });
+    const activity: WalletActivity[] = [
+      {
+        id: createId("trust-swap-receive"),
+        type: "receive",
+        tokenSymbol: toSymbol,
+        amount: receivedAmount,
+        counterpartyLabel: "Swapped from " + fromSymbol,
+        date: updatedAt,
+        status: "completed",
+        note: "DEMO SWAP",
+      },
+      {
+        id: createId("trust-swap-send"),
+        type: "send",
+        tokenSymbol: fromSymbol,
+        amount: swapAmount,
+        counterpartyLabel: "Swapped to " + toSymbol,
+        date: updatedAt,
+        status: "completed",
+        note: "DEMO SWAP",
+      },
+      ...transactions,
+    ];
+    setTokens(nextTokens);
+    setTransactions(activity);
+    writeStorage(TRUST_TOKENS_KEY, nextTokens);
+    writeStorage(TRUST_TRANSACTIONS_KEY, activity);
+    runtime.replaceCurrentBalances(Object.fromEntries(nextTokens.map((token) => [token.symbol, token.balance])));
+    return { ok: true, message: "Swapped " + formatAmount(swapAmount) + " " + fromSymbol + " for " + formatAmount(receivedAmount) + " " + toSymbol + "." };
   };
 
   const saveSettings = (nextProfile: TrustProfile, balances: Record<string, number>) => {
@@ -1243,6 +1418,7 @@ export function TrustWallet() {
     writeStorage(TRUST_TOKENS_KEY, nextTokens);
     writeStorage(TRUST_PROFILE_KEY, nextProfile);
     runtime.replaceCurrentBalances(Object.fromEntries(nextTokens.map((token) => [token.symbol, token.balance])));
+    runtime.renameCurrentAccount(nextProfile.walletName);
     setSettingsOpen(false);
     notify("Trust-style wallet settings saved locally.");
   };
@@ -1262,21 +1438,21 @@ export function TrustWallet() {
     runtime.replaceCurrentBalances(Object.fromEntries(nextTokens.map((token) => [token.symbol, token.balance])));
     setAddTokenOpen(false);
     setSettingsOpen(false);
-    notify(nextToken.symbol + " added to your simulated wallet.");
+    notify(nextToken.symbol + " added to your wallet.");
   };
 
   const clearActivity = () => {
     setTransactions([]);
     writeStorage(TRUST_TRANSACTIONS_KEY, []);
     setSettingsOpen(false);
-    notify("Simulated activity cleared.");
+    notify("Activity cleared.");
   };
 
   const handleTransaction = (input: { type: TransactionKind; tokenSymbol: string; amount: number; counterpartyLabel: string; date: string }) => {
     const currentToken = tokens.find((token) => token.symbol === input.tokenSymbol);
     if (!currentToken) return;
     if (input.type === "send" && input.amount > currentToken.balance) {
-      notify("Not enough simulated balance for this send.");
+      notify("Not enough balance for this send.");
       return;
     }
     const nextTokens = tokens.map((token) => token.id === currentToken.id ? { ...token, balance: token.balance + (input.type === "receive" ? input.amount : -input.amount), updatedAt: new Date().toISOString() } : token);
@@ -1288,7 +1464,7 @@ export function TrustWallet() {
       counterpartyLabel: input.counterpartyLabel,
       date: input.date,
       status: "completed",
-      note: "SIMULATED TRANSACTION",
+      note: "DEMO TRANSACTION",
     };
     const nextTransactions = [record, ...transactions];
     setTokens(nextTokens);
@@ -1297,7 +1473,7 @@ export function TrustWallet() {
     writeStorage(TRUST_TRANSACTIONS_KEY, nextTransactions);
     setTransactionKind(null);
     setSelectedToken(null);
-    notify((input.type === "receive" ? "Received " : "Sent ") + formatAmount(input.amount) + " " + input.tokenSymbol + " in simulation.");
+    notify((input.type === "receive" ? "Received " : "Sent ") + formatAmount(input.amount) + " " + input.tokenSymbol + ".");
   };
 
   const openSharedTransaction = (kind: TransactionKind) => {
@@ -1314,23 +1490,27 @@ export function TrustWallet() {
           {tab === "home" ? (
             <TrustHome
               tokens={tokens}
-              transactions={transactions}
-              profile={profile}
+              transactions={visibleTransactions}
+              profile={activeProfile}
               total={total}
               dark={dark}
               balanceVisible={balanceVisible}
               onToggleBalance={() => setBalanceVisible((visible) => !visible)}
               onSettings={() => setSettingsOpen(true)}
-              onNotice={notify}
               onSelectToken={setSelectedToken}
               onTransaction={openSharedTransaction}
+              onAccounts={runtime.openAccounts}
+              onHistory={runtime.openHistory}
+              onCopyAddress={() => void copyWalletAddress()}
+              onShare={() => void shareWalletAddress()}
+              onDiscover={() => setTab("discover")}
             />
           ) : tab === "swap" ? (
-            <SwapScreen tokens={tokens} dark={dark} onNotice={notify} onTransaction={openSharedTransaction} />
+            <SwapScreen tokens={tokens} dark={dark} onTransaction={openSharedTransaction} onSwap={performSwap} />
           ) : tab === "discover" ? (
-            <DiscoverScreen tokens={tokens} dark={dark} currency={profile.currency} onSelectToken={setSelectedToken} onNotice={notify} />
+            <DiscoverScreen tokens={tokens} dark={dark} currency={profile.currency} onSelectToken={setSelectedToken} />
           ) : (
-            <BrowserScreen dark={dark} onNotice={notify} />
+            <BrowserScreen dark={dark} />
           )}
         </div>
         <nav className={"absolute inset-x-3 bottom-3 z-20 flex items-center justify-around rounded-[1.5rem] border p-2 shadow-2xl backdrop-blur-xl " + (dark ? "border-white/10 bg-[#20252d]/95" : "border-[#dfe6ef] bg-white/95") } aria-label="Trust Wallet navigation">
@@ -1341,12 +1521,12 @@ export function TrustWallet() {
             </button>
           ))}
         </nav>
-        {settingsOpen ? <SettingsModal profile={profile} tokens={tokens} dark={dark} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onAddToken={() => { setSettingsOpen(false); setAddTokenOpen(true); }} onClearActivity={clearActivity} onAccounts={() => { setSettingsOpen(false); runtime.openAccounts(); }} onSecurity={() => { setSettingsOpen(false); runtime.openSecurity(); }} /> : null}
+        {settingsOpen ? <SettingsModal profile={activeProfile} tokens={tokens} dark={dark} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onAddToken={() => { setSettingsOpen(false); setAddTokenOpen(true); }} onClearActivity={clearActivity} onAccounts={() => { setSettingsOpen(false); runtime.openAccounts(); }} onSecurity={() => { setSettingsOpen(false); runtime.openSecurity(); }} /> : null}
         {addTokenOpen ? <AddTokenModal dark={dark} onClose={() => setAddTokenOpen(false)} onSave={addToken} /> : null}
         {transactionKind ? <TransactionModal kind={transactionKind} tokens={tokens} dark={dark} onClose={() => setTransactionKind(null)} onSubmit={handleTransaction} /> : null}
-        {selectedToken ? <TokenDetailModal token={selectedToken} currency={profile.currency} dark={dark} onClose={() => setSelectedToken(null)} onTransaction={openSharedTransaction} onNotice={notify} /> : null}
+        {selectedToken ? <TokenDetailModal token={selectedToken} currency={profile.currency} dark={dark} onClose={() => setSelectedToken(null)} onTransaction={openSharedTransaction} /> : null}
         {notice ? <Notice message={notice} dark={dark} /> : null}
-        <span className={"pointer-events-none fixed bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase tracking-[.25em] " + (dark ? "text-white/15" : "text-[#aeb8c6]")}>Simulation</span>
+        <span className={"pointer-events-none fixed bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase tracking-[.2em] " + (dark ? "text-white/15" : "text-[#aeb8c6]")}>Demo · No real funds</span>
       </div>
     </main>
   );

@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const passkeys = await listPasskeys(userId);
     const displayName = typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 64) : "Phantom wallet user";
     const options = await generateRegistrationOptions({
-      rpName: "Phantom Wallet Simulator",
+      rpName: "Phantom",
       rpID,
       userID: new TextEncoder().encode(userId),
       userName: displayName,

@@ -396,12 +396,12 @@ export class WalletLedgerRepository {
     const source = next.wallets[input.sourceWalletId]?.accounts.find((account) => account.id === input.sourceAccountId);
     if (!source) throw new WalletTransferError("ACCOUNT_NOT_FOUND", "Source account not found.");
     const destination = resolveDestination(next, input);
-    if (!destination) throw new WalletTransferError("INVALID_ADDRESS", "Choose an internal account or enter a valid simulated address.");
+    if (!destination) throw new WalletTransferError("INVALID_ADDRESS", "Choose one of your accounts or enter a valid wallet address.");
     if (source.id === destination.id) throw new WalletTransferError("SAME_ACCOUNT", "Source and destination accounts must be different.");
 
     const symbol = input.tokenSymbol.toUpperCase();
     const asset = next.assets[symbol];
-    if (!asset) throw new WalletTransferError("UNSUPPORTED_ASSET", `${symbol} is not supported by this simulator.`);
+    if (!asset) throw new WalletTransferError("UNSUPPORTED_ASSET", `${symbol} is not supported by this wallet.`);
     if (!Number.isFinite(input.amount) || input.amount <= 0) throw new WalletTransferError("INVALID_AMOUNT", "Enter an amount greater than zero.");
     const amount = roundAssetAmount(input.amount, asset.decimals);
     if (amount <= 0 || amount !== input.amount) throw new WalletTransferError("INVALID_AMOUNT", `${symbol} supports up to ${asset.decimals} decimal places.`);
