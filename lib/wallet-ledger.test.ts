@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   calculateNetworkFee,
+  mergeRemoteWalletSnapshot,
   selectedAccount,
   sortedAccountAssets,
   transactionsForAccount,
   WalletLedgerRepository,
   WalletTransferError,
   walletLedgerStorageKey,
+  walletLedgerStorageKeyFor,
   type StorageAdapter,
   type WalletLedgerState,
 } from "@/lib/wallet-ledger";
@@ -161,5 +163,39 @@ describe("shared wallet transfer repository", () => {
     const account = selectedAccount(current, "ghost");
     const sorted = sortedAccountAssets(current, account);
     expect(sorted.map((entry) => entry.value)).toEqual([...sorted.map((entry) => entry.value)].sort((a, b) => b - a));
+  });
+
+  it("keeps browser ledgers separate for different logged-in users", () => {
+    expect(walletLedgerStorageKeyFor("usr_alice")).not.toBe(walletLedgerStorageKeyFor("usr_bob"));
+    expect(walletLedgerStorageKeyFor("usr_alice")).toContain("usr_alice");
+  });
+
+  it("merges shared balances and incoming transfers into the recipient ledger", () => {
+    const current = repository.getState();
+    const recipient = selectedAccount(current, "ghost");
+    const incoming = {
+      id: "simtx_remote",
+      clientRequestId: "transfer_remote",
+      sourceWalletId: "ledger" as const,
+      sourceAccountId: "ledger-account-remote",
+      destinationWalletId: "ghost" as const,
+      destinationAccountId: recipient.id,
+      senderAddress: "sim_ledger_remote123",
+      recipientAddress: recipient.address,
+      tokenSymbol: "SOL",
+      amount: 3,
+      fee: 0.000005,
+      feeSymbol: "SOL",
+      network: "Solana",
+      timestamp: "2026-08-30T12:00:00.000Z",
+      status: "completed" as const,
+      note: "SIMULATED TRANSFER — NOT BROADCAST ON-CHAIN" as const,
+    };
+    const merged = mergeRemoteWalletSnapshot(current, {
+      accounts: [{ ...recipient, ownerId: "usr_recipient", balances: { ...recipient.balances, SOL: 23 } }],
+      transactions: [incoming],
+    });
+    expect(selectedAccount(merged, "ghost").balances.SOL).toBe(23);
+    expect(transactionsForAccount(merged, recipient.id)[0].id).toBe("simtx_remote");
   });
 });

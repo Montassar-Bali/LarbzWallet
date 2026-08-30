@@ -3,6 +3,7 @@ import type { WalletThemeId } from "@/config/wallets";
 import type { ActivityStatus, WalletActivity, WalletToken } from "@/lib/types";
 
 export const walletLedgerStorageKey = "larpz_wallet_ledger_v1";
+export const walletLedgerStoragePrefix = "larpz_wallet_ledger_v2";
 export const walletLedgerEvent = "wallet-ledger-change";
 export const walletLedgerVersion = 1;
 
@@ -74,6 +75,13 @@ export type WalletLedgerState = {
   updatedAt: string;
   assets: Record<string, WalletAsset>;
   wallets: Record<WalletThemeId, WalletRecord>;
+  transactions: SimulatedTransaction[];
+};
+
+export type RemoteWalletAccount = WalletAccount & { ownerId: string };
+
+export type RemoteWalletSnapshot = {
+  accounts: RemoteWalletAccount[];
   transactions: SimulatedTransaction[];
 };
 
@@ -306,20 +314,26 @@ export class WalletLedgerRepository {
     private readonly storage: StorageAdapter,
     private readonly snapshots: LegacyWalletSnapshots = {},
     private readonly now: () => Date = () => new Date(),
+    private readonly storageKey = walletLedgerStorageKey,
   ) {}
 
   getState() {
-    const stored = parseJson<unknown>(this.storage.getItem(walletLedgerStorageKey), null);
+    const stored = parseJson<unknown>(this.storage.getItem(this.storageKey), null);
     if (isValidState(stored)) return stored;
     const initial = createInitialWalletLedger(this.snapshots, this.now().toISOString());
-    this.storage.setItem(walletLedgerStorageKey, JSON.stringify(initial));
+    this.storage.setItem(this.storageKey, JSON.stringify(initial));
     return initial;
   }
 
   private commit(next: WalletLedgerState) {
     next.updatedAt = this.now().toISOString();
-    this.storage.setItem(walletLedgerStorageKey, JSON.stringify(next));
+    this.storage.setItem(this.storageKey, JSON.stringify(next));
     return next;
+  }
+
+  applyRemoteSnapshot(snapshot: RemoteWalletSnapshot) {
+    const next = mergeRemoteWalletSnapshot(this.getState(), snapshot);
+    return this.commit(next);
   }
 
   createAccount(walletId: WalletThemeId, name: string) {
@@ -461,6 +475,36 @@ export function sortedAccountAssets(state: WalletLedgerState, account: WalletAcc
     .sort((a, b) => b.value - a.value || b.balance - a.balance || a.asset.symbol.localeCompare(b.asset.symbol));
 }
 
+export function mergeRemoteWalletSnapshot(state: WalletLedgerState, snapshot: RemoteWalletSnapshot) {
+  const next = cloneState(state);
+  for (const remote of snapshot.accounts) {
+    const wallet = next.wallets[remote.walletId];
+    if (!wallet) continue;
+    const existing = wallet.accounts.find((account) => account.id === remote.id || account.address === remote.address);
+    if (existing) {
+      existing.name = remote.name;
+      existing.address = remote.address;
+      existing.balances = { ...remote.balances };
+      existing.createdAt = remote.createdAt;
+    } else {
+      wallet.accounts.push({
+        id: remote.id,
+        walletId: remote.walletId,
+        name: remote.name,
+        address: remote.address,
+        balances: { ...remote.balances },
+        createdAt: remote.createdAt,
+      });
+    }
+    if (!wallet.accounts.some((account) => account.id === wallet.selectedAccountId)) wallet.selectedAccountId = remote.id;
+  }
+
+  const transactionMap = new Map(next.transactions.map((transaction) => [transaction.id, transaction]));
+  for (const transaction of snapshot.transactions) transactionMap.set(transaction.id, transaction);
+  next.transactions = [...transactionMap.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+  return next;
+}
+
 export function walletActivityFromTransfer(transaction: SimulatedTransaction, accountId: string): WalletActivity {
   const outgoing = transaction.sourceAccountId === accountId;
   return {
@@ -545,9 +589,19 @@ export function syncLegacyWalletViews(storage: StorageAdapter, state: WalletLedg
   }
 }
 
-export function createBrowserWalletRepository() {
+export function walletLedgerStorageKeyFor(ownerId: string) {
+  const safeOwnerId = ownerId.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120) || "anonymous";
+  return `${walletLedgerStoragePrefix}:${safeOwnerId}`;
+}
+
+export function createBrowserWalletRepository(ownerId?: string) {
   if (typeof window === "undefined") return null;
-  return new WalletLedgerRepository(window.localStorage, readLegacySnapshots(window.localStorage));
+  return new WalletLedgerRepository(
+    window.localStorage,
+    readLegacySnapshots(window.localStorage),
+    () => new Date(),
+    ownerId ? walletLedgerStorageKeyFor(ownerId) : walletLedgerStorageKey,
+  );
 }
 
 export function notifyWalletLedgerChanged(state: WalletLedgerState) {

@@ -53,7 +53,10 @@ await page.getByRole("heading", { name: "Review transfer" }).waitFor();
 await page.getByRole("button", { name: "Confirm simulated transfer" }).click();
 await page.getByRole("heading", { name: "Transfer complete" }).waitFor({ timeout: 10_000 });
 
-const transferState = await page.evaluate(() => JSON.parse(window.localStorage.getItem("larpz_wallet_ledger_v1") || "null"));
+const transferState = await page.evaluate(() => {
+  const key = Object.keys(window.localStorage).find((item) => item.startsWith("larpz_wallet_ledger_v2:")) ?? "larpz_wallet_ledger_v1";
+  return JSON.parse(window.localStorage.getItem(key) || "null");
+});
 if (!transferState?.transactions?.some((transaction) => transaction.status === "completed" && transaction.sourceWalletId === "ghost" && transaction.destinationWalletId === "ledger")) {
   throw new Error("Phantom-to-Ledger transfer was not persisted.");
 }
