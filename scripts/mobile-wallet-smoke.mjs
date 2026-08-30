@@ -67,6 +67,12 @@ async function assertMobileLayout(route, readyText, timeout = 15_000) {
   if (layout.language !== "en") throw new Error(`${route} is not marked as English.`);
 }
 
+await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
+await page.getByRole("heading", { name: "Link this installed wallet" }).waitFor({ timeout: 15_000 });
+if (await page.getByRole("button", { name: "Send", exact: true }).isVisible().catch(() => false)) {
+  throw new Error("An unlinked installed wallet exposed transfers before activation.");
+}
+
 await page.goto(`${baseUrl}/activate`, { waitUntil: "domcontentloaded" });
 await page.getByLabel("License Key").fill("DEMO-STAR-0001-2026");
 await page.getByRole("button", { name: "Activate License" }).click();
@@ -79,6 +85,7 @@ const activatedIdentity = await page.evaluate(() => {
 if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !== "DEMO-STAR-0001-2026") {
   throw new Error("Activation key did not create its own stable wallet identity.");
 }
+await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activatedIdentity.id));
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
@@ -258,7 +265,7 @@ function createInMemoryWalletLedger(ownerId) {
 // Regression: installed PWAs can have isolated browser storage. They must still
 // resolve to the same server-side owner after the same user signs in, and a
 // foregrounded receiving PWA must pull an asset it did not previously hold.
-const sharedOwnerId = `smoke_cross_pwa_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+const sharedOwnerId = `lic_${crypto.randomUUID().replaceAll("-", "")}`;
 const phantomContext = await createMobileContext(sharedOwnerId);
 const trustContext = await createMobileContext(sharedOwnerId);
 const sharedWalletLedger = createInMemoryWalletLedger(sharedOwnerId);

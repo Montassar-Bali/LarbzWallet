@@ -1,5 +1,6 @@
 import {
   executeRemoteTransfer,
+  linkRemoteWalletOwner,
   patchRemoteWalletAccount,
   RemoteWalletError,
   syncRemoteWallet,
@@ -8,8 +9,10 @@ import {
 export const runtime = "nodejs";
 
 type WalletLedgerRequest = {
-  action?: "bootstrap" | "sync" | "patchAccount" | "transfer";
+  action?: "bootstrap" | "sync" | "patchAccount" | "linkOwner" | "transfer";
   ownerId?: unknown;
+  licenseKey?: unknown;
+  legacyOwnerId?: unknown;
   state?: unknown;
   accountId?: unknown;
   name?: unknown;
@@ -44,6 +47,13 @@ export async function POST(request: Request) {
       });
       return Response.json({ connected: true, snapshot }, { headers: { "Cache-Control": "no-store" } });
     }
+    if (body.action === "linkOwner") {
+      const result = await linkRemoteWalletOwner({
+        licenseKey: body.licenseKey,
+        legacyOwnerId: body.legacyOwnerId,
+      });
+      return Response.json({ connected: true, ...result }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (body.action === "transfer" && body.transfer) {
       const result = await executeRemoteTransfer({
         ownerId: body.ownerId,
@@ -60,6 +70,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof RemoteWalletError ? error.code : "DATABASE_ERROR";
     const status = code === "DATABASE_NOT_CONFIGURED" ? 503
+      : code === "ACTIVATION_REQUIRED" ? 401
       : code === "ACCOUNT_NOT_FOUND" || code === "INVALID_ADDRESS" ? 404
         : code === "DUPLICATE" ? 409
           : 400;

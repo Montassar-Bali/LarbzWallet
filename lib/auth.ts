@@ -5,9 +5,20 @@ export const walletOwnerCookieName = "larpz_wallet_owner_id";
 
 const walletOwnerCookieMaxAgeSeconds = 60 * 60 * 24 * 365 * 5;
 const walletOwnerIdPattern = /^[a-zA-Z0-9_-]{3,120}$/;
+const licenseWalletOwnerIdPattern = /^lic_[a-f0-9]{32}$/;
 
 function normalizedWalletOwnerId(value: unknown) {
   return typeof value === "string" && walletOwnerIdPattern.test(value) ? value : null;
+}
+
+export function isLicenseWalletOwnerId(value: unknown) {
+  return typeof value === "string" && licenseWalletOwnerIdPattern.test(value);
+}
+
+export function resolveWalletOwnerId(cookieOwnerId: unknown, userId: unknown) {
+  if (isLicenseWalletOwnerId(cookieOwnerId)) return cookieOwnerId as string;
+  if (isLicenseWalletOwnerId(userId)) return userId as string;
+  return "";
 }
 
 export function getWalletOwnerIdFromCookie() {

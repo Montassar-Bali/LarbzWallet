@@ -42,6 +42,7 @@ export class RemoteWalletError extends Error {
     public readonly code:
       | "DATABASE_NOT_CONFIGURED"
       | "INVALID_REQUEST"
+      | "ACTIVATION_REQUIRED"
       | "DUPLICATE"
       | "ACCOUNT_NOT_FOUND"
       | "INVALID_ADDRESS"
@@ -72,6 +73,36 @@ function normalizedOwnerId(value: unknown) {
     throw new RemoteWalletError("INVALID_REQUEST", "A valid wallet owner is required.");
   }
   return value;
+}
+
+function normalizedLegacyOwnerId(value: unknown) {
+  const ownerId = normalizedOwnerId(value);
+  if (!/^walletowner_[a-zA-Z0-9_-]{3,108}$/.test(ownerId)) {
+    throw new RemoteWalletError("INVALID_REQUEST", "A valid legacy wallet owner is required.");
+  }
+  return ownerId;
+}
+
+async function licenseOwnerId(value: unknown) {
+  if (typeof value !== "string" || value.length > 100) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Enter the complete activation key.");
+  }
+  const compact = value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (compact.length !== 16) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Enter the complete activation key in XXXX-XXXX-XXXX-XXXX format.");
+  }
+  const normalizedKey = compact.match(/.{4}/g)?.join("-") ?? "";
+  if (!/^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3}$/.test(normalizedKey)) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Enter the complete activation key in XXXX-XXXX-XXXX-XXXX format.");
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`larpz-license:${normalizedKey}`),
+  );
+  const fingerprint = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `lic_${fingerprint.slice(0, 32)}`;
 }
 
 function normalizedAccountId(value: unknown) {
@@ -296,13 +327,43 @@ export async function syncRemoteWallet({
   await ensureSchema();
   const sql = neon(databaseUrl());
   if (mode === "initialize") {
-    const existing = await sql`
-      SELECT account_id
-      FROM larpz_wallet_accounts
-      WHERE owner_id = ${ownerId}
-      LIMIT 1
-    `;
-    if (existing.length > 0) return loadSnapshot(ownerId);
+    const incomingAccounts = accounts.map((account) => ({
+      account_id: account.id,
+      wallet_id: account.walletId,
+      name: account.name,
+      address: account.address,
+      balances: account.balances,
+      created_at: account.createdAt,
+    }));
+    await sql.transaction([
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`,
+      sql.query(
+        `
+          WITH incoming AS MATERIALIZED (
+            SELECT *
+            FROM jsonb_to_recordset($2::jsonb) AS account (
+              account_id TEXT,
+              wallet_id TEXT,
+              name TEXT,
+              address TEXT,
+              balances JSONB,
+              created_at TIMESTAMPTZ
+            )
+          )
+          INSERT INTO larpz_wallet_accounts
+            (owner_id, account_id, wallet_id, name, address, balances, created_at, updated_at)
+          SELECT
+            $1, incoming.account_id, incoming.wallet_id, incoming.name,
+            incoming.address, incoming.balances, incoming.created_at, NOW()
+          FROM incoming
+          WHERE NOT EXISTS (
+            SELECT 1 FROM larpz_wallet_accounts WHERE owner_id = $1
+          )
+        `,
+        [ownerId, JSON.stringify(incomingAccounts)],
+      ),
+    ], { isolationLevel: "ReadCommitted" });
+    return loadSnapshot(ownerId);
   }
   await sql.transaction(accounts.map((account) => sql`
     INSERT INTO larpz_wallet_accounts
@@ -356,6 +417,112 @@ export async function patchRemoteWalletAccount({
   return loadSnapshot(ownerId);
 }
 
+export async function linkRemoteWalletOwner({
+  licenseKey,
+  legacyOwnerId: rawLegacyOwnerId,
+}: {
+  licenseKey: unknown;
+  legacyOwnerId: unknown;
+}) {
+  const ownerId = await licenseOwnerId(licenseKey);
+  await ensureSchema();
+  if (rawLegacyOwnerId === undefined || rawLegacyOwnerId === null || rawLegacyOwnerId === "") {
+    return {
+      ownerId,
+      linkStatus: "linked" as const,
+      snapshot: await loadSnapshot(ownerId),
+    };
+  }
+
+  const legacyOwnerId = normalizedLegacyOwnerId(rawLegacyOwnerId);
+  const sql = neon(databaseUrl());
+  const archiveOwnerId = `archive_${crypto.randomUUID().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const rows = await sql.query(
+    `
+      WITH owner_lock AS MATERIALIZED (
+        SELECT
+          pg_advisory_xact_lock(hashtextextended($1, 0)),
+          pg_advisory_xact_lock(hashtextextended($2, 0))
+      ),
+      facts AS MATERIALIZED (
+        SELECT
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_accounts WHERE owner_id = $1
+          ) AS source_has_accounts,
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_transfers
+            WHERE source_owner_id = $1 OR destination_owner_id = $1
+          ) AS source_has_transfers,
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_accounts WHERE owner_id = $2
+          ) AS target_has_accounts,
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_transfers
+            WHERE source_owner_id = $2 OR destination_owner_id = $2
+          ) AS target_has_transfers
+        FROM owner_lock
+      ),
+      decision AS MATERIALIZED (
+        SELECT CASE
+          WHEN NOT source_has_accounts THEN 'retained'
+          WHEN NOT target_has_accounts AND NOT target_has_transfers THEN 'moved'
+          WHEN target_has_accounts AND NOT target_has_transfers AND source_has_transfers THEN 'replaced'
+          ELSE 'retained'
+        END AS action
+        FROM facts
+      ),
+      archived_accounts AS (
+        UPDATE larpz_wallet_accounts AS account
+        SET owner_id = $3, updated_at = NOW()
+        FROM decision
+        WHERE decision.action = 'replaced'
+          AND account.owner_id = $2
+        RETURNING account.account_id
+      ),
+      archive_barrier AS MATERIALIZED (
+        SELECT COUNT(*)::integer AS archived_count FROM archived_accounts
+      ),
+      moved_accounts AS (
+        UPDATE larpz_wallet_accounts AS account
+        SET owner_id = $2, updated_at = NOW()
+        FROM decision, archive_barrier
+        WHERE decision.action IN ('moved', 'replaced')
+          AND account.owner_id = $1
+        RETURNING account.account_id
+      ),
+      moved_transfers AS (
+        UPDATE larpz_wallet_transfers AS transfer
+        SET
+          source_owner_id = CASE WHEN transfer.source_owner_id = $1 THEN $2 ELSE transfer.source_owner_id END,
+          destination_owner_id = CASE WHEN transfer.destination_owner_id = $1 THEN $2 ELSE transfer.destination_owner_id END
+        FROM decision
+        WHERE decision.action IN ('moved', 'replaced')
+          AND EXISTS (SELECT 1 FROM moved_accounts)
+          AND (transfer.source_owner_id = $1 OR transfer.destination_owner_id = $1)
+        RETURNING transfer.id
+      )
+      SELECT
+        decision.action,
+        (SELECT COUNT(*)::integer FROM archived_accounts) AS archived_accounts,
+        (SELECT COUNT(*)::integer FROM moved_accounts) AS moved_accounts,
+        (SELECT COUNT(*)::integer FROM moved_transfers) AS moved_transfers
+      FROM decision
+    `,
+    [legacyOwnerId, ownerId, archiveOwnerId],
+  ) as {
+    action: "moved" | "replaced" | "retained";
+    archived_accounts: number;
+    moved_accounts: number;
+    moved_transfers: number;
+  }[];
+
+  return {
+    ownerId,
+    linkStatus: rows[0]?.action ?? "retained",
+    snapshot: await loadSnapshot(ownerId),
+  };
+}
+
 const networkBySymbol: Record<string, string> = {
   BTC: "Bitcoin",
   ETH: "Ethereum",
@@ -391,6 +558,12 @@ export async function executeRemoteTransfer({
   amount: unknown;
 }) {
   const ownerId = normalizedOwnerId(rawOwnerId);
+  if (!/^lic_[a-f0-9]{32}$/.test(ownerId)) {
+    throw new RemoteWalletError(
+      "ACTIVATION_REQUIRED",
+      "Activate the same license key in every installed wallet before transferring demo balances between wallets. No real funds are used.",
+    );
+  }
   if (typeof clientRequestId !== "string" || !/^[a-zA-Z0-9_-]{8,180}$/.test(clientRequestId)) throw new RemoteWalletError("INVALID_REQUEST", "A valid transfer request is required.");
   if (typeof sourceAccountId !== "string" || sourceAccountId.length > 180) throw new RemoteWalletError("ACCOUNT_NOT_FOUND", "Source account not found.");
   const destinationId = typeof destinationAccountId === "string" ? destinationAccountId.slice(0, 180) : null;

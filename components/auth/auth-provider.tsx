@@ -10,7 +10,16 @@ import {
   useState,
 } from "react";
 
-import { getCurrentUser, loginUser, loginWithLicenseKey, logoutUser, persistWalletOwnerIdCookie, registerUser } from "@/lib/auth";
+import {
+  getCurrentUser,
+  getWalletOwnerIdFromCookie,
+  isLicenseWalletOwnerId,
+  loginUser,
+  loginWithLicenseKey,
+  logoutUser,
+  persistWalletOwnerIdCookie,
+  registerUser,
+} from "@/lib/auth";
 import type { AppUser } from "@/lib/types";
 
 type AuthContextValue = {
@@ -37,7 +46,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(() => {
     const next = getCurrentUser();
-    if (next) persistWalletOwnerIdCookie(next.id);
+    const existingWalletOwnerId = getWalletOwnerIdFromCookie();
+    if (next && isLicenseWalletOwnerId(next.id) && !isLicenseWalletOwnerId(existingWalletOwnerId)) {
+      persistWalletOwnerIdCookie(next.id);
+    }
     setUser(next);
     setLoading(false);
   }, []);

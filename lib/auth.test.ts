@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearWalletOwnerIdCookie,
   getWalletOwnerIdFromCookie,
+  isLicenseWalletOwnerId,
   licenseIdentityId,
   loginWithLicenseKey,
   persistWalletOwnerIdCookie,
+  resolveWalletOwnerId,
 } from "@/lib/auth";
 
 class MemoryStorage {
@@ -57,6 +59,17 @@ describe("activation-key wallet identity", () => {
     const second = await licenseIdentityId("DEMO-STAR-0002-2026");
     expect(first).toMatch(/^lic_[a-f0-9]{32}$/);
     expect(first).not.toBe(second);
+  });
+
+  it("uses only activation identities for shared wallets and prefers the shared cookie", async () => {
+    const cookieOwner = await licenseIdentityId("DEMO-STAR-0001-2026");
+    const localUser = await licenseIdentityId("DEMO-STAR-0002-2026");
+
+    expect(isLicenseWalletOwnerId(cookieOwner)).toBe(true);
+    expect(isLicenseWalletOwnerId("walletowner_isolated_pwa")).toBe(false);
+    expect(resolveWalletOwnerId(cookieOwner, localUser)).toBe(cookieOwner);
+    expect(resolveWalletOwnerId("walletowner_isolated_pwa", localUser)).toBe(localUser);
+    expect(resolveWalletOwnerId("walletowner_isolated_pwa", "usr_demo")).toBe("");
   });
 
   it("persists only the derived user ID in the shared owner cookie", async () => {

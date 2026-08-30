@@ -27,7 +27,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { useAuth } from "@/components/auth/auth-provider";
 import type { WalletThemeId } from "@/config/wallets";
-import { getWalletOwnerIdFromCookie } from "@/lib/auth";
+import {
+  getWalletOwnerIdFromCookie,
+  isLicenseWalletOwnerId,
+  resolveWalletOwnerId,
+} from "@/lib/auth";
+import { validateLicense } from "@/lib/license";
+import { normalizeLicenseKey } from "@/lib/storage";
 import type { WalletToken } from "@/lib/types";
 import {
   accountForSelection,
@@ -112,6 +118,7 @@ type SharedLedgerResponse = {
   connected: true;
   snapshot: RemoteWalletSnapshot;
   transaction?: SimulatedTransaction;
+  ownerId?: string;
 };
 
 class SharedLedgerRequestError extends Error {
@@ -302,7 +309,7 @@ function useWalletSecurity() {
 }
 
 export function WalletRuntimeProvider({ walletId, children }: { walletId: WalletThemeId; children: ReactNode }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, loginWithLicense } = useAuth();
   const repositoryRef = useRef<WalletLedgerRepository | null>(null);
   const sharedStatusRef = useRef<SharedLedgerStatus>("connecting");
   const activeOwnerIdRef = useRef("");
@@ -310,13 +317,15 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const [repository, setRepository] = useState<WalletLedgerRepository | null>(null);
   const [state, setState] = useState<WalletLedgerState | null>(null);
   const [cookieOwnerId, setCookieOwnerId] = useState("");
-  const [anonymousOwnerId, setAnonymousOwnerId] = useState("");
+  const [legacyOwnerId, setLegacyOwnerId] = useState("");
+  const [identityChecked, setIdentityChecked] = useState(false);
+  const [identityError, setIdentityError] = useState("");
   const [sharedStatus, setSharedStatus] = useState<SharedLedgerStatus>("connecting");
   const [sharedError, setSharedError] = useState("");
   const [panel, setPanel] = useState<RuntimePanel>(null);
   const [preferredSymbol, setPreferredSymbol] = useState<string>();
   const security = useWalletSecurity();
-  const ownerId = user?.id || cookieOwnerId || anonymousOwnerId;
+  const ownerId = resolveWalletOwnerId(cookieOwnerId, user?.id);
 
   useEffect(() => {
     activeOwnerIdRef.current = ownerId;
@@ -333,22 +342,70 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
 
   useEffect(() => {
     if (authLoading) return;
+    let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       const storedCookieOwnerId = getWalletOwnerIdFromCookie() ?? "";
+      const storedLegacyOwnerId = isLicenseWalletOwnerId(storedCookieOwnerId)
+        ? window.localStorage.getItem(anonymousWalletOwnerKey) ?? ""
+        : storedCookieOwnerId.startsWith("walletowner_")
+          ? storedCookieOwnerId
+          : window.localStorage.getItem(anonymousWalletOwnerKey) ?? "";
       setCookieOwnerId(storedCookieOwnerId);
-      if (user || storedCookieOwnerId) {
-        setAnonymousOwnerId("");
+      setLegacyOwnerId(storedLegacyOwnerId.startsWith("walletowner_") ? storedLegacyOwnerId : "");
+
+      const activatedOwnerId = resolveWalletOwnerId(storedCookieOwnerId, user?.id);
+      if (activatedOwnerId && storedLegacyOwnerId.startsWith("walletowner_") && user?.licenseKey) {
+        void sharedLedgerRequest({
+          action: "linkOwner",
+          licenseKey: user.licenseKey,
+          legacyOwnerId: storedLegacyOwnerId,
+        }).then((response) => {
+          if (cancelled) return;
+          if (response.ownerId !== activatedOwnerId) throw new Error("The activation identity did not match this wallet.");
+          window.localStorage.removeItem(anonymousWalletOwnerKey);
+          setLegacyOwnerId("");
+          setIdentityError("");
+          setIdentityChecked(true);
+        }).catch((caught) => {
+          if (cancelled) return;
+          setIdentityError(caught instanceof Error ? caught.message : "Could not link this installed wallet.");
+          setIdentityChecked(true);
+        });
         return;
       }
-      let stored = window.localStorage.getItem(anonymousWalletOwnerKey);
-      if (!stored) {
-        stored = randomClientId("walletowner").replace(/[^a-zA-Z0-9_-]/g, "");
-        window.localStorage.setItem(anonymousWalletOwnerKey, stored);
-      }
-      setAnonymousOwnerId(stored);
+
+      setIdentityChecked(true);
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
   }, [authLoading, user]);
+
+  const activateInstalledWallet = useCallback(async (rawLicenseKey: string) => {
+    const licenseKey = normalizeLicenseKey(rawLicenseKey);
+    if (!/^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3}$/.test(licenseKey)) {
+      throw new Error("Enter your complete activation key.");
+    }
+    const validation = validateLicense(licenseKey);
+    if (!validation.valid) {
+      throw new Error(validation.reason || "This activation key is not valid.");
+    }
+    const response = await sharedLedgerRequest({
+      action: "linkOwner",
+      licenseKey,
+      legacyOwnerId: legacyOwnerId || undefined,
+    });
+    const account = await loginWithLicense(licenseKey);
+    if (!response.ownerId || response.ownerId !== account.id) {
+      throw new Error("The activation identity did not match this wallet.");
+    }
+    window.localStorage.removeItem(anonymousWalletOwnerKey);
+    setLegacyOwnerId("");
+    setCookieOwnerId(account.id);
+    setIdentityError("");
+    setIdentityChecked(true);
+  }, [legacyOwnerId, loginWithLicense]);
 
   const refresh = useCallback(() => {
     const repository = repositoryRef.current;
@@ -390,7 +447,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   }, [enqueueSharedRequest, ownerId]);
 
   useEffect(() => {
-    if (authLoading || !ownerId) return;
+    if (authLoading || !identityChecked || identityError || legacyOwnerId || !ownerId) return;
     let cancelled = false;
     let refreshInterval = 0;
     const storageKey = walletLedgerStorageKeyFor(ownerId);
@@ -452,7 +509,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       document.removeEventListener("visibilitychange", onVisibilityChange);
       repositoryRef.current = null;
     };
-  }, [authLoading, enqueueSharedRequest, ownerId, refresh]);
+  }, [authLoading, enqueueSharedRequest, identityChecked, identityError, legacyOwnerId, ownerId, refresh]);
 
   const executeTransfer = useCallback(async (input: TransferInput) => {
     const activeRepository = repositoryRef.current;
@@ -480,10 +537,8 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       notifyWalletLedgerChanged(merged);
       return response.transaction;
     }
-    const completed = activeRepository.executeTransfer(input);
-    commitAndNotify(activeRepository.getState());
-    return completed;
-  }, [commitAndNotify, enqueueSharedRequest, ownerId, sharedError]);
+    throw new Error("Shared wallet transfers are unavailable on this deployment. Connect it to the shared Neon database and try again.");
+  }, [enqueueSharedRequest, ownerId, sharedError]);
 
   const currentAccount = state ? selectedAccount(state, walletId) : null;
   const value = useMemo<WalletRuntimeValue>(() => ({
@@ -518,12 +573,114 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     refresh,
   }), [commitAndNotify, currentAccount, patchRemoteAccount, refresh, state, walletId]);
 
+  if (!identityChecked) {
+    return <WalletIdentityLoading walletId={walletId} />;
+  }
+
+  if (!ownerId || legacyOwnerId || identityError) {
+    return (
+      <WalletActivationGate
+        walletId={walletId}
+        defaultLicenseKey={user?.licenseKey ?? ""}
+        initialError={identityError}
+        isRecovering={Boolean(legacyOwnerId)}
+        onActivate={activateInstalledWallet}
+      />
+    );
+  }
+
   return (
     <WalletRuntimeContext.Provider value={value}>
       {children}
       {state && panel && repository ? <WalletRuntimeSheet walletId={walletId} initialPanel={panel} preferredSymbol={preferredSymbol} state={state} repository={repository} security={security} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} onCommit={commitAndNotify} onClose={() => setPanel(null)} /> : null}
       {security.locked ? <WalletLockScreen security={security} /> : null}
     </WalletRuntimeContext.Provider>
+  );
+}
+
+function WalletIdentityLoading({ walletId }: { walletId: WalletThemeId }) {
+  return (
+    <main className="fixed inset-0 grid place-items-center bg-[#080809] px-6 text-center text-white">
+      <div role="status">
+        <span className="mx-auto block h-12 w-12 animate-spin rounded-full border-4 border-white/15 border-t-[#a295f3]" />
+        <p className="mt-5 text-sm text-white/55">Opening {walletLabels[walletId]}…</p>
+      </div>
+    </main>
+  );
+}
+
+function WalletActivationGate({
+  walletId,
+  defaultLicenseKey,
+  initialError,
+  isRecovering,
+  onActivate,
+}: {
+  walletId: WalletThemeId;
+  defaultLicenseKey: string;
+  initialError: string;
+  isRecovering: boolean;
+  onActivate: (licenseKey: string) => Promise<void>;
+}) {
+  const [licenseKey, setLicenseKey] = useState(() => normalizeLicenseKey(defaultLicenseKey));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(initialError);
+
+  const activate = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await onActivate(licenseKey);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not link this installed wallet.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="fixed inset-0 overflow-y-auto bg-[#080809] px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(4rem,env(safe-area-inset-top))] text-white">
+      <section className="mx-auto w-full max-w-[430px] rounded-[2rem] border border-white/10 bg-[#151517] p-6 shadow-[0_30px_100px_rgba(0,0,0,.55)]">
+        <span className="grid h-16 w-16 place-items-center rounded-[1.4rem] bg-[#a295f3] text-black">
+          <KeyRound className="h-8 w-8" />
+        </span>
+        <p className="mt-6 text-xs font-bold uppercase tracking-[.16em] text-[#a99bf7]">{walletLabels[walletId]}</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Link this installed wallet</h1>
+        <p className="mt-3 leading-relaxed text-white/55">
+          Enter the same activation key in Phantom, Ledger, and Trust Wallet so every app opens the same shared wallet account.
+        </p>
+        {isRecovering ? (
+          <p className="mt-4 rounded-[1.1rem] border border-amber-300/15 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+            An older wallet balance was found on this installation. Linking will recover it into your activation account.
+          </p>
+        ) : null}
+        <label className="mt-6 block">
+          <span className="mb-2 block text-xs font-bold uppercase tracking-[.12em] text-white/40">Activation key</span>
+          <input
+            value={licenseKey}
+            onChange={(event) => setLicenseKey(normalizeLicenseKey(event.target.value))}
+            onKeyDown={(event) => { if (event.key === "Enter" && !busy) void activate(); }}
+            placeholder="XXXX-XXXX-XXXX-XXXX"
+            aria-label="Activation key"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={19}
+            className="h-16 w-full rounded-[1.2rem] border border-white/10 bg-[#232325] px-4 text-center font-mono text-lg tracking-[.08em] outline-none focus:ring-2 focus:ring-[#a295f3]"
+          />
+        </label>
+        {error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
+        <button
+          type="button"
+          onClick={() => void activate()}
+          disabled={busy || licenseKey.length !== 19}
+          className="mt-5 min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-lg font-semibold text-black disabled:opacity-40"
+        >
+          {busy ? "Linking wallets…" : "Link all three wallets"}
+        </button>
+        <p className="mt-5 text-center text-xs font-bold uppercase tracking-[.12em] text-white/25">Demo · No real funds</p>
+      </section>
+    </main>
   );
 }
 
@@ -677,7 +834,7 @@ function TransferPanel({ walletId, preferredSymbol, state, sharedStatus, sharedE
     return <div><button type="button" onClick={() => setStage("form")} className="flex items-center gap-2 text-[#a99bf7]"><ArrowLeft className="h-4 w-4" /> Edit transfer</button><h2 className="mt-6 text-3xl font-semibold tracking-[-.04em]">Review transfer</h2><div className="mt-6 rounded-[1.7rem] bg-[#1d1d1f] p-5"><div className="text-center"><span className="text-5xl font-semibold">{amount(numericAmount)}</span><span className="ml-2 text-2xl text-white/50">{symbol}</span><p className="mt-2 text-white/45">{money(numericAmount * (asset?.price ?? 0))}</p></div><div className="mt-7 border-t border-white/[0.07] pt-4"><Detail label="From" value={`${walletLabels[sourceWalletId]} · ${sourceAccount.name}`} /><Detail label="To" value={destination} mono /><Detail label="Network" value={asset?.network ?? symbol} /><Detail label="Network fee" value={`${fee} ${symbol}`} /><Detail label="Total debit" value={`${amount(numericAmount + fee)} ${symbol}`} /></div></div>{error ? <p className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={() => void confirm()} className="mt-6 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-50">Confirm transfer</button><p className="mt-4 text-center text-xs uppercase tracking-[.1em] text-white/30">Demo · No real funds</p></div>;
   }
 
-  return <div><div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${sharedStatus === "connected" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}><strong>{sharedStatus === "connected" ? "Shared network connected:" : sharedStatus === "connecting" ? "Connecting shared network…" : sharedStatus === "error" ? "Shared network error:" : "This device only:"}</strong> {sharedStatus === "connected" ? "send to another user with their complete wallet address." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "transfers work only between accounts on this device." : "please wait before sending."}</div><div className="mt-6 grid grid-cols-2 gap-3"><label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label></div><label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label><div className="mt-5 flex items-center justify-between"><FieldLabel>Destination</FieldLabel><button type="button" onClick={() => setUseAddress((value) => !value)} className="mb-2 flex items-center gap-1.5 text-xs font-bold text-[#a99bf7]"><QrCode className="h-4 w-4" />{useAddress ? "Choose my account" : "Send to another user"}</button></div>{useAddress ? <div><input value={destinationAddress} onChange={(event) => setDestinationAddress(event.target.value.trim())} placeholder="Paste the recipient's complete wallet address" aria-label="Destination wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="h-14 w-full rounded-[1.2rem] bg-[#202022] px-4 font-mono text-sm outline-none focus:ring-2 focus:ring-[#a295f3]" /><p className="mt-2 text-xs text-white/40">Ask the recipient to copy their address from Receive.</p></div> : <div className="grid grid-cols-2 gap-3"><SelectField value={destinationWalletId} onChange={(event) => { const id = event.target.value as WalletThemeId; setDestinationWalletId(id); setDestinationAccountId(state.wallets[id].selectedAccountId); }}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField><SelectField value={destinationAccount.id} onChange={(event) => setDestinationAccountId(event.target.value)}>{state.wallets[destinationWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></div>}<div className="mt-5"><div className="flex items-center justify-between"><FieldLabel>Amount</FieldLabel><span className="mb-2 text-xs text-white/45">Available {amount(balance)} {symbol}</span></div><div className="flex items-center rounded-[1.2rem] bg-[#202022] px-4 focus-within:ring-2 focus-within:ring-[#a295f3]"><input inputMode="decimal" value={amountValue} onChange={(event) => setAmountValue(event.target.value)} placeholder="0" aria-label="Transfer amount" className="h-16 min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none" /><button type="button" onClick={() => setAmountValue(String(Math.max(0, balance - calculateNetworkFee(symbol, balance))))} className="rounded-full bg-[#343438] px-3 py-2 text-xs font-bold text-[#b8adff]">MAX</button></div><div className="mt-3 flex justify-between text-sm text-white/45"><span>Network fee</span><span>{fee} {symbol}</span></div></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={review} disabled={available.length === 0 || sharedStatus === "connecting" || sharedStatus === "error"} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-40">Review transfer <ArrowRight className="h-5 w-5" /></button></div>;
+  return <div><div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${sharedStatus === "connected" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" || sharedStatus === "local" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}><strong>{sharedStatus === "connected" ? "Shared network connected:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong> {sharedStatus === "connected" ? "send to another user with their complete wallet address." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared Neon database, so transfers are paused." : "please wait before sending."}</div><div className="mt-6 grid grid-cols-2 gap-3"><label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label></div><label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label><div className="mt-5 flex items-center justify-between"><FieldLabel>Destination</FieldLabel><button type="button" onClick={() => setUseAddress((value) => !value)} className="mb-2 flex items-center gap-1.5 text-xs font-bold text-[#a99bf7]"><QrCode className="h-4 w-4" />{useAddress ? "Choose my account" : "Send to another user"}</button></div>{useAddress ? <div><input value={destinationAddress} onChange={(event) => setDestinationAddress(event.target.value.trim())} placeholder="Paste the recipient's complete wallet address" aria-label="Destination wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="h-14 w-full rounded-[1.2rem] bg-[#202022] px-4 font-mono text-sm outline-none focus:ring-2 focus:ring-[#a295f3]" /><p className="mt-2 text-xs text-white/40">Ask the recipient to copy their address from Receive.</p></div> : <div className="grid grid-cols-2 gap-3"><SelectField value={destinationWalletId} onChange={(event) => { const id = event.target.value as WalletThemeId; setDestinationWalletId(id); setDestinationAccountId(state.wallets[id].selectedAccountId); }}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField><SelectField value={destinationAccount.id} onChange={(event) => setDestinationAccountId(event.target.value)}>{state.wallets[destinationWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></div>}<div className="mt-5"><div className="flex items-center justify-between"><FieldLabel>Amount</FieldLabel><span className="mb-2 text-xs text-white/45">Available {amount(balance)} {symbol}</span></div><div className="flex items-center rounded-[1.2rem] bg-[#202022] px-4 focus-within:ring-2 focus-within:ring-[#a295f3]"><input inputMode="decimal" value={amountValue} onChange={(event) => setAmountValue(event.target.value)} placeholder="0" aria-label="Transfer amount" className="h-16 min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none" /><button type="button" onClick={() => setAmountValue(String(Math.max(0, balance - calculateNetworkFee(symbol, balance))))} className="rounded-full bg-[#343438] px-3 py-2 text-xs font-bold text-[#b8adff]">MAX</button></div><div className="mt-3 flex justify-between text-sm text-white/45"><span>Network fee</span><span>{fee} {symbol}</span></div></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={review} disabled={available.length === 0 || sharedStatus !== "connected"} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-40">Review transfer <ArrowRight className="h-5 w-5" /></button></div>;
 }
 
 function Detail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
