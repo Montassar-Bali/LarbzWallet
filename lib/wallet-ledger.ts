@@ -464,6 +464,11 @@ export function selectedAccount(state: WalletLedgerState, walletId: WalletThemeI
   return wallet.accounts.find((account) => account.id === wallet.selectedAccountId) ?? wallet.accounts[0];
 }
 
+export function accountForSelection(state: WalletLedgerState, walletId: WalletThemeId, accountId: string) {
+  return state.wallets[walletId].accounts.find((account) => account.id === accountId)
+    ?? selectedAccount(state, walletId);
+}
+
 export function transactionsForAccount(state: WalletLedgerState, accountId: string) {
   return state.transactions.filter((transaction) => transaction.sourceAccountId === accountId || transaction.destinationAccountId === accountId);
 }
@@ -473,6 +478,29 @@ export function sortedAccountAssets(state: WalletLedgerState, account: WalletAcc
     .map(([symbol, balance]) => ({ asset: state.assets[symbol], balance, value: balance * (state.assets[symbol]?.price ?? 0) }))
     .filter((entry) => entry.asset)
     .sort((a, b) => b.value - a.value || b.balance - a.balance || a.asset.symbol.localeCompare(b.asset.symbol));
+}
+
+export function tokensForWalletAccount(tokens: WalletToken[], state: WalletLedgerState, account: WalletAccount) {
+  const tokenMap = new Map(tokens.map((token) => [token.symbol.toUpperCase(), token]));
+  for (const [symbol, asset] of Object.entries(state.assets)) {
+    if (symbol === "USD") continue;
+    const existing = tokenMap.get(symbol);
+    tokenMap.set(symbol, {
+      id: existing?.id ?? `shared-${symbol.toLowerCase()}`,
+      name: existing?.name ?? asset.name,
+      symbol,
+      balance: account.balances[symbol] ?? 0,
+      price: existing?.price ?? asset.price,
+      change24h: existing?.change24h ?? 0,
+      change1h: existing?.change1h,
+      change7d: existing?.change7d,
+      image: existing?.image || asset.image,
+      marketCap: existing?.marketCap,
+      volume24h: existing?.volume24h,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  return [...tokenMap.values()];
 }
 
 export function mergeRemoteWalletSnapshot(state: WalletLedgerState, snapshot: RemoteWalletSnapshot) {
@@ -546,26 +574,7 @@ export function syncLegacyWalletViews(storage: StorageAdapter, state: WalletLedg
   for (const walletId of ["ghost", "ledger", "trust"] as const) {
     const account = selectedAccount(state, walletId);
     const currentTokens = parseJson<WalletToken[]>(storage.getItem(legacyTokenKeys[walletId]), []);
-    const tokenMap = new Map(currentTokens.map((token) => [token.symbol.toUpperCase(), token]));
-    for (const [symbol, asset] of Object.entries(state.assets)) {
-      if (symbol === "USD") continue;
-      const existing = tokenMap.get(symbol);
-      tokenMap.set(symbol, {
-        id: existing?.id ?? `shared-${symbol.toLowerCase()}`,
-        name: existing?.name ?? asset.name,
-        symbol,
-        balance: account.balances[symbol] ?? 0,
-        price: existing?.price ?? asset.price,
-        change24h: existing?.change24h ?? 0,
-        change1h: existing?.change1h,
-        change7d: existing?.change7d,
-        image: existing?.image || asset.image,
-        marketCap: existing?.marketCap,
-        volume24h: existing?.volume24h,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    storage.setItem(legacyTokenKeys[walletId], JSON.stringify([...tokenMap.values()]));
+    storage.setItem(legacyTokenKeys[walletId], JSON.stringify(tokensForWalletAccount(currentTokens, state, account)));
 
     const existingActivities = parseJson<WalletActivity[]>(storage.getItem(legacyTransactionKeys[walletId]), []);
     const activityMap = new Map(existingActivities.map((activity) => [activity.id, activity]));

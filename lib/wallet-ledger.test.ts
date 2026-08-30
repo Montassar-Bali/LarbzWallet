@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  accountForSelection,
   calculateNetworkFee,
   createInitialWalletLedger,
   mergeRemoteWalletSnapshot,
   selectedAccount,
   sortedAccountAssets,
+  tokensForWalletAccount,
   transactionsForAccount,
   WalletLedgerRepository,
   WalletTransferError,
@@ -84,6 +86,12 @@ describe("shared wallet transfer repository", () => {
     });
     const after = repository.getState();
     expect(after.wallets.ghost.accounts[1].balances.SOL).toBe(2);
+  });
+
+  it("falls back to the registered account when a dropdown retained a stale local account ID", () => {
+    const current = repository.getState();
+    expect(accountForSelection(current, "ledger", "stale-before-neon-bootstrap").id)
+      .toBe(selectedAccount(current, "ledger").id);
   });
 
   it("creates, renames, selects, and resolves uniquely addressed accounts", () => {
@@ -167,6 +175,15 @@ describe("shared wallet transfer repository", () => {
     const account = selectedAccount(current, "ghost");
     const sorted = sortedAccountAssets(current, account);
     expect(sorted.map((entry) => entry.value)).toEqual([...sorted.map((entry) => entry.value)].sort((a, b) => b - a));
+  });
+
+  it("projects each wallet's own shared-ledger balance into its visible token list", () => {
+    transfer("ghost", "ledger", "visible-ledger-balance");
+    const current = repository.getState();
+    const ledgerTokens = tokensForWalletAccount([], current, selectedAccount(current, "ledger"));
+    const phantomTokens = tokensForWalletAccount([], current, selectedAccount(current, "ghost"));
+    expect(ledgerTokens.find((token) => token.symbol === "SOL")?.balance).toBe(21);
+    expect(phantomTokens.find((token) => token.symbol === "SOL")?.balance).toBe(20 - 1 - calculateNetworkFee("SOL", 1));
   });
 
   it("keeps browser ledgers separate for different logged-in users", () => {

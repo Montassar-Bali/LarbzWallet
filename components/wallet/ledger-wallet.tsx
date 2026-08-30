@@ -25,7 +25,7 @@ import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
-import { walletLedgerEvent } from "@/lib/wallet-ledger";
+import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
@@ -694,6 +694,14 @@ export function LedgerWallet() {
       window.removeEventListener(walletLedgerEvent, refreshSharedWallet);
     };
   }, []);
+
+  useEffect(() => {
+    if (!runtime.state || !runtime.currentAccount) return;
+    const timeoutId = window.setTimeout(() => {
+      setTokens((current) => ensureLedgerTokens(tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!)));
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [runtime.currentAccount, runtime.state]);
 
   const selectedCurrency = currencies.find((item) => item.code === currency) ?? currencies[0];
   const total = tokens.reduce((sum, token) => sum + token.balance * token.price * selectedCurrency.rate, 0);

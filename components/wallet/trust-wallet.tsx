@@ -36,7 +36,7 @@ import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
-import { walletLedgerEvent } from "@/lib/wallet-ledger";
+import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 
 type TrustTab = "home" | "swap" | "discover" | "browser";
 type Appearance = "light" | "dark";
@@ -1219,6 +1219,14 @@ export function TrustWallet() {
       delete document.documentElement.dataset.walletTheme;
     };
   }, []);
+
+  useEffect(() => {
+    if (!runtime.state || !runtime.currentAccount) return;
+    const timeoutId = window.setTimeout(() => {
+      setTokens((current) => tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!));
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [runtime.currentAccount, runtime.state]);
 
   const dark = profile.appearance === "dark";
   const total = useMemo(() => tokens.reduce((sum, token) => sum + token.price * token.balance, 0), [tokens]);

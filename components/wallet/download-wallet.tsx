@@ -55,7 +55,7 @@ import {
   saveToken,
 } from "@/lib/wallet";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
-import { walletLedgerEvent } from "@/lib/wallet-ledger";
+import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
@@ -1440,6 +1440,18 @@ export function DownloadWallet() {
       window.removeEventListener(walletLedgerEvent, refreshSharedWallet);
     };
   }, []);
+
+  useEffect(() => {
+    if (!runtime.state || !runtime.currentAccount) return;
+    const timeoutId = window.setTimeout(() => {
+      setTokens((current) => applyLiveMarketSnapshot(
+        tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!),
+        latestMarketSnapshot.current,
+      ));
+      setProfile((current) => ({ ...current, cash: runtime.currentAccount?.balances.USD ?? 0 }));
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [runtime.currentAccount, runtime.state]);
 
   const notify = (message: string) => {
     setToast(message);

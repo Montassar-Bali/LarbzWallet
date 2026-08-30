@@ -79,6 +79,7 @@ const destination = transferState.wallets.ledger.accounts.find((account) => acco
 if (!source || !destination || destination.balances.SOL < completed.amount) throw new Error("Atomic destination balance update was not persisted.");
 
 await assertMobileLayout("/ledger-wallet", "SIMULATOR / LOCAL ONLY");
+await page.waitForFunction(() => document.body.innerText.includes("0.01 SOL"), undefined, { timeout: 10_000 });
 await page.getByRole("button", { name: "Transfer" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
 await page.getByRole("button", { name: "Close", exact: true }).click();
