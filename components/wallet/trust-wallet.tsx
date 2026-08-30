@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -29,7 +30,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { defaultTokens, liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
@@ -37,13 +38,17 @@ import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
 import { tokensForWalletAccount, transactionsForAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
+import {
+  applyLiveMarketSnapshot,
+  emptyLiveMarketSnapshot,
+  mergeCanonicalWalletCatalogue,
+  type LiveMarketSnapshot,
+} from "@/lib/wallet-market";
 
 type TrustTab = "home" | "swap" | "discover" | "browser";
 type Appearance = "light" | "dark";
 type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD";
 type TransactionKind = "send" | "receive";
-
-  const trustLiveSymbols = liveMarketSymbols;
 
 type TrustProfile = {
   walletName: string;
@@ -142,11 +147,34 @@ function getTokenMark(symbol: string) {
   return tokenMarks[symbol] ?? symbol.slice(0, 1);
 }
 
+function TokenImage({
+  token,
+  size,
+}: {
+  token: Pick<WalletToken, "name" | "image">;
+  size: "small" | "normal" | "large";
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!token.image || failed) return null;
+
+  return (
+    <Image
+      src={token.image}
+      alt={`${token.name} logo`}
+      fill
+      unoptimized
+      sizes={size === "small" ? "32px" : size === "large" ? "56px" : "44px"}
+      className="z-10 object-contain"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function TokenIcon({
   token,
   size = "normal",
 }: {
-  token: Pick<WalletToken, "symbol">;
+  token: Pick<WalletToken, "symbol" | "name" | "image">;
   size?: "small" | "normal" | "large";
 }) {
   const sizes = {
@@ -157,7 +185,7 @@ function TokenIcon({
 
   return (
     <span
-      className={"grid shrink-0 place-items-center rounded-full font-bold text-white shadow-inner shadow-white/30 " + sizes[size]}
+      className={"relative isolate grid shrink-0 place-items-center overflow-hidden rounded-full font-bold text-white shadow-inner shadow-white/30 " + sizes[size]}
       style={{
         background:
           token.symbol === "SOL"
@@ -165,7 +193,8 @@ function TokenIcon({
             : tokenColors[token.symbol] ?? "#61708e",
       }}
     >
-      {getTokenMark(token.symbol)}
+      <span aria-hidden="true">{getTokenMark(token.symbol)}</span>
+      <TokenImage key={token.image} token={token} size={size} />
     </span>
   );
 }
@@ -1208,7 +1237,7 @@ function createTrustTokens(): WalletToken[] {
     };
   };
 
-  return [
+  return mergeCanonicalWalletCatalogue([
     make("BTC", { id: "btc", name: "Bitcoin", price: 69250, balance: 0.01, change24h: -2.46 }),
     make("ETH", { id: "eth", name: "Ethereum", price: 3720, balance: 0.05, change24h: -3.56 }),
     make("BNB", { id: "bnb", name: "BNB", price: 650, balance: 0.3, change24h: -1.22 }),
@@ -1216,7 +1245,7 @@ function createTrustTokens(): WalletToken[] {
     make("USDC", { id: "usdc", name: "USD Coin", price: 1, balance: 45, change24h: 0.46 }),
     make("USDT", { id: "usdt", name: "Tether", price: 1, balance: 59.7, change24h: 0.42 }),
     make("SOL", { id: "sol", name: "Solana", price: 73.38, balance: 0.01, change24h: -3.13 }),
-  ];
+  ]);
 }
 
 const defaultTrustTransactions: WalletActivity[] = [
@@ -1254,15 +1283,15 @@ export function TrustWallet() {
   const [selectedToken, setSelectedToken] = useState<WalletToken | null>(null);
   const [notice, setNotice] = useState("");
   const [balanceVisible, setBalanceVisible] = useState(true);
+  const latestMarketSnapshot = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
 
-  useLivePrices(trustLiveSymbols, (prices, changes) => {
+  useLivePrices(liveMarketSymbols, (prices, changes, images, marketCaps, changes1h, changes7d, volumes24h) => {
+    const snapshot = { prices, changes, images, marketCaps, changes1h, changes7d, volumes24h };
+    latestMarketSnapshot.current = snapshot;
     setTokens((current) =>
-      current.map((token) => ({
-        ...token,
-        price: prices[token.symbol] ?? token.price,
-        change24h: changes[token.symbol] ?? token.change24h,
-      })),
+      applyLiveMarketSnapshot(mergeCanonicalWalletCatalogue(current), snapshot),
     );
+    runtime.updateMarketAssets(applyLiveMarketSnapshot(mergeCanonicalWalletCatalogue([]), snapshot));
   });
 
   useEffect(() => {
@@ -1270,7 +1299,10 @@ export function TrustWallet() {
       const storedTokens = readStorage<WalletToken[]>(TRUST_TOKENS_KEY, []);
       const storedTransactions = readStorage<WalletActivity[]>(TRUST_TRANSACTIONS_KEY, []);
       const storedProfile = readStorage<TrustProfile>(TRUST_PROFILE_KEY, defaultTrustProfile);
-      const nextTokens = storedTokens.length > 0 ? storedTokens : createTrustTokens();
+      const nextTokens = applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(storedTokens.length > 0 ? storedTokens : createTrustTokens()),
+        latestMarketSnapshot.current,
+      );
       const nextTransactions = storedTransactions.length > 0 ? storedTransactions : defaultTrustTransactions;
       setTokens(nextTokens);
       setTransactions(nextTransactions);
@@ -1282,7 +1314,10 @@ export function TrustWallet() {
 
     document.documentElement.dataset.walletTheme = "trust";
     const refreshSharedWallet = () => {
-      setTokens(readStorage<WalletToken[]>(TRUST_TOKENS_KEY, createTrustTokens()));
+      setTokens(applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(readStorage<WalletToken[]>(TRUST_TOKENS_KEY, createTrustTokens())),
+        latestMarketSnapshot.current,
+      ));
       setTransactions(readStorage<WalletActivity[]>(TRUST_TRANSACTIONS_KEY, []));
       setProfile((current) => ({ ...current, ...readStorage<TrustProfile>(TRUST_PROFILE_KEY, current) }));
     };
@@ -1297,7 +1332,10 @@ export function TrustWallet() {
   useEffect(() => {
     if (!runtime.state || !runtime.currentAccount) return;
     const timeoutId = window.setTimeout(() => {
-      setTokens((current) => tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!));
+      setTokens((current) => applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!)),
+        latestMarketSnapshot.current,
+      ));
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [runtime.currentAccount, runtime.state]);

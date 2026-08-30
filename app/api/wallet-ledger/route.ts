@@ -1,5 +1,6 @@
 import {
   executeRemoteTransfer,
+  patchRemoteWalletAccount,
   RemoteWalletError,
   syncRemoteWallet,
 } from "@/lib/wallet-ledger-database";
@@ -7,9 +8,12 @@ import {
 export const runtime = "nodejs";
 
 type WalletLedgerRequest = {
-  action?: "bootstrap" | "sync" | "transfer";
+  action?: "bootstrap" | "sync" | "patchAccount" | "transfer";
   ownerId?: unknown;
   state?: unknown;
+  accountId?: unknown;
+  name?: unknown;
+  balances?: unknown;
   transfer?: {
     clientRequestId?: unknown;
     sourceAccountId?: unknown;
@@ -27,7 +31,16 @@ export async function POST(request: Request) {
       const snapshot = await syncRemoteWallet({
         ownerId: body.ownerId,
         state: body.state,
-        replaceBalances: body.action === "sync",
+        mode: body.action === "bootstrap" ? "initialize" : "metadata",
+      });
+      return Response.json({ connected: true, snapshot }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (body.action === "patchAccount") {
+      const snapshot = await patchRemoteWalletAccount({
+        ownerId: body.ownerId,
+        accountId: body.accountId,
+        name: body.name,
+        balances: body.balances,
       });
       return Response.json({ connected: true, snapshot }, { headers: { "Cache-Control": "no-store" } });
     }

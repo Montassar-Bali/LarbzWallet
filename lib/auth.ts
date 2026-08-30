@@ -1,6 +1,44 @@
 import { storageKeys, readStorage, writeStorage, createId, normalizeLicenseKey } from "@/lib/storage";
 import type { AppUser } from "@/lib/types";
 
+export const walletOwnerCookieName = "larpz_wallet_owner_id";
+
+const walletOwnerCookieMaxAgeSeconds = 60 * 60 * 24 * 365 * 5;
+const walletOwnerIdPattern = /^[a-zA-Z0-9_-]{3,120}$/;
+
+function normalizedWalletOwnerId(value: unknown) {
+  return typeof value === "string" && walletOwnerIdPattern.test(value) ? value : null;
+}
+
+export function getWalletOwnerIdFromCookie() {
+  if (typeof document === "undefined") return null;
+  const encodedName = `${encodeURIComponent(walletOwnerCookieName)}=`;
+  for (const part of document.cookie.split(";")) {
+    const cookie = part.trim();
+    if (!cookie.startsWith(encodedName)) continue;
+    try {
+      return normalizedWalletOwnerId(decodeURIComponent(cookie.slice(encodedName.length)));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function persistWalletOwnerIdCookie(userId: string) {
+  if (typeof document === "undefined") return;
+  const ownerId = normalizedWalletOwnerId(userId);
+  if (!ownerId) return;
+  const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${encodeURIComponent(walletOwnerCookieName)}=${encodeURIComponent(ownerId)}; Path=/; Max-Age=${walletOwnerCookieMaxAgeSeconds}; SameSite=Lax${secure}`;
+}
+
+export function clearWalletOwnerIdCookie() {
+  if (typeof document === "undefined") return;
+  const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${encodeURIComponent(walletOwnerCookieName)}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+}
+
 const seedUsers: AppUser[] = [
   {
     id: "usr_admin",
@@ -39,6 +77,9 @@ function writeSession(userId: string | null, persistent = true) {
   }
 
   const payload = JSON.stringify({ userId });
+
+  if (userId) persistWalletOwnerIdCookie(userId);
+  else clearWalletOwnerIdCookie();
 
   if (persistent) {
     window.localStorage.setItem(storageKeys.session, payload);
@@ -171,6 +212,7 @@ export function logoutUser() {
 
   window.localStorage.removeItem(storageKeys.session);
   window.sessionStorage.removeItem(storageKeys.session);
+  clearWalletOwnerIdCookie();
 }
 
 export function getCurrentUser() {

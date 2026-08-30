@@ -1,4 +1,4 @@
-import { defaultTokens } from "@/config/tokens";
+import { canonicalWalletTokens, defaultTokens } from "@/config/tokens";
 import type { WalletThemeId } from "@/config/wallets";
 import type { ActivityStatus, WalletActivity, WalletToken } from "@/lib/types";
 
@@ -205,7 +205,7 @@ function assetFromToken(token: WalletToken): WalletAsset {
 
 function baseAssets(snapshots: LegacyWalletSnapshots) {
   const assets: Record<string, WalletAsset> = {};
-  for (const token of defaultTokens) {
+  for (const token of canonicalWalletTokens) {
     assets[token.symbol] = assetFromToken({ ...token, updatedAt: "" });
   }
   assets.USD = {
@@ -219,7 +219,29 @@ function baseAssets(snapshots: LegacyWalletSnapshots) {
   for (const snapshot of Object.values(snapshots)) {
     for (const token of snapshot?.tokens ?? []) assets[token.symbol.toUpperCase()] = assetFromToken(token);
   }
+  for (const token of canonicalWalletTokens) {
+    const canonical = assetFromToken({ ...token, updatedAt: "" });
+    const existing = assets[token.symbol];
+    assets[token.symbol] = existing
+      ? { ...existing, name: canonical.name, image: canonical.image }
+      : canonical;
+  }
   return assets;
+}
+
+function withCanonicalAssets(state: WalletLedgerState) {
+  let next = state;
+  for (const token of canonicalWalletTokens) {
+    const symbol = token.symbol.toUpperCase();
+    const existing = next.assets[symbol];
+    const canonical = assetFromToken({ ...token, updatedAt: "" });
+    if (existing && existing.name === canonical.name && existing.image === canonical.image) continue;
+    if (next === state) next = cloneState(state);
+    next.assets[symbol] = existing
+      ? { ...existing, name: canonical.name, image: canonical.image }
+      : canonical;
+  }
+  return next;
 }
 
 function accountAddress(walletId: WalletThemeId) {
@@ -319,7 +341,11 @@ export class WalletLedgerRepository {
 
   getState() {
     const stored = parseJson<unknown>(this.storage.getItem(this.storageKey), null);
-    if (isValidState(stored)) return stored;
+    if (isValidState(stored)) {
+      const migrated = withCanonicalAssets(stored);
+      if (migrated !== stored) this.storage.setItem(this.storageKey, JSON.stringify(migrated));
+      return migrated;
+    }
     const initial = createInitialWalletLedger(this.snapshots, this.now().toISOString());
     this.storage.setItem(this.storageKey, JSON.stringify(initial));
     return initial;
@@ -487,14 +513,14 @@ export function tokensForWalletAccount(tokens: WalletToken[], state: WalletLedge
     const existing = tokenMap.get(symbol);
     tokenMap.set(symbol, {
       id: existing?.id ?? `shared-${symbol.toLowerCase()}`,
-      name: existing?.name ?? asset.name,
+      name: asset.name,
       symbol,
       balance: account.balances[symbol] ?? 0,
-      price: existing?.price ?? asset.price,
+      price: asset.price,
       change24h: existing?.change24h ?? 0,
       change1h: existing?.change1h,
       change7d: existing?.change7d,
-      image: existing?.image || asset.image,
+      image: asset.image || existing?.image || "",
       marketCap: existing?.marketCap,
       volume24h: existing?.volume24h,
       updatedAt: new Date().toISOString(),

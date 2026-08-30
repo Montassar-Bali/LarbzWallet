@@ -125,3 +125,86 @@ export const coingeckoMap: Record<string, string> = {
 };
 
 export const liveMarketSymbols = Object.keys(coingeckoMap);
+
+export const liveTokenNames: Record<string, string> = {
+  BTC: "Bitcoin",
+  ETH: "Ethereum",
+  SOL: "Solana",
+  USDT: "Tether",
+  USDC: "USD Coin",
+  SUI: "Sui",
+  MATIC: "Polygon",
+  HYPE: "Hyperliquid",
+  BNB: "BNB",
+  TRX: "TRON",
+  XRP: "XRP",
+  DOGE: "Dogecoin",
+  ADA: "Cardano",
+  AVAX: "Avalanche",
+  DOT: "Polkadot",
+  LINK: "Chainlink",
+  LTC: "Litecoin",
+  TON: "Toncoin",
+  SHIB: "Shiba Inu",
+  NEAR: "NEAR",
+  APT: "Aptos",
+  ARB: "Arbitrum",
+  OP: "Optimism",
+  ATOM: "Cosmos",
+  XLM: "Stellar",
+  BCH: "Bitcoin Cash",
+  XMR: "Monero",
+  PEPE: "Pepe",
+  WIF: "dogwifhat",
+  BFS: "BFS",
+};
+
+export const tokenLogoFallbacks: Record<string, string> = {
+  BTC: "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png",
+  ETH: "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
+  SOL: "https://coin-images.coingecko.com/coins/images/4128/large/solana.png",
+  USDT: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
+  USDC: "https://coin-images.coingecko.com/coins/images/6319/large/USDC.png",
+  SUI: "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png",
+  MATIC: "https://coin-images.coingecko.com/coins/images/4713/large/polygon.png",
+  HYPE: "https://coin-images.coingecko.com/coins/images/50882/large/hyperliquid.jpg",
+  BNB: "https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png",
+  TRX: "https://coin-images.coingecko.com/coins/images/1094/large/photo_2026-04-13_09-59-16.png",
+  XRP: "https://coin-images.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png",
+  DOGE: "https://coin-images.coingecko.com/coins/images/5/large/dogecoin.png",
+  ADA: "https://coin-images.coingecko.com/coins/images/975/large/cardano.png",
+  AVAX: "https://coin-images.coingecko.com/coins/images/12559/large/Avalanche_Circle_RedWhite_Trans.png",
+  DOT: "https://coin-images.coingecko.com/coins/images/12171/large/polkadot.jpg",
+  LINK: "https://coin-images.coingecko.com/coins/images/877/large/Chainlink_Logo_500.png",
+  LTC: "https://coin-images.coingecko.com/coins/images/2/large/litecoin.png",
+  TON: "https://coin-images.coingecko.com/coins/images/17980/large/Gram_Circular_Badge.png",
+  SHIB: "https://coin-images.coingecko.com/coins/images/11939/large/shiba.png",
+  NEAR: "https://coin-images.coingecko.com/coins/images/10365/large/near.jpg",
+  APT: "https://coin-images.coingecko.com/coins/images/26455/large/Aptos-Network-Symbol-Black-RGB-1x.png",
+  ARB: "https://coin-images.coingecko.com/coins/images/16547/large/arb.jpg",
+  OP: "https://coin-images.coingecko.com/coins/images/25244/large/Token.png",
+  ATOM: "https://coin-images.coingecko.com/coins/images/1481/large/cosmos_hub.png",
+  XLM: "https://coin-images.coingecko.com/coins/images/100/large/fmpFRHHQ_400x400.jpg",
+  BCH: "https://coin-images.coingecko.com/coins/images/780/large/bitcoin-cash-circle.png",
+  XMR: "https://coin-images.coingecko.com/coins/images/69/large/monero_logo.png",
+  PEPE: "https://coin-images.coingecko.com/coins/images/29850/large/pepe-token.jpeg",
+  WIF: "https://coin-images.coingecko.com/coins/images/33566/large/dogwifhat.jpg",
+  BFS: "/bfs-coin.svg",
+};
+
+const defaultTokenBySymbol = new Map(defaultTokens.map((token) => [token.symbol, token]));
+
+export const walletMarketSymbols = [...new Set([...liveMarketSymbols, "BFS"])];
+
+export const canonicalWalletTokens: TokenSeed[] = walletMarketSymbols.map((symbol) => {
+  const seed = defaultTokenBySymbol.get(symbol);
+  return {
+    id: seed?.id ?? `market-${symbol.toLowerCase()}`,
+    name: liveTokenNames[symbol] ?? seed?.name ?? symbol,
+    symbol,
+    price: seed?.price ?? 0,
+    balance: 0,
+    change24h: seed?.change24h ?? 0,
+    image: tokenLogoFallbacks[symbol] ?? seed?.image ?? "",
+  };
+});

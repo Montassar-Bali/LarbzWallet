@@ -186,6 +186,106 @@ describe("shared wallet transfer repository", () => {
     expect(phantomTokens.find((token) => token.symbol === "SOL")?.balance).toBe(20 - 1 - calculateNetworkFee("SOL", 1));
   });
 
+  it("uses one canonical currency catalog in Phantom, Ledger, and Trust while keeping wallet balances separate", () => {
+    const walletIds = ["ghost", "ledger", "trust"] as const;
+    const expectedSolBalances = {
+      ghost: 0.25,
+      ledger: 1.5,
+      trust: 8.75,
+    } as const;
+
+    for (const walletId of walletIds) {
+      const account = selectedAccount(repository.getState(), walletId);
+      repository.replaceBalances(walletId, account.id, { SOL: expectedSolBalances[walletId] });
+    }
+
+    const current = repository.getState();
+    const canonicalSymbols = Object.keys(current.assets)
+      .filter((symbol) => symbol !== "USD")
+      .sort();
+    const projections = walletIds.map((walletId, index) => {
+      const staleWalletToken = {
+        id: `${walletId}-stale-sol`,
+        name: `${walletId} stale Solana`,
+        symbol: "SOL",
+        price: index + 1,
+        balance: 999,
+        change24h: index,
+        image: `/stale-${walletId}-sol.png`,
+        updatedAt: "2020-01-01T00:00:00.000Z",
+      };
+
+      return tokensForWalletAccount(
+        [staleWalletToken],
+        current,
+        selectedAccount(current, walletId),
+      );
+    });
+
+    for (const projection of projections) {
+      expect(projection.map((token) => token.symbol).sort()).toEqual(canonicalSymbols);
+
+      for (const symbol of canonicalSymbols) {
+        const canonicalAsset = current.assets[symbol];
+        expect(projection.find((token) => token.symbol === symbol)).toMatchObject({
+          symbol,
+          name: canonicalAsset.name,
+          price: canonicalAsset.price,
+          image: canonicalAsset.image,
+        });
+        expect(canonicalAsset.image).toBeTruthy();
+      }
+    }
+
+    expect(projections.map((projection) => projection.find((token) => token.symbol === "SOL")?.balance))
+      .toEqual(walletIds.map((walletId) => expectedSolBalances[walletId]));
+  });
+
+  it("adds an incoming asset and its image when the recipient UI list did not already contain it", () => {
+    const before = repository.getState();
+    const trustAccount = selectedAccount(before, "trust");
+    const phantomAccount = selectedAccount(before, "ghost");
+    repository.replaceBalances("trust", trustAccount.id, { BNB: 0.3 });
+
+    repository.executeTransfer({
+      clientRequestId: "incoming-bnb-visible-in-phantom",
+      sourceWalletId: "trust",
+      sourceAccountId: trustAccount.id,
+      destinationWalletId: "ghost",
+      destinationAccountId: phantomAccount.id,
+      tokenSymbol: "BNB",
+      amount: 0.2999,
+    });
+
+    const current = repository.getState();
+    const phantomUiTokens = [{
+      id: "phantom-sol",
+      name: "Solana",
+      symbol: "SOL",
+      price: current.assets.SOL.price,
+      balance: 20,
+      change24h: 0,
+      image: current.assets.SOL.image,
+      updatedAt: "2026-08-29T12:00:00.000Z",
+    }];
+    expect(phantomUiTokens.some((token) => token.symbol === "BNB")).toBe(false);
+
+    const visibleTokens = tokensForWalletAccount(
+      phantomUiTokens,
+      current,
+      selectedAccount(current, "ghost"),
+    );
+    const receivedBnb = visibleTokens.find((token) => token.symbol === "BNB");
+
+    expect(receivedBnb).toMatchObject({
+      name: "BNB",
+      symbol: "BNB",
+      balance: 0.2999,
+      image: current.assets.BNB.image,
+    });
+    expect(receivedBnb?.image).toBeTruthy();
+  });
+
   it("keeps browser ledgers separate for different logged-in users", () => {
     expect(walletLedgerStorageKeyFor("usr_alice")).not.toBe(walletLedgerStorageKeyFor("usr_bob"));
     expect(walletLedgerStorageKeyFor("usr_alice")).toContain("usr_alice");

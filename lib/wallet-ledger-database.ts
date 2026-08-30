@@ -74,6 +74,49 @@ function normalizedOwnerId(value: unknown) {
   return value;
 }
 
+function normalizedAccountId(value: unknown) {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{3,180}$/.test(value)) {
+    throw new RemoteWalletError("INVALID_REQUEST", "A valid wallet account is required.");
+  }
+  return value;
+}
+
+function normalizedAccountName(value: unknown) {
+  if (typeof value !== "string") {
+    throw new RemoteWalletError("INVALID_REQUEST", "Enter a valid account name.");
+  }
+  const name = value.trim();
+  if (!name || name.length > 80) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Account names must contain between 1 and 80 characters.");
+  }
+  return name;
+}
+
+function normalizedBalancesPatch(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RemoteWalletError("INVALID_REQUEST", "A valid balance update is required.");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 100) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Too many currencies were included in the balance update.");
+  }
+  const balances: Record<string, number> = {};
+  for (const [rawSymbol, rawBalance] of entries) {
+    const symbol = rawSymbol.toUpperCase();
+    if (
+      !/^[A-Z0-9]{2,12}$/.test(symbol)
+      || Object.hasOwn(balances, symbol)
+      || typeof rawBalance !== "number"
+      || !Number.isFinite(rawBalance)
+      || rawBalance < 0
+    ) {
+      throw new RemoteWalletError("INVALID_REQUEST", "A balance update contains invalid currency data.");
+    }
+    balances[symbol] = rawBalance;
+  }
+  return balances;
+}
+
 function normalizedAccount(value: unknown) {
   if (!value || typeof value !== "object") throw new RemoteWalletError("INVALID_REQUEST", "A valid wallet account is required.");
   const account = value as RemoteWalletAccount;
@@ -242,17 +285,17 @@ async function loadSnapshot(rawOwnerId: unknown): Promise<RemoteWalletSnapshot> 
 export async function syncRemoteWallet({
   ownerId: rawOwnerId,
   state,
-  replaceBalances,
+  mode,
 }: {
   ownerId: unknown;
   state: unknown;
-  replaceBalances: boolean;
+  mode: "initialize" | "metadata";
 }) {
   const ownerId = normalizedOwnerId(rawOwnerId);
   const accounts = accountsFromState(state);
   await ensureSchema();
   const sql = neon(databaseUrl());
-  if (!replaceBalances) {
+  if (mode === "initialize") {
     const existing = await sql`
       SELECT account_id
       FROM larpz_wallet_accounts
@@ -261,30 +304,55 @@ export async function syncRemoteWallet({
     `;
     if (existing.length > 0) return loadSnapshot(ownerId);
   }
-  await sql.transaction(accounts.map((account) => replaceBalances
-    ? sql`
-        INSERT INTO larpz_wallet_accounts
-          (owner_id, account_id, wallet_id, name, address, balances, created_at, updated_at)
-        VALUES
-          (${ownerId}, ${account.id}, ${account.walletId}, ${account.name}, ${account.address}, ${JSON.stringify(account.balances)}::jsonb, ${account.createdAt}, NOW())
-        ON CONFLICT (owner_id, account_id) DO UPDATE SET
-          wallet_id = EXCLUDED.wallet_id,
-          name = EXCLUDED.name,
-          address = EXCLUDED.address,
-          balances = EXCLUDED.balances,
-          updated_at = NOW()
-      `
-    : sql`
-        INSERT INTO larpz_wallet_accounts
-          (owner_id, account_id, wallet_id, name, address, balances, created_at, updated_at)
-        VALUES
-          (${ownerId}, ${account.id}, ${account.walletId}, ${account.name}, ${account.address}, ${JSON.stringify(account.balances)}::jsonb, ${account.createdAt}, NOW())
-        ON CONFLICT (owner_id, account_id) DO UPDATE SET
-          wallet_id = EXCLUDED.wallet_id,
-          name = EXCLUDED.name,
-          address = EXCLUDED.address,
-          updated_at = NOW()
-      `), { isolationLevel: "Serializable" });
+  await sql.transaction(accounts.map((account) => sql`
+    INSERT INTO larpz_wallet_accounts
+      (owner_id, account_id, wallet_id, name, address, balances, created_at, updated_at)
+    VALUES
+      (${ownerId}, ${account.id}, ${account.walletId}, ${account.name}, ${account.address}, ${JSON.stringify(account.balances)}::jsonb, ${account.createdAt}, NOW())
+    ON CONFLICT (owner_id, account_id) DO UPDATE SET
+      wallet_id = EXCLUDED.wallet_id,
+      name = EXCLUDED.name,
+      address = EXCLUDED.address,
+      updated_at = NOW()
+  `), { isolationLevel: "Serializable" });
+  return loadSnapshot(ownerId);
+}
+
+export async function patchRemoteWalletAccount({
+  ownerId: rawOwnerId,
+  accountId: rawAccountId,
+  name: rawName,
+  balances: rawBalances,
+}: {
+  ownerId: unknown;
+  accountId: unknown;
+  name?: unknown;
+  balances?: unknown;
+}) {
+  const ownerId = normalizedOwnerId(rawOwnerId);
+  const accountId = normalizedAccountId(rawAccountId);
+  const hasName = rawName !== undefined;
+  const hasBalances = rawBalances !== undefined;
+  if (!hasName && !hasBalances) {
+    throw new RemoteWalletError("INVALID_REQUEST", "An account name or balance update is required.");
+  }
+  const name = hasName ? normalizedAccountName(rawName) : null;
+  const balances = hasBalances ? normalizedBalancesPatch(rawBalances) : {};
+
+  await ensureSchema();
+  const sql = neon(databaseUrl());
+  const rows = await sql`
+    UPDATE larpz_wallet_accounts
+    SET
+      name = CASE WHEN ${hasName} THEN ${name} ELSE name END,
+      balances = balances || ${JSON.stringify(balances)}::jsonb,
+      updated_at = NOW()
+    WHERE owner_id = ${ownerId} AND account_id = ${accountId}
+    RETURNING account_id
+  `;
+  if (rows.length === 0) {
+    throw new RemoteWalletError("ACCOUNT_NOT_FOUND", "Account not found.");
+  }
   return loadSnapshot(ownerId);
 }
 

@@ -27,6 +27,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { useAuth } from "@/components/auth/auth-provider";
 import type { WalletThemeId } from "@/config/wallets";
+import { getWalletOwnerIdFromCookie } from "@/lib/auth";
 import type { WalletToken } from "@/lib/types";
 import {
   accountForSelection,
@@ -304,19 +305,41 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const { user, loading: authLoading } = useAuth();
   const repositoryRef = useRef<WalletLedgerRepository | null>(null);
   const sharedStatusRef = useRef<SharedLedgerStatus>("connecting");
+  const activeOwnerIdRef = useRef("");
+  const remoteRequestQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [repository, setRepository] = useState<WalletLedgerRepository | null>(null);
   const [state, setState] = useState<WalletLedgerState | null>(null);
+  const [cookieOwnerId, setCookieOwnerId] = useState("");
   const [anonymousOwnerId, setAnonymousOwnerId] = useState("");
   const [sharedStatus, setSharedStatus] = useState<SharedLedgerStatus>("connecting");
   const [sharedError, setSharedError] = useState("");
   const [panel, setPanel] = useState<RuntimePanel>(null);
   const [preferredSymbol, setPreferredSymbol] = useState<string>();
   const security = useWalletSecurity();
-  const ownerId = user?.id ?? anonymousOwnerId;
+  const ownerId = user?.id || cookieOwnerId || anonymousOwnerId;
 
   useEffect(() => {
-    if (authLoading || user) return;
+    activeOwnerIdRef.current = ownerId;
+  }, [ownerId]);
+
+  const enqueueSharedRequest = useCallback((body: unknown) => {
+    const request = remoteRequestQueueRef.current.then(
+      () => sharedLedgerRequest(body),
+      () => sharedLedgerRequest(body),
+    );
+    remoteRequestQueueRef.current = request.then(() => undefined, () => undefined);
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
     const timeoutId = window.setTimeout(() => {
+      const storedCookieOwnerId = getWalletOwnerIdFromCookie() ?? "";
+      setCookieOwnerId(storedCookieOwnerId);
+      if (user || storedCookieOwnerId) {
+        setAnonymousOwnerId("");
+        return;
+      }
       let stored = window.localStorage.getItem(anonymousWalletOwnerKey);
       if (!stored) {
         stored = randomClientId("walletowner").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -333,12 +356,14 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     setState(repository.getState());
   }, []);
 
-  const commitAndNotify = useCallback((next: WalletLedgerState) => {
+  const commitAndNotify = useCallback((next: WalletLedgerState, syncMetadata = true) => {
     setState(next);
     notifyWalletLedgerChanged(next);
-    if (ownerId && sharedStatusRef.current === "connected") {
-      void sharedLedgerRequest({ action: "sync", ownerId, state: next })
+    if (syncMetadata && ownerId && sharedStatusRef.current === "connected") {
+      const requestOwnerId = ownerId;
+      void enqueueSharedRequest({ action: "sync", ownerId, state: next })
         .then((response) => {
+          if (activeOwnerIdRef.current !== requestOwnerId) return;
           const activeRepository = repositoryRef.current;
           if (!activeRepository) return;
           const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
@@ -347,7 +372,22 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
         })
         .catch((caught) => setSharedError(caught instanceof Error ? caught.message : "Shared wallet synchronization failed."));
     }
-  }, [ownerId]);
+  }, [enqueueSharedRequest, ownerId]);
+
+  const patchRemoteAccount = useCallback((accountId: string, patch: { name?: string; balances?: Record<string, number> }) => {
+    if (!ownerId || sharedStatusRef.current !== "connected") return;
+    const requestOwnerId = ownerId;
+    void enqueueSharedRequest({ action: "patchAccount", ownerId, accountId, ...patch })
+      .then((response) => {
+        if (activeOwnerIdRef.current !== requestOwnerId) return;
+        const activeRepository = repositoryRef.current;
+        if (!activeRepository) return;
+        const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
+        setState(merged);
+        notifyWalletLedgerChanged(merged);
+      })
+      .catch((caught) => setSharedError(caught instanceof Error ? caught.message : "Could not save the wallet account."));
+  }, [enqueueSharedRequest, ownerId]);
 
   useEffect(() => {
     if (authLoading || !ownerId) return;
@@ -355,6 +395,28 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     let refreshInterval = 0;
     const storageKey = walletLedgerStorageKeyFor(ownerId);
     sharedStatusRef.current = "connecting";
+    const applySnapshot = (nextRepository: WalletLedgerRepository, snapshot: RemoteWalletSnapshot) => {
+      const merged = nextRepository.applyRemoteSnapshot(snapshot);
+      setState(merged);
+      notifyWalletLedgerChanged(merged);
+    };
+    const pullRemote = async (nextRepository: WalletLedgerRepository) => {
+      const requestOwnerId = ownerId;
+      try {
+        const response = await enqueueSharedRequest({ action: "bootstrap", ownerId, state: nextRepository.getState() });
+        if (cancelled || activeOwnerIdRef.current !== requestOwnerId) return;
+        sharedStatusRef.current = "connected";
+        setSharedStatus("connected");
+        setSharedError("");
+        applySnapshot(nextRepository, response.snapshot);
+      } catch (caught) {
+        if (cancelled || activeOwnerIdRef.current !== requestOwnerId) return;
+        const localOnly = caught instanceof SharedLedgerRequestError && caught.code === "DATABASE_NOT_CONFIGURED";
+        sharedStatusRef.current = localOnly ? "local" : "error";
+        setSharedStatus(localOnly ? "local" : "error");
+        setSharedError(localOnly ? "" : caught instanceof Error ? caught.message : "Could not refresh incoming transfers.");
+      }
+    };
     const timeoutId = window.setTimeout(() => {
       setSharedStatus("connecting");
       setSharedError("");
@@ -365,45 +427,32 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       const next = nextRepository.getState();
       setState(next);
       notifyWalletLedgerChanged(next);
-      void sharedLedgerRequest({ action: "bootstrap", ownerId, state: next })
-        .then((response) => {
-          if (cancelled) return;
-          sharedStatusRef.current = "connected";
-          setSharedStatus("connected");
-          const merged = nextRepository.applyRemoteSnapshot(response.snapshot);
-          setState(merged);
-          notifyWalletLedgerChanged(merged);
-          refreshInterval = window.setInterval(() => {
-            void sharedLedgerRequest({ action: "bootstrap", ownerId, state: nextRepository.getState() })
-              .then((latest) => {
-                if (cancelled) return;
-                const refreshed = nextRepository.applyRemoteSnapshot(latest.snapshot);
-                setState(refreshed);
-                notifyWalletLedgerChanged(refreshed);
-              })
-              .catch((caught) => setSharedError(caught instanceof Error ? caught.message : "Could not refresh incoming transfers."));
-          }, 8_000);
-        })
-        .catch((caught) => {
-          if (cancelled) return;
-          const localOnly = caught instanceof SharedLedgerRequestError && caught.code === "DATABASE_NOT_CONFIGURED";
-          sharedStatusRef.current = localOnly ? "local" : "error";
-          setSharedStatus(localOnly ? "local" : "error");
-          setSharedError(localOnly ? "" : caught instanceof Error ? caught.message : "Shared wallet connection failed.");
-        });
+      void pullRemote(nextRepository);
+      refreshInterval = window.setInterval(() => { void pullRemote(nextRepository); }, 8_000);
     }, 0);
     const onStorage = (event: StorageEvent) => { if (!event.key || event.key === storageKey) refresh(); };
+    const refreshIncomingTransfers = () => {
+      const activeRepository = repositoryRef.current;
+      if (activeRepository) void pullRemote(activeRepository);
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshIncomingTransfers(); };
     window.addEventListener("storage", onStorage);
     window.addEventListener(walletLedgerEvent, refresh);
+    window.addEventListener("focus", refreshIncomingTransfers);
+    window.addEventListener("pageshow", refreshIncomingTransfers);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearTimeout(timeoutId);
       window.clearInterval(refreshInterval);
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(walletLedgerEvent, refresh);
+      window.removeEventListener("focus", refreshIncomingTransfers);
+      window.removeEventListener("pageshow", refreshIncomingTransfers);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       repositoryRef.current = null;
     };
-  }, [authLoading, ownerId, refresh]);
+  }, [authLoading, enqueueSharedRequest, ownerId, refresh]);
 
   const executeTransfer = useCallback(async (input: TransferInput) => {
     const activeRepository = repositoryRef.current;
@@ -411,7 +460,8 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     if (sharedStatusRef.current === "connecting") throw new Error("Shared wallet network is still connecting. Try again in a moment.");
     if (sharedStatusRef.current === "error") throw new Error(sharedError || "Shared wallet network is unavailable.");
     if (sharedStatusRef.current === "connected") {
-      const response = await sharedLedgerRequest({
+      const requestOwnerId = ownerId;
+      const response = await enqueueSharedRequest({
         action: "transfer",
         ownerId,
         transfer: {
@@ -424,6 +474,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
         },
       });
       if (!response.transaction) throw new Error("Shared transfer did not return a transaction.");
+      if (activeOwnerIdRef.current !== requestOwnerId) return response.transaction;
       const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
       setState(merged);
       notifyWalletLedgerChanged(merged);
@@ -432,7 +483,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     const completed = activeRepository.executeTransfer(input);
     commitAndNotify(activeRepository.getState());
     return completed;
-  }, [commitAndNotify, ownerId, sharedError]);
+  }, [commitAndNotify, enqueueSharedRequest, ownerId, sharedError]);
 
   const currentAccount = state ? selectedAccount(state, walletId) : null;
   const value = useMemo<WalletRuntimeValue>(() => ({
@@ -445,18 +496,27 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     openSecurity: () => setPanel("security"),
     replaceCurrentBalances: (balances) => {
       if (!repositoryRef.current || !currentAccount) return;
-      commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, balances));
+      const changedBalances = Object.fromEntries(
+        Object.entries(balances).filter(([rawSymbol, balance]) => {
+          const symbol = rawSymbol.toUpperCase();
+          return Number.isFinite(balance) && balance >= 0 && currentAccount.balances[symbol] !== balance;
+        }),
+      );
+      commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, balances), false);
+      if (Object.keys(changedBalances).length > 0) patchRemoteAccount(currentAccount.id, { balances: changedBalances });
     },
     renameCurrentAccount: (name) => {
       if (!repositoryRef.current || !currentAccount || !name.trim()) return;
-      commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, name));
+      const trimmedName = name.trim();
+      commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, trimmedName), false);
+      if (trimmedName !== currentAccount.name) patchRemoteAccount(currentAccount.id, { name: trimmedName });
     },
     updateMarketAssets: (tokens) => {
       if (!repositoryRef.current) return;
       setState(repositoryRef.current.updateAssets(tokens));
     },
     refresh,
-  }), [commitAndNotify, currentAccount, refresh, state, walletId]);
+  }), [commitAndNotify, currentAccount, patchRemoteAccount, refresh, state, walletId]);
 
   return (
     <WalletRuntimeContext.Provider value={value}>

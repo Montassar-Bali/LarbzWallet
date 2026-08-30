@@ -21,34 +21,27 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import { liveMarketSymbols } from "@/config/tokens";
+import { liveMarketSymbols, walletMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
 import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
+import {
+  applyLiveMarketSnapshot,
+  emptyLiveMarketSnapshot,
+  mergeCanonicalWalletCatalogue,
+  type LiveMarketSnapshot,
+} from "@/lib/wallet-market";
 
 const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
 const LEDGER_FEATURES_KEY = "larpz_ledger_features";
 
-const portfolioSymbols = ["BTC", "SOL", "ETH", "TRX", "BNB", "USDT", "USDC"];
-const ledgerLiveSymbols = liveMarketSymbols;
-
-const ledgerDefaults: Record<
-  string,
-  { id: string; name: string; price: number; change24h: number }
-> = {
-  BTC: { id: "ledger-btc", name: "Bitcoin", price: 69250, change24h: -2.46 },
-  SOL: { id: "ledger-sol", name: "Solana", price: 73.38, change24h: -3.13 },
-  ETH: { id: "ledger-eth", name: "Ethereum", price: 3720, change24h: -3.56 },
-  TRX: { id: "ledger-trx", name: "TRON", price: 0.25, change24h: -0.78 },
-  BNB: { id: "ledger-bnb", name: "BNB", price: 650, change24h: 0.4 },
-  USDT: { id: "ledger-usdt", name: "Tether", price: 1, change24h: 0.42 },
-  USDC: { id: "ledger-usdc", name: "USD Coin", price: 1, change24h: 0.46 },
-};
+const portfolioSymbols = walletMarketSymbols;
 
 const currencies = [
   { code: "USD", label: "$ USD", rate: 1 },
@@ -87,31 +80,6 @@ function today() {
 
 function nowTime() {
   return new Date().toTimeString().slice(0, 5);
-}
-
-function ensureLedgerTokens(input: WalletToken[]) {
-  const bySymbol = new Map(input.map((token) => [token.symbol, token]));
-  const next = [...input];
-
-  for (const symbol of portfolioSymbols) {
-    if (bySymbol.has(symbol)) {
-      continue;
-    }
-
-    const fallback = ledgerDefaults[symbol];
-    next.push({
-      id: fallback.id,
-      name: fallback.name,
-      symbol,
-      price: fallback.price,
-      balance: 0,
-      change24h: fallback.change24h,
-      image: "",
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  return next;
 }
 
 function tokenForSymbol(tokens: WalletToken[], symbol: string) {
@@ -153,27 +121,37 @@ function tokenIconColor(symbol: string) {
   return colors[symbol] ?? "#8b7be7";
 }
 
-function TokenIcon({ symbol, small = false }: { symbol: string; small?: boolean }) {
+type TokenIconToken = Pick<WalletToken, "image" | "name" | "symbol">;
+
+function TokenIcon({ token, small = false }: { token: TokenIconToken; small?: boolean }) {
+  const { image, name, symbol } = token;
   const size = small ? "size-8" : "size-11";
   const textSize = small ? "text-[0.62rem]" : "text-sm";
-
-  if (symbol === "SOL") {
-    return (
-      <span aria-hidden="true" className={`relative inline-flex shrink-0 items-center justify-center ${size}`}>
-        <span className="absolute h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#63f5c4]" style={{ top: "28%" }} />
-        <span className="absolute h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#a68cff]" style={{ top: "44%" }} />
-        <span className="absolute h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#5b86ff]" style={{ top: "60%" }} />
-      </span>
-    );
-  }
 
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex shrink-0 items-center justify-center rounded-full font-bold text-black shadow-[0_0_18px_rgba(135,104,255,0.14)] ${size} ${textSize}`}
-      style={{ background: tokenIconColor(symbol) }}
+      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-black shadow-[0_0_18px_rgba(135,104,255,0.14)] ${size} ${textSize}`}
+      style={{ background: symbol === "SOL" ? "#050607" : tokenIconColor(symbol) }}
     >
-      {symbol === "ETH" ? "◆" : symbol === "TRX" ? "△" : symbol === "BTC" ? "₿" : symbol.slice(0, 1)}
+      {symbol === "SOL" ? (
+        <span className="relative h-full w-full">
+          <span className="absolute left-[14%] h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#63f5c4]" style={{ top: "28%" }} />
+          <span className="absolute left-[14%] h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#a68cff]" style={{ top: "44%" }} />
+          <span className="absolute left-[14%] h-[0.28rem] w-[72%] -skew-x-[25deg] rounded-full bg-[#5b86ff]" style={{ top: "60%" }} />
+        </span>
+      ) : symbol === "ETH" ? "◆" : symbol === "TRX" ? "△" : symbol === "BTC" ? "₿" : symbol.slice(0, 1)}
+      {image ? (
+        <Image
+          src={image}
+          alt={`${name} logo`}
+          fill
+          unoptimized
+          sizes={small ? "32px" : "44px"}
+          className="z-10 object-contain"
+          onError={(event) => { event.currentTarget.style.display = "none"; }}
+        />
+      ) : null}
     </span>
   );
 }
@@ -267,7 +245,7 @@ function AssetRow({
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-xl px-1 py-2 text-left transition hover:bg-white/[0.05]"
     >
-      <TokenIcon symbol={token.symbol} />
+      <TokenIcon token={token} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[clamp(0.98rem,4.1vw,1.22rem)] font-bold">{token.name}</span>
         <span className="block truncate text-[clamp(0.8rem,3.3vw,0.98rem)] text-white/55">
@@ -762,7 +740,7 @@ function EarnScreen({ tokens, positions, onHome, onStart, onWithdraw }: { tokens
           <h2 className="text-sm font-bold text-white/55">YOUR POSITIONS</h2>
           {activePositions.map(([positionSymbol, positionAmount]) => (
             <div key={positionSymbol} className="flex items-center gap-3 rounded-2xl bg-[#171717] p-4">
-              <TokenIcon symbol={positionSymbol} small />
+              <TokenIcon token={tokenForSymbol(tokens, positionSymbol) ?? { symbol: positionSymbol, name: positionSymbol, image: "" }} small />
               <div className="min-w-0 flex-1"><p className="font-bold">{positionSymbol}</p><p className="text-sm text-white/50">{formatAmount(positionAmount, positionSymbol)} earning</p></div>
               <button type="button" onClick={() => onWithdraw(positionSymbol)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-bold">Withdraw</button>
             </div>
@@ -817,7 +795,7 @@ function TokenDetailModal({ token, currency, rate, onClose, onTransfer, onReceiv
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
       <section className="w-full max-w-[520px] rounded-t-[2rem] border border-white/10 bg-[#171717] p-6 pb-8 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between"><div className="flex items-center gap-3"><TokenIcon symbol={token.symbol} /><div><h2 className="text-xl font-bold">{token.name}</h2><p className="text-sm text-white/45">{token.symbol}</p></div></div><button type="button" aria-label="Close asset details" onClick={onClose} className="flex size-10 items-center justify-center rounded-full bg-white/[0.08]"><X size={20} /></button></div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-3"><TokenIcon token={token} /><div><h2 className="text-xl font-bold">{token.name}</h2><p className="text-sm text-white/45">{token.symbol}</p></div></div><button type="button" aria-label="Close asset details" onClick={onClose} className="flex size-10 items-center justify-center rounded-full bg-white/[0.08]"><X size={20} /></button></div>
         <div className="mt-8 rounded-2xl bg-black/25 p-5"><p className="text-sm text-white/50">Your balance</p><p className="mt-2 text-3xl font-bold">{formatAmount(token.balance, token.symbol)} {token.symbol}</p><p className="mt-2 text-lg text-white/60">{formatMoney(value, currency)}</p></div>
         <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-black/25 p-4"><div><p className="text-xs text-white/45">PRICE</p><p className="mt-1 font-bold">{formatMoney(token.price * rate, currency)}</p></div><div><p className="text-xs text-white/45">24H CHANGE</p><p className={`mt-1 font-bold ${token.change24h >= 0 ? "text-[#73d27f]" : "text-[#d87888]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</p></div></div>
         <div className="mt-5 grid grid-cols-3 gap-2"><button type="button" onClick={onTransfer} className="rounded-xl bg-[#292929] py-3 text-sm font-bold">Transfer</button><button type="button" onClick={onReceive} className="rounded-xl bg-[#292929] py-3 text-sm font-bold">Buy</button><button type="button" onClick={onSwap} className="rounded-xl bg-[#b8a5ff] py-3 text-sm font-bold text-[#15101e]">Swap</button></div>
@@ -856,7 +834,9 @@ export function LedgerWallet() {
   const runtime = useWalletRuntime();
   const [view, setView] = useState<LedgerView>("home");
   const [activeTab, setActiveTab] = useState<BottomTab>("Home");
-  const [tokens, setTokens] = useState<WalletToken[]>([]);
+  const [tokens, setTokens] = useState<WalletToken[]>(() => mergeCanonicalWalletCatalogue([]));
+  const tokensRef = useRef(tokens);
+  const latestMarketSnapshot = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
   const [records, setRecords] = useState<WalletActivity[]>([]);
   const [currency, setCurrency] = useState<CurrencyCode>("USD");
   const [portfolioOpen, setPortfolioOpen] = useState(false);
@@ -875,27 +855,39 @@ export function LedgerWallet() {
   const [features, setFeatures] = useState<LedgerFeatures>(defaultLedgerFeatures);
   const [notice, setNotice] = useState("");
 
-  useLivePrices(ledgerLiveSymbols, (prices, changes) => {
-    setTokens((current) =>
-      current.map((token) => ({
-        ...token,
-        price: prices[token.symbol] ?? token.price,
-        change24h: changes[token.symbol] ?? token.change24h,
-      })),
+  useLivePrices(liveMarketSymbols, (prices, changes, images, marketCaps, changes1h, changes7d, volumes24h) => {
+    const snapshot = { prices, changes, images, marketCaps, changes1h, changes7d, volumes24h };
+    latestMarketSnapshot.current = snapshot;
+    const next = applyLiveMarketSnapshot(
+      mergeCanonicalWalletCatalogue(tokensRef.current),
+      snapshot,
     );
+    tokensRef.current = next;
+    setTokens(next);
+    runtime.updateMarketAssets(next);
   });
 
   useEffect(() => {
     document.documentElement.dataset.walletTheme = "ledger";
     const timeout = window.setTimeout(() => {
       const storedTokens = readStorage<WalletToken[]>(LEDGER_TOKENS_KEY, []);
-      setTokens(ensureLedgerTokens(storedTokens));
+      const next = applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(storedTokens),
+        latestMarketSnapshot.current,
+      );
+      tokensRef.current = next;
+      setTokens(next);
       const storedRecords = readStorage<WalletActivity[]>(LEDGER_TRANSACTIONS_KEY, []);
       setRecords(storedRecords);
     }, 0);
 
     const refreshSharedWallet = () => {
-      setTokens(ensureLedgerTokens(readStorage<WalletToken[]>(LEDGER_TOKENS_KEY, [])));
+      const next = applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(readStorage<WalletToken[]>(LEDGER_TOKENS_KEY, [])),
+        latestMarketSnapshot.current,
+      );
+      tokensRef.current = next;
+      setTokens(next);
       setRecords(readStorage<WalletActivity[]>(LEDGER_TRANSACTIONS_KEY, []));
     };
     window.addEventListener(walletLedgerEvent, refreshSharedWallet);
@@ -908,7 +900,14 @@ export function LedgerWallet() {
   useEffect(() => {
     if (!runtime.state || !runtime.currentAccount) return;
     const timeoutId = window.setTimeout(() => {
-      setTokens((current) => ensureLedgerTokens(tokensForWalletAccount(current, runtime.state!, runtime.currentAccount!)));
+      const next = applyLiveMarketSnapshot(
+        mergeCanonicalWalletCatalogue(
+          tokensForWalletAccount(tokensRef.current, runtime.state!, runtime.currentAccount!),
+        ),
+        latestMarketSnapshot.current,
+      );
+      tokensRef.current = next;
+      setTokens(next);
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [runtime.currentAccount, runtime.state]);
@@ -931,7 +930,13 @@ export function LedgerWallet() {
   }
 
   function persistTokens(next: WalletToken[]) {
-    const normalized = next.map((token) => ({ ...token, updatedAt: new Date().toISOString() }));
+    const normalized = applyLiveMarketSnapshot(
+      mergeCanonicalWalletCatalogue(
+        next.map((token) => ({ ...token, updatedAt: new Date().toISOString() })),
+      ),
+      latestMarketSnapshot.current,
+    );
+    tokensRef.current = normalized;
     setTokens(normalized);
     writeStorage(LEDGER_TOKENS_KEY, normalized);
   }

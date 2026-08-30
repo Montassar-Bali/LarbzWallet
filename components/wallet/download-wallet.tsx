@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { liveMarketSymbols } from "@/config/tokens";
+import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
@@ -56,6 +56,7 @@ import {
 } from "@/lib/wallet";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
+import { applyLiveMarketSnapshot, emptyLiveMarketSnapshot, type LiveMarketSnapshot } from "@/lib/wallet-market";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
@@ -130,16 +131,6 @@ type PerpOrderRequest = {
   side: PerpSide;
   leverage: number;
   collateral: number;
-};
-
-type LiveMarketSnapshot = {
-  prices: Record<string, number>;
-  changes: Record<string, number>;
-  changes1h: Record<string, number>;
-  changes7d: Record<string, number>;
-  images: Record<string, string>;
-  marketCaps: Record<string, number>;
-  volumes24h: Record<string, number>;
 };
 
 type MarketChartPoint = {
@@ -218,46 +209,9 @@ const tokenVisuals: Record<string, { background: string; mark: string; foregroun
   BNB: { background: "#f3ba2f", mark: "◆", foreground: "white" },
 };
 
-const liveTokenNames: Record<string, string> = {
-  BTC: "Bitcoin",
-  ETH: "Ethereum",
-  SOL: "Solana",
-  USDT: "Tether",
-  USDC: "USD Coin",
-  SUI: "Sui",
-  MATIC: "Polygon",
-  HYPE: "Hyperliquid",
-  BNB: "BNB",
-  TRX: "TRON",
-  XRP: "XRP",
-  DOGE: "Dogecoin",
-  ADA: "Cardano",
-  AVAX: "Avalanche",
-  DOT: "Polkadot",
-  LINK: "Chainlink",
-  LTC: "Litecoin",
-  TON: "Toncoin",
-  SHIB: "Shiba Inu",
-  NEAR: "NEAR",
-  APT: "Aptos",
-  ARB: "Arbitrum",
-  OP: "Optimism",
-  ATOM: "Cosmos",
-  XLM: "Stellar",
-  BCH: "Bitcoin Cash",
-  XMR: "Monero",
-  PEPE: "Pepe",
-  WIF: "dogwifhat",
-};
-
-const liveTokenCatalogue: WalletToken[] = liveMarketSymbols.map((symbol) => ({
-  id: `market-${symbol.toLowerCase()}`,
-  name: liveTokenNames[symbol] ?? symbol,
-  symbol,
-  balance: 0,
-  price: 0,
-  change24h: 0,
-  image: "",
+const liveTokenCatalogue: WalletToken[] = canonicalWalletTokens.map((token) => ({
+  ...token,
+  id: `market-${token.symbol.toLowerCase()}`,
   updatedAt: "",
 }));
 
@@ -401,20 +355,6 @@ function migrateLegacyReferenceHoldings(tokens: WalletToken[]) {
     migrated.push(saveToken(referenceBfsToken));
   }
   return migrated;
-}
-
-function applyLiveMarketSnapshot(tokens: WalletToken[], snapshot: LiveMarketSnapshot) {
-  return tokens.map((token) => ({
-    ...token,
-    price: snapshot.prices[token.symbol] ?? token.price,
-    change24h: snapshot.changes[token.symbol] ?? token.change24h,
-    change1h: snapshot.changes1h[token.symbol] ?? token.change1h,
-    change7d: snapshot.changes7d[token.symbol] ?? token.change7d,
-    image: snapshot.images[token.symbol] ?? token.image,
-    marketCap: snapshot.marketCaps[token.symbol] ?? token.marketCap,
-    volume24h: snapshot.volumes24h[token.symbol] ?? token.volume24h,
-    updatedAt: snapshot.prices[token.symbol] ? new Date().toISOString() : token.updatedAt,
-  }));
 }
 
 function sortTokens(tokens: WalletToken[]) {
@@ -1464,7 +1404,7 @@ export function DownloadWallet() {
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const latestMarketSnapshot = useRef<LiveMarketSnapshot>({ prices: {}, changes: {}, changes1h: {}, changes7d: {}, images: {}, marketCaps: {}, volumes24h: {} });
+  const latestMarketSnapshot = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
 
   const liveSymbols = liveMarketSymbols;
 
@@ -1472,6 +1412,7 @@ export function DownloadWallet() {
     const snapshot = { prices, changes, changes1h, changes7d, images, marketCaps, volumes24h };
     latestMarketSnapshot.current = snapshot;
     setTokens((current) => applyLiveMarketSnapshot(current, snapshot));
+    runtime.updateMarketAssets(applyLiveMarketSnapshot(liveTokenCatalogue, snapshot));
   });
 
   useEffect(() => {
