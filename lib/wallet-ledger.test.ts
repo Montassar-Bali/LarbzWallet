@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   calculateNetworkFee,
+  createInitialWalletLedger,
   mergeRemoteWalletSnapshot,
   selectedAccount,
   sortedAccountAssets,
@@ -57,12 +58,15 @@ describe("shared wallet transfer repository", () => {
     ["ledger", "trust", "ledger-trust"],
     ["trust", "ghost", "trust-phantom"],
   ] as const)("transfers from %s to %s", (sourceWalletId, destinationWalletId, requestId) => {
+    const untouchedWalletId = (["ghost", "ledger", "trust"] as const).find((walletId) => walletId !== sourceWalletId && walletId !== destinationWalletId)!;
     const sourceBefore = selectedAccount(repository.getState(), sourceWalletId).balances.SOL;
     const destinationBefore = selectedAccount(repository.getState(), destinationWalletId).balances.SOL;
+    const untouchedBefore = selectedAccount(repository.getState(), untouchedWalletId).balances.SOL;
     const transaction = transfer(sourceWalletId, destinationWalletId, requestId);
     const after = repository.getState();
     expect(selectedAccount(after, sourceWalletId).balances.SOL).toBe(sourceBefore - 1 - transaction.fee);
     expect(selectedAccount(after, destinationWalletId).balances.SOL).toBe(destinationBefore + 1);
+    expect(selectedAccount(after, untouchedWalletId).balances.SOL).toBe(untouchedBefore);
     expect(transaction.status).toBe("completed");
   });
 
@@ -197,5 +201,18 @@ describe("shared wallet transfer repository", () => {
     });
     expect(selectedAccount(merged, "ghost").balances.SOL).toBe(23);
     expect(transactionsForAccount(merged, recipient.id)[0].id).toBe("simtx_remote");
+  });
+
+  it("uses registered remote accounts instead of duplicating a user's wallet on another installation", () => {
+    const current = repository.getState();
+    const registered = selectedAccount(current, "ledger");
+    const freshInstallation = createInitialWalletLedger({}, "2026-08-30T13:00:00.000Z");
+    const merged = mergeRemoteWalletSnapshot(freshInstallation, {
+      accounts: [{ ...registered, ownerId: "lic_same_user" }],
+      transactions: [],
+    });
+    expect(merged.wallets.ledger.accounts).toHaveLength(1);
+    expect(selectedAccount(merged, "ledger").id).toBe(registered.id);
+    expect(merged.wallets.ghost.accounts).toHaveLength(2);
   });
 });

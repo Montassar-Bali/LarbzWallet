@@ -252,6 +252,15 @@ export async function syncRemoteWallet({
   const accounts = accountsFromState(state);
   await ensureSchema();
   const sql = neon(databaseUrl());
+  if (!replaceBalances) {
+    const existing = await sql`
+      SELECT account_id
+      FROM larpz_wallet_accounts
+      WHERE owner_id = ${ownerId}
+      LIMIT 1
+    `;
+    if (existing.length > 0) return loadSnapshot(ownerId);
+  }
   await sql.transaction(accounts.map((account) => replaceBalances
     ? sql`
         INSERT INTO larpz_wallet_accounts

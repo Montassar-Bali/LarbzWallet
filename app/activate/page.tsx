@@ -7,7 +7,6 @@ import { useState } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { MarketingNavbar } from "@/components/marketing/navbar";
-import { attachLicenseToUser } from "@/lib/auth";
 import { activateLicense, validateLicense } from "@/lib/license";
 import { normalizeLicenseKey } from "@/lib/storage";
 
@@ -21,7 +20,7 @@ export default function ActivatePage() {
   });
   const [status, setStatus] = useState<ActivateState>("idle");
   const [message, setMessage] = useState("");
-  const { user, login, refresh } = useAuth();
+  const { loginWithLicense } = useAuth();
   const router = useRouter();
 
   const handleActivate = async () => {
@@ -44,16 +43,8 @@ export default function ActivatePage() {
     }
 
     try {
-      const activated = activateLicense(key, user ? { id: user.id, email: user.email } : undefined);
-      if (user) {
-        attachLicenseToUser(user.id, activated.key);
-        refresh();
-      } else {
-        // Keep the demo flow one click: activate the key for the seeded demo account.
-        const demoUser = await login({ email: "demo@larpz.app", password: "Demo123!" });
-        attachLicenseToUser(demoUser.id, activated.key);
-        refresh();
-      }
+      const licenseUser = await loginWithLicense(key);
+      activateLicense(key, { id: licenseUser.id, email: licenseUser.email });
       router.replace("/wallet-launch");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Invalid license key. Please check and try again.";

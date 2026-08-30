@@ -477,26 +477,21 @@ export function sortedAccountAssets(state: WalletLedgerState, account: WalletAcc
 
 export function mergeRemoteWalletSnapshot(state: WalletLedgerState, snapshot: RemoteWalletSnapshot) {
   const next = cloneState(state);
-  for (const remote of snapshot.accounts) {
-    const wallet = next.wallets[remote.walletId];
-    if (!wallet) continue;
-    const existing = wallet.accounts.find((account) => account.id === remote.id || account.address === remote.address);
-    if (existing) {
-      existing.name = remote.name;
-      existing.address = remote.address;
-      existing.balances = { ...remote.balances };
-      existing.createdAt = remote.createdAt;
-    } else {
-      wallet.accounts.push({
+  for (const walletId of ["ghost", "ledger", "trust"] as const) {
+    const wallet = next.wallets[walletId];
+    const remoteAccounts = snapshot.accounts.filter((account) => account.walletId === walletId);
+    if (remoteAccounts.length === 0) continue;
+    const selected = wallet.accounts.find((account) => account.id === wallet.selectedAccountId);
+    wallet.accounts = remoteAccounts.map((remote) => ({
         id: remote.id,
         walletId: remote.walletId,
         name: remote.name,
         address: remote.address,
         balances: { ...remote.balances },
         createdAt: remote.createdAt,
-      });
-    }
-    if (!wallet.accounts.some((account) => account.id === wallet.selectedAccountId)) wallet.selectedAccountId = remote.id;
+      }));
+    wallet.selectedAccountId = wallet.accounts.find((account) => account.id === selected?.id || account.address === selected?.address)?.id
+      ?? wallet.accounts[0].id;
   }
 
   const transactionMap = new Map(next.transactions.map((transaction) => [transaction.id, transaction]));

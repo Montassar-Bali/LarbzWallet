@@ -1277,27 +1277,6 @@ function LiveMarketChart({ points, loading, unavailable, symbol, period }: { poi
   );
 }
 
-function LegacyBitcoinChart() {
-  const candles = [
-    { x: 6, y: 77, h: 42, up: false }, { x: 22, y: 87, h: 55, up: true }, { x: 38, y: 70, h: 29, up: true }, { x: 54, y: 64, h: 35, up: false },
-    { x: 70, y: 75, h: 25, up: false }, { x: 86, y: 83, h: 24, up: false }, { x: 102, y: 96, h: 45, up: false }, { x: 118, y: 111, h: 30, up: true },
-    { x: 134, y: 105, h: 24, up: true }, { x: 150, y: 98, h: 22, up: true }, { x: 166, y: 93, h: 16, up: false }, { x: 182, y: 101, h: 37, up: false },
-    { x: 198, y: 114, h: 24, up: true }, { x: 214, y: 91, h: 40, up: true }, { x: 230, y: 82, h: 32, up: false }, { x: 246, y: 96, h: 39, up: false },
-    { x: 262, y: 111, h: 25, up: true }, { x: 278, y: 91, h: 30, up: true }, { x: 294, y: 76, h: 28, up: true }, { x: 310, y: 70, h: 28, up: false },
-    { x: 326, y: 59, h: 35, up: true }, { x: 342, y: 38, h: 48, up: true }, { x: 358, y: 19, h: 48, up: true }, { x: 374, y: 28, h: 43, up: false },
-  ];
-
-  return (
-    <svg viewBox="0 0 410 180" className="h-[265px] w-full" preserveAspectRatio="none" role="img" aria-label="Bitcoin candlestick chart">
-      {[40, 90, 140].map((y) => <line key={y} x1="0" x2="410" y1={y} y2={y} stroke="rgba(255,255,255,.06)" />)}
-      {candles.map((candle) => {
-        const color = candle.up ? "#00e676" : "#ff1744";
-        return <g key={candle.x}><line x1={candle.x + 5} x2={candle.x + 5} y1={candle.y - 9} y2={candle.y + candle.h + 9} stroke={color} strokeWidth="2" /><rect x={candle.x} y={candle.y} width="10" height={candle.h} rx="2" fill={color} /></g>;
-      })}
-    </svg>
-  );
-}
-
 function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTrade }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void }) {
   const [period, setPeriod] = useState("LIVE");
   const [dismissOffset, setDismissOffset] = useState(0);
@@ -1368,8 +1347,8 @@ function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onTr
       <p className="mt-4 text-[clamp(3rem,15vw,5.2rem)] font-semibold leading-none tracking-[-.075em]">{formatPrice(token.price)}</p>
       <p className="mt-3 text-[clamp(1.1rem,5vw,1.45rem)] font-bold" style={{ color: accent }}>{formatSignedMoney(changeValue)} ({token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%)</p>
     </div>
-    <div className={token.symbol === "BTC" ? "mt-8" : "mt-5"}>
-      {token.symbol === "BTC" ? <LegacyBitcoinChart /> : <LiveMarketChart points={points} loading={loading} unavailable={unavailable} symbol={token.symbol} period={period} />}
+    <div className="mt-5">
+      <LiveMarketChart points={points} loading={loading} unavailable={unavailable} symbol={token.symbol} period={period} />
       <div className="flex items-center justify-between px-4 text-sm font-semibold text-white/55">{["LIVE", "1D", "1W", "1M", "1Y", "ALL"].map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} aria-pressed={period === item} className={`rounded-full px-3 py-2 transition ${period === item ? "bg-white text-black" : "hover:text-white"}`}>{item === "ALL" ? "All" : item}</button>)}<SlidersHorizontal className="h-5 w-5" /></div>
     </div>
     <div className="px-5 pb-28">

@@ -10,13 +10,14 @@ import {
   useState,
 } from "react";
 
-import { getCurrentUser, loginUser, logoutUser, registerUser } from "@/lib/auth";
+import { getCurrentUser, loginUser, loginWithLicenseKey, logoutUser, registerUser } from "@/lib/auth";
 import type { AppUser } from "@/lib/types";
 
 type AuthContextValue = {
   user: AppUser | null;
   loading: boolean;
   login: (input: { email: string; password: string; persistent?: boolean }) => Promise<AppUser>;
+  loginWithLicense: (licenseKey: string) => Promise<AppUser>;
   register: (input: {
     name: string;
     email: string;
@@ -54,6 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return account;
   }, []);
 
+  const loginWithLicense = useCallback(async (licenseKey: string) => {
+    const account = await loginWithLicenseKey(licenseKey);
+    setUser(account);
+    return account;
+  }, []);
+
   const register = useCallback(
     async (input: {
       name: string;
@@ -81,11 +88,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       loading,
       login,
+      loginWithLicense,
       register,
       logout,
       refresh,
     }),
-    [loading, login, logout, refresh, register, user],
+    [loading, login, loginWithLicense, logout, refresh, register, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

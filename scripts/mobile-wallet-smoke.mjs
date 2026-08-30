@@ -42,6 +42,19 @@ async function assertMobileLayout(route, readyText, timeout = 15_000) {
   if (layout.language !== "en") throw new Error(`${route} is not marked as English.`);
 }
 
+await page.goto(`${baseUrl}/activate`, { waitUntil: "domcontentloaded" });
+await page.getByLabel("License Key").fill("DEMO-STAR-0001-2026");
+await page.getByRole("button", { name: "Activate License" }).click();
+await page.waitForURL(/\/wallet-launch/, { timeout: 10_000 });
+const activatedIdentity = await page.evaluate(() => {
+  const session = JSON.parse(window.localStorage.getItem("larpz_session") || "null");
+  const users = JSON.parse(window.localStorage.getItem("larpz_users") || "[]");
+  return users.find((user) => user.id === session?.userId);
+});
+if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !== "DEMO-STAR-0001-2026") {
+  throw new Error("Activation key did not create its own stable wallet identity.");
+}
+
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
 await page.getByRole("button", { name: "Open wallet actions" }).click();

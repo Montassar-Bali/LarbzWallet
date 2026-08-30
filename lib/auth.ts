@@ -1,4 +1,4 @@
-import { storageKeys, readStorage, writeStorage, createId } from "@/lib/storage";
+import { storageKeys, readStorage, writeStorage, createId, normalizeLicenseKey } from "@/lib/storage";
 import type { AppUser } from "@/lib/types";
 
 const seedUsers: AppUser[] = [
@@ -76,6 +76,41 @@ async function hashPassword(password: string) {
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export async function licenseIdentityId(rawLicenseKey: string) {
+  const licenseKey = normalizeLicenseKey(rawLicenseKey);
+  if (!licenseKey) throw new Error("Enter a valid activation key.");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`larpz-license:${licenseKey}`));
+  const fingerprint = Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return `lic_${fingerprint.slice(0, 32)}`;
+}
+
+export async function loginWithLicenseKey(rawLicenseKey: string, persistent = true) {
+  const licenseKey = normalizeLicenseKey(rawLicenseKey);
+  const id = await licenseIdentityId(licenseKey);
+  const users = ensureUsers();
+  const existing = users.find((user) => user.id === id);
+  const user: AppUser = existing
+    ? { ...existing, licenseKey, status: "active" }
+    : {
+        id,
+        name: `Wallet User ${licenseKey.slice(-4)}`,
+        email: `wallet-${id.slice(4, 16)}@license.local`,
+        passwordHash: "license-key-auth",
+        role: "user",
+        status: "active",
+        licenseKey,
+        createdAt: new Date().toISOString(),
+      };
+
+  writeStorage(storageKeys.users, existing
+    ? users.map((candidate) => candidate.id === id ? user : candidate)
+    : [...users, user]);
+  writeSession(user.id, persistent);
+  return user;
 }
 
 export async function registerUser(input: {
