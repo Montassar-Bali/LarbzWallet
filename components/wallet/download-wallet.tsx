@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowUpRight,
   BadgeDollarSign,
-  Banknote,
   BarChart3,
   Bell,
   Check,
@@ -421,6 +420,24 @@ function TokenGlyph({ token }: { token: WalletToken }) {
   return <span className="relative z-0">{tokenMark(token)}</span>;
 }
 
+function CashBanknoteIcon({ className = "h-6 w-7" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 30 22"
+      aria-hidden="true"
+      focusable="false"
+      className={`shrink-0 ${className}`}
+    >
+      <path
+        fill="#8e8e93"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4.5 1.5h21a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3h-21a3 3 0 0 1-3-3v-13a3 3 0 0 1 3-3ZM15 14.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8ZM5 5.3h4.2A4.2 4.2 0 0 1 5 9.5V5.3Zm15.8 0H25v4.2a4.2 4.2 0 0 1-4.2-4.2ZM5 12.5a4.2 4.2 0 0 1 4.2 4.2H5v-4.2Zm20 0v4.2h-4.2a4.2 4.2 0 0 1 4.2-4.2Z"
+      />
+    </svg>
+  );
+}
+
 function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "small" | "normal" | "large" }) {
   const imageSource = value === "🔐" ? "/assets/logo_m.png" : value.startsWith("/avatars/") ? value : null;
   const dimensions = size === "large" ? "h-24 w-24 text-5xl" : size === "small" ? "h-11 w-11 text-xl" : "h-12 w-12 text-2xl";
@@ -646,7 +663,7 @@ function HomeView({
         </div>
       ) : null}
 
-      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl" style={pulledContentStyle}>
+      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl" style={pulledContentStyle}>
         <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onMenu={onMenu} />
       </div>
 
@@ -656,7 +673,7 @@ function HomeView({
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><Banknote className="h-6 w-6 text-white/50" />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><CashBanknoteIcon />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
           <WatchlistPromo onBrowse={onOpenWatchlist} />
 
@@ -794,7 +811,7 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
 }
 
 function CashIcon({ size = "normal" }: { size?: "small" | "normal" }) {
-  return <span className={`grid shrink-0 place-items-center rounded-full bg-[#a295f3] text-black ${size === "small" ? "h-8 w-8" : "h-12 w-12"}`}><BadgeDollarSign className={size === "small" ? "h-5 w-5" : "h-7 w-7"} /></span>;
+  return <span className={`grid shrink-0 place-items-center ${size === "small" ? "h-8 w-8" : "h-12 w-12"}`}><CashBanknoteIcon className={size === "small" ? "h-5 w-6" : "h-6 w-7"} /></span>;
 }
 
 function TradeAssetPicker({ title, tokens, cashBalance, selectedAsset, onClose, onSelect }: { title: string; tokens: WalletToken[]; cashBalance: number; selectedAsset: string; onClose: () => void; onSelect: (asset: string) => void }) {
@@ -1309,7 +1326,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
           <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex flex-1 items-center px-1"><output aria-live="polite" className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em]">${amountLabel}</output></div>
+          <div className="flex flex-1 items-center px-1"><output aria-live="polite" className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-bold leading-none tracking-[-.075em]">${amountLabel}</output></div>
           <div className="mb-5">
             <div className="border-b border-white/[0.09] py-4"><span className="block text-[14px] font-medium text-white/45">Add</span><strong className="mt-1 block text-[17px]">{amountLabel} CASH</strong></div>
             <button type="button" onClick={() => setPaymentMethodsOpen(true)} className="flex w-full items-center justify-between border-b border-white/[0.09] py-4 text-left"><span><span className="block text-[14px] font-medium text-white/45">Payment</span><strong className="mt-1 block text-[17px]">{paymentLabel} · {formatMoney(fee)} fee</strong></span><ChevronDown className="h-5 w-5 text-white/55" /></button>
@@ -1332,7 +1349,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
         <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-[12rem] flex-1 items-center px-1"><output aria-live="polite" aria-describedby={numericAmount > maximumAmount ? "cash-limit-error" : undefined} className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em] text-white/70">${amountLabel}</output></div>
+        <div className="flex min-h-[12rem] flex-1 items-center px-1"><output aria-live="polite" aria-describedby={numericAmount > maximumAmount ? "cash-limit-error" : undefined} className={`max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-bold leading-none tracking-[-.075em] ${numericAmount === 0 ? "text-white/70" : "text-white"}`}>${amountLabel}</output></div>
         {numericAmount > maximumAmount ? <p id="cash-limit-error" role="alert" className="mb-4 text-[16px] font-semibold text-[#ff1744]">The maximum purchase amount is $25,000.00.</p> : null}
         <button type="button" onClick={() => setPaymentMethodsOpen(true)} className="flex min-h-12 w-full items-center justify-between text-left text-[18px] font-semibold"><span>{paymentLabel}</span><ChevronDown className="h-5 w-5 text-white/55" /></button>
         {amount ? (

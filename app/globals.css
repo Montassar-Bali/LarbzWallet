@@ -73,6 +73,10 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
 }
 
+.phantom-wallet-font {
+  font-weight: 500;
+}
+
 /* ── Noise texture overlay (CSS-only) ── */
 .noise-overlay {
   position: fixed;
