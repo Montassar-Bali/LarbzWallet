@@ -68,6 +68,11 @@ body {
   font-family: var(--font-heading), "Inter", system-ui, sans-serif;
 }
 
+.phantom-wallet-font,
+.phantom-wallet-font .font-sans {
+  font-family: sans-serif;
+}
+
 /* ── Noise texture overlay (CSS-only) ── */
 .noise-overlay {
   position: fixed;

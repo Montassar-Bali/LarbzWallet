@@ -45,7 +45,7 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
   }, [initialTheme]);
 
   if (themeId === "ghost") {
-    return <WalletRuntimeProvider walletId="ghost"><DownloadWalletWithSplash /></WalletRuntimeProvider>;
+    return <div className="phantom-wallet-font"><WalletRuntimeProvider walletId="ghost"><DownloadWalletWithSplash /></WalletRuntimeProvider></div>;
   }
 
   if (themeId === "trust") {

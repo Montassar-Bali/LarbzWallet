@@ -88,6 +88,14 @@ if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !
 await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activatedIdentity.id));
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
+await page.getByText("Parody wallet", { exact: true }).waitFor();
+const phantomFontFamily = await page.locator(".download-wallet-app").evaluate((element) => getComputedStyle(element).fontFamily);
+if (phantomFontFamily !== "sans-serif") {
+  throw new Error(`Phantom did not use the requested sans-serif font: ${phantomFontFamily}`);
+}
+if (await page.getByText("Demo · No real funds", { exact: true }).isVisible().catch(() => false)) {
+  throw new Error("Phantom still shows the repeated demo disclaimer instead of its compact parody watermark.");
+}
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();

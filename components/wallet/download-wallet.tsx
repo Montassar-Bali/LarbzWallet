@@ -606,7 +606,7 @@ function HomeView({
 
       {tab === "Home" ? (
         <section className="px-5 pb-40 pt-8">
-          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="shrink-0 text-[11px] font-semibold uppercase tracking-[.08em] text-white/30">Demo · No real funds</span></div>
+          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span aria-label="Parody wallet disclosure" className="shrink-0 text-[10px] font-semibold uppercase tracking-[.14em] text-white/30">Parody wallet</span></div>
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
