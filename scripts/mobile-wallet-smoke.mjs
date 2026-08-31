@@ -3,6 +3,7 @@ import { chromium } from "playwright-core";
 const baseUrl = process.env.WALLET_TEST_URL || "http://localhost:3000";
 const executablePath = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+/** @type {import("playwright-core").BrowserContextOptions} */
 const mobileContextOptions = {
   viewport: { width: 390, height: 844 },
   screen: { width: 390, height: 844 },
@@ -92,13 +93,80 @@ await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activated
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
 await page.getByText("Parody wallet", { exact: true }).waitFor();
 const phantomFontFamily = await page.locator(".download-wallet-app").evaluate((element) => getComputedStyle(element).fontFamily);
-if (phantomFontFamily !== "sans-serif") {
-  throw new Error(`Phantom did not use the requested sans-serif font: ${phantomFontFamily}`);
+if (!phantomFontFamily.includes("-apple-system") || !phantomFontFamily.includes("SF Pro Text")) {
+  throw new Error(`Phantom did not use the iOS system font stack: ${phantomFontFamily}`);
 }
 if (await page.getByText("Demo · No real funds", { exact: true }).isVisible().catch(() => false)) {
   throw new Error("Phantom still shows the repeated demo disclaimer instead of its compact parody watermark.");
 }
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
+await page.waitForTimeout(650);
+
+const homeNavigation = page.locator(".phantom-home-nav");
+for (const label of ["Home", "Trade", "Predictions", "Explore"]) {
+  if (await homeNavigation.getByRole("button", { name: label, exact: true }).count() !== 1) {
+    throw new Error(`Phantom navigation is missing the English ${label} label.`);
+  }
+}
+
+const dock = page.locator(".phantom-home-dock");
+const searchPill = page.getByTestId("phantom-home-search");
+const searchField = page.getByLabel("Search Phantom");
+const walletActionsButton = page.getByRole("button", { name: "Open wallet actions" });
+const [dockBox, searchBox, inputBox, actionsBox] = await Promise.all([
+  dock.boundingBox(),
+  searchPill.boundingBox(),
+  searchField.boundingBox(),
+  walletActionsButton.boundingBox(),
+]);
+if (!dockBox || !searchBox || !inputBox || !actionsBox) {
+  throw new Error("Phantom home dock controls did not render.");
+}
+const right = (box) => box.x + box.width;
+const bottom = (box) => box.y + box.height;
+for (const [name, box] of [["dock", dockBox], ["search", searchBox], ["input", inputBox], ["actions", actionsBox]]) {
+  if (box.x < -0.5 || box.y < -0.5 || right(box) > 390.5 || bottom(box) > 844.5) {
+    throw new Error(`Phantom ${name} is clipped outside the mobile viewport: ${JSON.stringify(box)}`);
+  }
+}
+if (Math.abs(dockBox.x) > 1 || Math.abs(dockBox.width - 390) > 1 || Math.abs(bottom(dockBox) - 844) > 1) {
+  throw new Error(`Phantom dock is not centered across the viewport: ${JSON.stringify(dockBox)}`);
+}
+if (searchBox.width < 260 || actionsBox.width < 55 || actionsBox.height < 55) {
+  throw new Error(`Phantom dock controls are undersized: ${JSON.stringify({ searchBox, actionsBox })}`);
+}
+const dockGap = actionsBox.x - right(searchBox);
+const verticalCenterDifference = Math.abs((searchBox.y + searchBox.height / 2) - (actionsBox.y + actionsBox.height / 2));
+if (dockGap < 11 || dockGap > 13 || verticalCenterDifference > 1 || searchBox.x < 19 || right(actionsBox) > 371) {
+  throw new Error(`Phantom dock spacing does not match the reference: ${JSON.stringify({ dockGap, verticalCenterDifference, searchBox, actionsBox })}`);
+}
+const dockControlsAreReachable = await page.evaluate(() => {
+  const input = document.querySelector('input[aria-label="Search Phantom"]');
+  const button = document.querySelector('button[aria-label="Open wallet actions"]');
+  if (!(input instanceof HTMLElement) || !(button instanceof HTMLElement)) return false;
+  return [input, button].every((element) => {
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return Boolean(hit && element.contains(hit));
+  });
+});
+if (!dockControlsAreReachable) throw new Error("Phantom dock controls are visually covered and cannot be tapped.");
+
+const cashMarkBox = await page.getByTestId("phantom-cash-mark").boundingBox();
+const cashLabelBox = await page.getByTestId("phantom-cash-label").boundingBox();
+if (!cashMarkBox || !cashLabelBox || cashMarkBox.width < 23 || cashMarkBox.width > 25 || cashMarkBox.height < 19 || cashMarkBox.height > 21) {
+  throw new Error(`Phantom Cash did not use the filled reference-sized banknote mark: ${JSON.stringify({ cashMarkBox, cashLabelBox })}`);
+}
+const cashMarkGap = cashLabelBox.x - right(cashMarkBox);
+if (cashMarkGap < 15 || cashMarkGap > 17) throw new Error(`Phantom Cash mark spacing is incorrect: ${cashMarkGap}px.`);
+
+await searchField.fill("sol");
+await page.waitForFunction(() => document.querySelectorAll(".phantom-home-token-row").length === 1);
+const filteredTokenText = await page.locator(".phantom-home-token-row").innerText();
+if (!filteredTokenText.includes("Solana")) throw new Error(`Search Phantom returned the wrong token: ${filteredTokenText}`);
+await searchField.fill("");
+await page.waitForFunction(() => document.querySelectorAll(".phantom-home-token-row").length > 1);
+
 const refreshWalletButton = page.getByRole("button", { name: "Refresh wallet data" });
 await refreshWalletButton.waitFor();
 await refreshWalletButton.click();

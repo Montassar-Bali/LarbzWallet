@@ -70,7 +70,7 @@ body {
 
 .phantom-wallet-font,
 .phantom-wallet-font .font-sans {
-  font-family: sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
 }
 
 /* ── Noise texture overlay (CSS-only) ── */
@@ -262,22 +262,22 @@ html {
 @keyframes phantom-home-dock-enter {
   from {
     opacity: 0;
-    transform: translate3d(-50%, 14px, 0);
+    transform: translate3d(0, 14px, 0);
   }
   to {
     opacity: 1;
-    transform: translate3d(-50%, 0, 0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes phantom-refresh-status-enter {
   from {
     opacity: 0;
-    transform: translate3d(-50%, -6px, 0) scale(0.92);
+    transform: translate3d(0, -6px, 0) scale(0.92);
   }
   to {
     opacity: 1;
-    transform: translate3d(-50%, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
