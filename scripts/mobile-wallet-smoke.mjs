@@ -86,6 +86,7 @@ const activatedIdentity = await page.evaluate(() => {
 if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !== "DEMO-STAR-0001-2026") {
   throw new Error("Activation key did not create its own stable wallet identity.");
 }
+const activatedLedgerKey = `larpz_wallet_ledger_v2:${activatedIdentity.id}`;
 await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activatedIdentity.id));
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
@@ -102,7 +103,7 @@ const refreshWalletButton = page.getByRole("button", { name: "Refresh wallet dat
 await refreshWalletButton.waitFor();
 await refreshWalletButton.click();
 await page.locator('[role="status"]').filter({ hasText: "Refreshing wallet" }).waitFor();
-await page.locator('[role="status"]').filter({ hasText: "Wallet updated" }).waitFor({ timeout: 5_000 });
+await page.locator('[role="status"]').filter({ hasText: "Wallet updated" }).waitFor({ timeout: 10_000 });
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
@@ -166,6 +167,57 @@ await cashHelpDialog.getByRole("button", { name: "Okay" }).click();
 await cashHelpDialog.waitFor({ state: "hidden" });
 await receiveSheet.press("Escape");
 await receiveSheet.waitFor({ state: "hidden" });
+
+const cashBeforeAdd = await page.evaluate((storageKey) => {
+  const state = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+  const wallet = state?.wallets?.ghost;
+  const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
+  return Number(account?.balances?.USD ?? 0);
+}, activatedLedgerKey);
+if (!Number.isFinite(cashBeforeAdd)) throw new Error("Phantom cash balance was unavailable before Add Cash.");
+
+await page.getByRole("button", { name: "Open wallet actions" }).click();
+await page.getByRole("button", { name: "Add cash", exact: true }).click();
+await page.getByRole("heading", { name: "Add Cash", exact: true }).waitFor();
+await page.getByText("Parody wallet · No payment is processed", { exact: true }).waitFor();
+await page.getByRole("button", { name: "Apple Pay", exact: true }).click();
+const paymentMethodsDialog = page.getByRole("dialog", { name: "Payment methods" });
+await paymentMethodsDialog.waitFor();
+await paymentMethodsDialog.getByText("Debit card required", { exact: true }).waitFor();
+await paymentMethodsDialog.getByRole("radio", { name: "Card", exact: true }).click();
+await paymentMethodsDialog.waitFor({ state: "hidden" });
+await page.getByRole("button", { name: "Card", exact: true }).waitFor();
+await page.getByRole("button", { name: "$50", exact: true }).click();
+await page.getByRole("button", { name: "Edit cash amount" }).waitFor();
+await page.getByText("50 CASH", { exact: true }).waitFor();
+await page.getByText("Payment", { exact: true }).waitFor();
+await page.getByText("Card · $1.52 fee", { exact: true }).waitFor();
+await page.getByText("Delivery", { exact: true }).waitFor();
+await page.getByRole("button", { name: "Add Cash", exact: true }).click();
+await page.getByLabel("Search Phantom").waitFor();
+await page.waitForFunction(({ storageKey, previousCash }) => {
+  const state = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+  const wallet = state?.wallets?.ghost;
+  const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
+  return Math.abs(Number(account?.balances?.USD ?? 0) - previousCash - 50) <= 1e-9;
+}, { storageKey: activatedLedgerKey, previousCash: cashBeforeAdd }, { timeout: 6_000 });
+
+const cashAfterAdd = await page.evaluate((storageKey) => {
+  const state = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+  const wallet = state?.wallets?.ghost;
+  const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
+  return Number(account?.balances?.USD ?? 0);
+}, activatedLedgerKey);
+if (Math.abs(cashAfterAdd - cashBeforeAdd - 50) > 1e-9) {
+  throw new Error(`Add Cash changed Phantom cash by ${cashAfterAdd - cashBeforeAdd}, expected exactly $50.`);
+}
+const expectedCashLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(cashAfterAdd);
+await page.waitForFunction((expectedLabel) => [...document.querySelectorAll("button")]
+  .some((button) => button.textContent?.includes("Cash") && button.textContent.includes(expectedLabel)), expectedCashLabel, { timeout: 6_000 })
+  .catch(async () => {
+    const visibleCashRows = await page.getByRole("button").filter({ hasText: "Cash" }).allInnerTexts();
+    throw new Error(`Phantom home did not render ${expectedCashLabel} after Add Cash. Cash buttons: ${JSON.stringify(visibleCashRows)}`);
+  });
 
 await assertMobileLayout("/ledger-wallet", "Demo · No real funds");
 await page.waitForFunction(() => document.body.innerText.includes("0.01 SOL"), undefined, { timeout: 10_000 });

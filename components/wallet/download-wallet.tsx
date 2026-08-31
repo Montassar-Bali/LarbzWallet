@@ -15,6 +15,7 @@ import {
   CircleHelp,
   Clock3,
   Copy,
+  CreditCard,
   Gem,
   Headphones,
   Heart,
@@ -167,6 +168,16 @@ const defaultProfile: ProfileRecord = {
   cash: 0,
   showCash: true,
 };
+
+function readProfile() {
+  const stored = readStorage<Partial<ProfileRecord>>(profileStorageKey, {});
+  return {
+    ...defaultProfile,
+    ...stored,
+    cash: typeof stored.cash === "number" && Number.isFinite(stored.cash) && stored.cash >= 0 ? stored.cash : defaultProfile.cash,
+    showCash: stored.showCash !== false,
+  };
+}
 
 const profileEmojis = [
   "🔥", "🔐", "🔮", "🖼️", "💯", "🔌",
@@ -1224,8 +1235,121 @@ function ReceiveScreen({ profile, onClose }: { profile: ProfileRecord; onClose: 
 
 function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: () => void; onAdd: (amount: number) => void }) {
   const [amount, setAmount] = useState("");
+  const [stage, setStage] = useState<"amount" | "review">("amount");
+  const [paymentMethod, setPaymentMethod] = useState<"apple-pay" | "card">("apple-pay");
+  const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
   const numericAmount = Number(amount) || 0;
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Add Cash</h1></div><div className="flex flex-1 flex-col items-center justify-center"><span className="grid h-20 w-20 place-items-center rounded-full bg-[#a295f3] text-black"><BadgeDollarSign className="h-10 w-10" /></span><p className="mt-8 text-base text-white/50">Current balance · {formatMoney(balance)}</p><label className="mt-5 flex items-center justify-center text-[72px] font-semibold tracking-[-.08em]"><span className="text-white/55">$</span><input autoFocus inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" aria-label="Cash amount" className="w-[240px] bg-transparent outline-none placeholder:text-white/25" /></label><div className="mt-8 flex gap-2">{[25, 50, 100].map((value) => <button key={value} type="button" onClick={() => setAmount(String(value))} className="rounded-full bg-[#202022] px-5 py-3 text-lg">${value}</button>)}</div></div><button type="button" onClick={() => onAdd(numericAmount)} disabled={numericAmount <= 0} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-semibold text-black disabled:bg-[#403967] disabled:text-white/35">Add {numericAmount > 0 ? formatMoney(numericAmount) : "Cash"}</button></div>;
+  const maximumAmount = 25_000;
+  const amountIsValid = numericAmount > 0 && numericAmount <= maximumAmount;
+  const paymentLabel = paymentMethod === "apple-pay" ? "Apple Pay" : "Card";
+  const fee = numericAmount > 0 ? numericAmount * 0.03 + 0.02 : 0;
+  const amountLabel = numericAmount.toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+  useEffect(() => {
+    if (!paymentMethodsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPaymentMethodsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [paymentMethodsOpen]);
+
+  const enterKey = (key: string) => {
+    if (key === "backspace") {
+      setAmount((current) => current.slice(0, -1));
+      return;
+    }
+    if (key === ".") {
+      setAmount((current) => current.includes(".") ? current : `${current || "0"}.`);
+      return;
+    }
+    setAmount((current) => {
+      const [whole, decimals = ""] = current.split(".");
+      if (current.includes(".") && decimals.length >= 2) return current;
+      if (!current.includes(".") && whole.length >= 7) return current;
+      return current === "0" ? key : `${current}${key}`;
+    });
+  };
+
+  const choosePreset = (value: number) => {
+    setAmount(String(value));
+    setStage("review");
+  };
+
+  const paymentSheet = paymentMethodsOpen ? (
+    <div className="absolute inset-0 z-50 flex items-end bg-black/70" role="presentation">
+      <button type="button" onClick={() => setPaymentMethodsOpen(false)} aria-label="Close payment methods" className="absolute inset-0" />
+      <section role="dialog" aria-modal="true" aria-labelledby="payment-methods-title" className="relative w-full rounded-t-[2.25rem] border-t border-white/[0.06] bg-[#121213] px-5 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-5 shadow-[0_-20px_70px_rgba(0,0,0,.75)]">
+        <div className="grid grid-cols-[2.75rem_1fr_2.75rem] items-center">
+          <button autoFocus type="button" onClick={() => setPaymentMethodsOpen(false)} aria-label="Close payment methods" className="grid h-11 w-11 place-items-center rounded-full bg-[#202022]"><X className="h-5 w-5" /></button>
+          <h2 id="payment-methods-title" className="text-center text-[20px] font-semibold">Payment methods</h2>
+          <span />
+        </div>
+        <div className="mt-7" role="radiogroup" aria-label="Payment method">
+          <button type="button" role="radio" aria-checked={paymentMethod === "apple-pay"} onClick={() => { setPaymentMethod("apple-pay"); setPaymentMethodsOpen(false); }} className="flex min-h-16 w-full items-center gap-4 rounded-[1.2rem] px-1 text-left">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[1rem] bg-[#1f1f21] text-[15px] font-semibold">Pay</span>
+            <span className="min-w-0 flex-1"><strong className="block text-[19px]">Apple Pay</strong><span className="text-[15px] text-white/45">Debit card required</span></span>
+            {paymentMethod === "apple-pay" ? <Check className="h-6 w-6 text-[#a99bf7]" /> : null}
+          </button>
+          <button type="button" role="radio" aria-checked={paymentMethod === "card"} onClick={() => { setPaymentMethod("card"); setPaymentMethodsOpen(false); }} className="mt-2 flex min-h-16 w-full items-center gap-4 rounded-[1.2rem] px-1 text-left">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[1rem] bg-[#1f1f21]"><CreditCard className="h-6 w-6" /></span>
+            <strong className="min-w-0 flex-1 text-[19px]">Card</strong>
+            {paymentMethod === "card" ? <Check className="h-6 w-6 text-[#a99bf7]" /> : null}
+          </button>
+        </div>
+        <p className="mt-5 text-center text-[10px] font-bold uppercase tracking-[.14em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p>
+      </section>
+    </div>
+  ) : null;
+
+  if (stage === "review") {
+    return (
+      <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+18px)]">
+        <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
+          <button type="button" onClick={() => setStage("amount")} aria-label="Edit cash amount" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><ArrowLeft className="h-6 w-6" /></button>
+          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-1 items-center px-1"><output aria-live="polite" className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em]">${amountLabel}</output></div>
+          <div className="mb-5">
+            <div className="border-b border-white/[0.09] py-4"><span className="block text-[14px] font-medium text-white/45">Add</span><strong className="mt-1 block text-[17px]">{amountLabel} CASH</strong></div>
+            <button type="button" onClick={() => setPaymentMethodsOpen(true)} className="flex w-full items-center justify-between border-b border-white/[0.09] py-4 text-left"><span><span className="block text-[14px] font-medium text-white/45">Payment</span><strong className="mt-1 block text-[17px]">{paymentLabel} · {formatMoney(fee)} fee</strong></span><ChevronDown className="h-5 w-5 text-white/55" /></button>
+            <div className="py-4"><span className="block text-[14px] font-medium text-white/45">Delivery</span><strong className="mt-1 block text-[17px]">Instantly</strong></div>
+          </div>
+          <button type="button" onClick={() => onAdd(numericAmount)} disabled={!amountIsValid} className="mb-1 min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-[20px] font-semibold text-black disabled:bg-[#443e61] disabled:text-black/50">Add Cash</button>
+          <p className="mt-3 text-center text-[12px] text-white/35">Current in-app balance: {formatMoney(balance)}</p>
+        </div>
+        {paymentSheet}
+      </div>
+    );
+  }
+
+  const keypad = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"];
+
+  return (
+    <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+      <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
+        <button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><X className="h-6 w-6" /></button>
+        <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-[12rem] flex-1 items-center px-1"><output aria-live="polite" aria-describedby={numericAmount > maximumAmount ? "cash-limit-error" : undefined} className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em] text-white/70">${amountLabel}</output></div>
+        {numericAmount > maximumAmount ? <p id="cash-limit-error" role="alert" className="mb-4 text-[16px] font-semibold text-[#ff1744]">The maximum purchase amount is $25,000.00.</p> : null}
+        <button type="button" onClick={() => setPaymentMethodsOpen(true)} className="flex min-h-12 w-full items-center justify-between text-left text-[18px] font-semibold"><span>{paymentLabel}</span><ChevronDown className="h-5 w-5 text-white/55" /></button>
+        {amount ? (
+          <button type="button" onClick={() => setStage("review")} disabled={!amountIsValid} className="mt-3 min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-[19px] font-semibold text-black disabled:bg-[#443e61] disabled:text-black/50">Review</button>
+        ) : (
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {[50, 100, 500].map((value) => <button key={value} type="button" onClick={() => choosePreset(value)} className="min-h-12 rounded-full bg-[#171718] text-[18px] font-medium">${value}</button>)}
+          </div>
+        )}
+        <div className="mt-3 grid grid-cols-3">
+          {keypad.map((key) => <button key={key} type="button" onClick={() => enterKey(key)} aria-label={key === "backspace" ? "Delete digit" : key === "." ? "Decimal point" : `Digit ${key}`} className="grid min-h-[3.7rem] place-items-center text-[27px] font-medium active:bg-white/[0.04]">{key === "backspace" ? <ArrowLeft className="h-7 w-7" /> : key}</button>)}
+        </div>
+      </div>
+      {paymentSheet}
+    </div>
+  );
 }
 
 function BuyScreen({ token, onClose, onBuy }: { token: WalletToken; onClose: () => void; onBuy: (amount: number) => void }) {
@@ -1503,13 +1627,13 @@ export function DownloadWallet() {
     const refreshSharedWallet = () => {
       const loadedTokens = mergeLiveTokenCatalogue(getTokens());
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
-      setProfile(readStorage(profileStorageKey, defaultProfile));
+      setProfile(readProfile());
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
     };
     const timeoutId = window.setTimeout(() => {
       const loadedTokens = mergeLiveTokenCatalogue(migrateLegacyReferenceHoldings(getTokens()));
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
-      setProfile(readStorage(profileStorageKey, defaultProfile));
+      setProfile(readProfile());
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
       const storedWatchlist = readStorage<unknown>(watchlistStorageKey, defaultWatchlistSymbols);
       const normalizedWatchlist = Array.isArray(storedWatchlist)
@@ -1577,7 +1701,7 @@ export function DownloadWallet() {
     setActionsOpen(false);
     if (action === "Send") { runtime.openTransfer(); return; }
     if (action === "Receive") { runtime.openReceive(); return; }
-    if (action === "Add Cash") { runtime.openReceive("cash"); return; }
+    if (action === "Add Cash") { setView("add-cash"); return; }
     setActiveTab("Trade");
   };
 
@@ -1712,13 +1836,17 @@ export function DownloadWallet() {
   };
 
   const addCash = (amount: number) => {
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const nextProfile = { ...profile, cash: profile.cash + amount };
+    const normalizedAmount = Math.round(amount * 100) / 100;
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || normalizedAmount > 25_000) {
+      notify("Enter an amount between $0.01 and $25,000.00.");
+      return;
+    }
+    const nextProfile = { ...profile, cash: Math.round((profile.cash + normalizedAmount) * 100) / 100 };
     writeStorage(profileStorageKey, nextProfile);
     setProfile(nextProfile);
     runtime.replaceCurrentBalances({ ...Object.fromEntries(tokens.map((token) => [token.symbol, token.balance])), USD: nextProfile.cash });
     setView("home");
-    notify(`${formatMoney(amount)} added to your cash balance.`);
+    notify(`${formatMoney(normalizedAmount)} added to your in-app cash balance.`);
   };
 
   const completeSend = () => {
@@ -1752,15 +1880,15 @@ export function DownloadWallet() {
     setHomeRefreshStatus("refreshing");
     runtime.refresh();
     setHomeRefreshKey((current) => current + 1);
-    homeRefreshTimers.current = [
-      window.setTimeout(() => {
-        setHomeRefreshStatus("complete");
-      }, 700),
-      window.setTimeout(() => {
+    const completeTimer = window.setTimeout(() => {
+      setHomeRefreshStatus("complete");
+      const resetTimer = window.setTimeout(() => {
         setHomePullOffset(0);
         setHomeRefreshStatus("idle");
-      }, 1_120),
-    ];
+      }, 420);
+      homeRefreshTimers.current = [resetTimer];
+    }, 700);
+    homeRefreshTimers.current = [completeTimer];
   };
 
   const canPullToRefresh = view === "home"
