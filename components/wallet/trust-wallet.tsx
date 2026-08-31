@@ -604,7 +604,7 @@ function TrustHome({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search tokens"
-          className={"min-w-0 flex-1 bg-transparent text-sm outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#26344b] placeholder:text-[#9aa6b8]")}
+          className={"min-w-0 flex-1 bg-transparent text-base outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#26344b] placeholder:text-[#9aa6b8]")}
         />
         {query ? (
           <button type="button" onClick={() => setQuery("")} aria-label="Clear token search" className="rounded-full">
@@ -709,7 +709,7 @@ function WalletSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={"h-12 w-full appearance-none rounded-2xl border px-4 pr-10 text-sm font-bold outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")}
+        className={"h-12 w-full appearance-none rounded-2xl border px-4 pr-10 text-base font-bold outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")}
       >
         {tokens.map((token) => (
           <option key={token.id} value={token.symbol}>
@@ -879,7 +879,7 @@ function BrowserScreen({ dark }: { dark: boolean }) {
       <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/50" : "text-[#7f8a9d]")}>Search wallet guides and market information.</p>
       <form onSubmit={submitSearch} className={"mt-6 flex items-center gap-3 rounded-2xl px-4 py-3 " + (dark ? "bg-[#1c2129]" : "bg-white shadow-sm")}>
         <Globe className={"h-5 w-5 " + (dark ? "text-[#75aefb]" : "text-[#4e91f5]")} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search guides" className={"min-w-0 flex-1 bg-transparent text-sm outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#303c50] placeholder:text-[#9aa6b8]")} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search guides" className={"min-w-0 flex-1 bg-transparent text-base outline-none " + (dark ? "text-white placeholder:text-white/35" : "text-[#303c50] placeholder:text-[#9aa6b8]")} />
         <button type="submit" aria-label="Search browser" className={"rounded-full p-1 " + (dark ? "text-white/60" : "text-[#7c879a]")}>
           <Search className="h-4 w-4" />
         </button>
@@ -980,20 +980,20 @@ function TransactionModal({
         </label>
         <label className="block">
           <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Amount</span>
-          <input required value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" step="any" placeholder="0.00" className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+          <input required value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" step="any" placeholder="0.00" className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
         </label>
         <label className="block">
           <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>{type === "send" ? "Recipient label" : "Sender label"}</span>
-          <input value={counterparty} onChange={(event) => setCounterparty(event.target.value)} placeholder="Example: Creator Wallet" className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+          <input value={counterparty} onChange={(event) => setCounterparty(event.target.value)} placeholder="Example: Creator Wallet" className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Date</span>
-            <input value={date} onChange={(event) => setDate(event.target.value)} type="date" className={"h-12 w-full rounded-2xl border px-3 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
+            <input value={date} onChange={(event) => setDate(event.target.value)} type="date" className={"h-12 w-full rounded-2xl border px-3 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
           </label>
           <label className="block">
             <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Time</span>
-            <input value={time} onChange={(event) => setTime(event.target.value)} type="time" className={"h-12 w-full rounded-2xl border px-3 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
+            <input value={time} onChange={(event) => setTime(event.target.value)} type="time" className={"h-12 w-full rounded-2xl border px-3 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
           </label>
         </div>
         {error ? <p className="rounded-2xl bg-[#ffe7e9] px-4 py-3 text-sm font-semibold text-[#c8495d]">{error}</p> : null}
@@ -1114,7 +1114,7 @@ function SettingsModal({
       </div>
       <label className="mt-6 block">
         <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Wallet name</span>
-        <input value={walletName} onChange={(event) => setWalletName(event.target.value)} className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
+        <input value={walletName} onChange={(event) => setWalletName(event.target.value)} className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
       </label>
       <div className="mt-5">
         <p className={"mb-2 text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Appearance</p>
@@ -1129,7 +1129,7 @@ function SettingsModal({
       <label className="mt-5 block">
         <span className={"mb-2 block text-xs font-bold " + (dark ? "text-white/45" : "text-[#929cad]")}>Display currency</span>
         <div className="relative">
-          <select value={currency} onChange={(event) => setCurrency(event.target.value as CurrencyCode)} className={"h-12 w-full appearance-none rounded-2xl border px-4 pr-10 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")}>
+          <select value={currency} onChange={(event) => setCurrency(event.target.value as CurrencyCode)} className={"h-12 w-full appearance-none rounded-2xl border px-4 pr-10 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")}>
             {(Object.keys(currencySymbols) as CurrencyCode[]).map((code) => <option key={code} value={code}>{currencySymbols[code]} {code}</option>)}
           </select>
           <ChevronDown className={"pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 " + (dark ? "text-white/45" : "text-[#9aa6b8]")} />
@@ -1145,7 +1145,7 @@ function SettingsModal({
             <label key={token.id} className={"flex items-center gap-3 rounded-2xl p-2 " + (dark ? "bg-[#20252d]" : "bg-[#f7f9fc]")}>
               <TokenIcon token={token} size="small" />
               <span className={"w-14 text-sm font-bold " + (dark ? "text-white" : "text-[#303c50]")}>{token.symbol}</span>
-              <input value={balances[token.id] ?? "0"} onChange={(event) => setBalances((current) => ({ ...current, [token.id]: event.target.value }))} inputMode="decimal" className={"h-10 min-w-0 flex-1 rounded-xl border px-3 text-right text-sm outline-none " + (dark ? "border-white/10 bg-[#2a3039] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
+              <input value={balances[token.id] ?? "0"} onChange={(event) => setBalances((current) => ({ ...current, [token.id]: event.target.value }))} inputMode="decimal" className={"h-10 min-w-0 flex-1 rounded-xl border px-3 text-right text-base outline-none " + (dark ? "border-white/10 bg-[#2a3039] text-white" : "border-[#e2e8f1] bg-white text-[#303c50]")} />
             </label>
           ))}
         </div>
@@ -1208,11 +1208,11 @@ function AddTokenModal({
       </div>
       <p className={"mt-3 text-sm leading-6 " + (dark ? "text-white/45" : "text-[#7f8a9d]")}>Create a display-only token. No contract address or network connection is used.</p>
       <form onSubmit={submit} className="mt-5 space-y-3">
-        <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Token name" className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
-        <input required value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Symbol, e.g. DEMO" className={"h-12 w-full rounded-2xl border px-4 text-sm uppercase outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+        <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Token name" className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+        <input required value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Symbol, e.g. DEMO" className={"h-12 w-full rounded-2xl border px-4 text-base uppercase outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
         <div className="grid grid-cols-2 gap-3">
-          <input required type="number" min="0" step="any" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
-          <input required type="number" min="0" step="any" value={balance} onChange={(event) => setBalance(event.target.value)} placeholder="Balance" className={"h-12 w-full rounded-2xl border px-4 text-sm outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+          <input required type="number" min="0" step="any" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
+          <input required type="number" min="0" step="any" value={balance} onChange={(event) => setBalance(event.target.value)} placeholder="Balance" className={"h-12 w-full rounded-2xl border px-4 text-base outline-none " + (dark ? "border-white/10 bg-[#20252d] text-white placeholder:text-white/25" : "border-[#e2e8f1] bg-white text-[#303c50] placeholder:text-[#aeb9c8]")} />
         </div>
         {error ? <p className="rounded-2xl bg-[#ffe7e9] px-4 py-3 text-sm font-semibold text-[#c8495d]">{error}</p> : null}
         <button type="submit" className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4e91f5] text-sm font-black text-white">Add token <Plus className="h-4 w-4" /></button>

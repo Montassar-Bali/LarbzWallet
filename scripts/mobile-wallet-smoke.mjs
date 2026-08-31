@@ -13,9 +13,9 @@ const mobileContextOptions = {
   serviceWorkers: "block",
 };
 
-async function createMobileContext(ownerId = null) {
+async function createMobileContext(ownerId = null, cameraQrPayload = "sim_ledger_cameraqr123") {
   const mobileContext = await browser.newContext(mobileContextOptions);
-  await mobileContext.addInitScript(({ syntheticOwnerId }) => {
+  await mobileContext.addInitScript(({ syntheticOwnerId, syntheticCameraQrPayload }) => {
     Object.defineProperty(navigator, "standalone", { configurable: true, get: () => true });
     const originalMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = (query) => query.includes("display-mode: standalone")
@@ -38,7 +38,61 @@ async function createMobileContext(ownerId = null) {
         document.cookie = `larpz_wallet_owner_id=${encodeURIComponent(syntheticOwnerId)}; Path=/; SameSite=Lax`;
       }
     } catch {}
-  }, { syntheticOwnerId: ownerId });
+
+    if (syntheticCameraQrPayload) {
+      const cameraState = { requested: false, constraints: null, detections: 0, tracksStopped: 0 };
+      Object.defineProperty(window, "__walletQrCamera", { configurable: true, value: cameraState });
+      Object.defineProperty(window, "BarcodeDetector", {
+        configurable: true,
+        value: class MockBarcodeDetector {
+          static async getSupportedFormats() { return ["qr_code"]; }
+          async detect() {
+            cameraState.detections += 1;
+            if (cameraState.detections < 2) return [];
+            return [{
+              rawValue: syntheticCameraQrPayload,
+              cornerPoints: [{ x: 20, y: 20 }, { x: 180, y: 20 }, { x: 180, y: 180 }, { x: 20, y: 180 }],
+            }];
+          }
+        },
+      });
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          async enumerateDevices() {
+            return [{ deviceId: "smoke-back-camera", groupId: "smoke", kind: "videoinput", label: "Back Camera", toJSON: () => ({}) }];
+          },
+          getSupportedConstraints() { return { facingMode: true, width: true, height: true }; },
+          async getUserMedia(constraints) {
+            cameraState.requested = true;
+            cameraState.constraints = constraints;
+            const canvas = document.createElement("canvas");
+            canvas.width = 320;
+            canvas.height = 320;
+            const context = canvas.getContext("2d");
+            let frame = 0;
+            const draw = () => {
+              if (!context) return;
+              context.fillStyle = frame++ % 2 ? "#111" : "#222";
+              context.fillRect(0, 0, canvas.width, canvas.height);
+            };
+            draw();
+            const interval = window.setInterval(draw, 50);
+            const stream = canvas.captureStream(10);
+            for (const track of stream.getTracks()) {
+              const stop = track.stop.bind(track);
+              track.stop = () => {
+                cameraState.tracksStopped += 1;
+                window.clearInterval(interval);
+                stop();
+              };
+            }
+            return stream;
+          },
+        },
+      });
+    }
+  }, { syntheticOwnerId: ownerId, syntheticCameraQrPayload: cameraQrPayload });
   return mobileContext;
 }
 
@@ -67,6 +121,22 @@ async function assertMobileLayout(route, readyText, timeout = 15_000) {
   if (layout.language !== "en") throw new Error(`${route} is not marked as English.`);
 }
 
+async function assertWritingFieldsAvoidIosZoom(targetPage, screen) {
+  const undersized = await targetPage.locator("input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']), textarea, select").evaluateAll((elements) => elements.flatMap((element) => {
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    const fontSize = Number.parseFloat(style.fontSize);
+    if (style.display === "none" || style.visibility === "hidden" || bounds.width <= 0 || bounds.height <= 0 || fontSize >= 16) return [];
+    return [{
+      control: element.getAttribute("aria-label") || element.getAttribute("placeholder") || element.getAttribute("name") || element.id || element.tagName.toLowerCase(),
+      fontSize,
+    }];
+  }));
+  if (undersized.length > 0) {
+    throw new Error(`${screen} has writing fields that can trigger iOS auto-zoom: ${JSON.stringify(undersized)}`);
+  }
+}
+
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 await page.getByRole("heading", { name: "Link this installed wallet" }).waitFor({ timeout: 15_000 });
 if (await page.getByRole("button", { name: "Send", exact: true }).isVisible().catch(() => false)) {
@@ -89,6 +159,7 @@ if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !
 await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activatedIdentity.id));
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
+await assertWritingFieldsAvoidIosZoom(page, "Phantom home");
 const responsiveHomeLayout = await page.evaluate(() => {
   const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
   const total = document.querySelector('[data-testid="phantom-total-balance"]');
@@ -132,7 +203,12 @@ await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
 const phantomSendSheet = page.locator("section[aria-label='Send']");
 await phantomSendSheet.getByRole("heading", { name: "Send" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom recipient screen");
 const phantomRecipientInput = phantomSendSheet.getByLabel("Recipient username or wallet address");
+const phantomRecipientFontSize = await phantomRecipientInput.evaluate((input) => Number.parseFloat(getComputedStyle(input).fontSize));
+if (phantomRecipientFontSize < 16) {
+  throw new Error(`Phantom recipient input can trigger iOS auto-zoom at ${phantomRecipientFontSize}px.`);
+}
 await phantomRecipientInput.tap();
 await phantomRecipientInput.pressSequentially("sim_focus_probe", { delay: 15 });
 const recipientFocusState = await phantomRecipientInput.evaluate((input) => ({
@@ -144,18 +220,22 @@ if (!recipientFocusState.focused || recipientFocusState.value !== "sim_focus_pro
 }
 
 await phantomSendSheet.getByRole("button", { name: "Scan wallet QR code" }).click();
-const simulatedScanner = page.getByRole("dialog", { name: "Simulated QR scanner" });
-await simulatedScanner.waitFor();
-await simulatedScanner.getByRole("status").filter({ hasText: "Scanning wallet QR code" }).waitFor();
-await simulatedScanner.waitFor({ state: "hidden", timeout: 8_000 });
+const cameraScanner = page.getByRole("dialog", { name: "QR code scanner" });
+await cameraScanner.waitFor();
+await cameraScanner.getByLabel("Live camera preview").waitFor();
+await cameraScanner.waitFor({ state: "hidden", timeout: 8_000 });
 const scannedRecipient = await phantomRecipientInput.inputValue();
-if (!/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(scannedRecipient)) {
-  throw new Error(`Phantom scanner did not return a complete simulated wallet address: ${scannedRecipient}`);
+if (scannedRecipient !== "sim_ledger_cameraqr123") {
+  throw new Error(`Phantom camera scanner did not decode the wallet QR address: ${scannedRecipient}`);
 }
+await page.waitForFunction(() => window.__walletQrCamera?.requested && window.__walletQrCamera?.tracksStopped > 0);
+const cameraState = await page.evaluate(() => window.__walletQrCamera);
+if (!JSON.stringify(cameraState?.constraints).includes("environment")) throw new Error(`Phantom scanner did not request the rear camera: ${JSON.stringify(cameraState)}`);
 await phantomSendSheet.getByRole("button", { name: "Send to this address" }).waitFor();
 await phantomRecipientInput.fill("");
 await page.getByRole("button", { name: "Choose one of my accounts" }).click();
 await page.getByRole("button", { name: "Use Ledger Account 1" }).click();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom transfer form");
 await page.getByLabel("Transfer amount").fill("0.01");
 await page.waitForFunction(() => [...document.querySelectorAll("button")]
   .some((button) => button.textContent?.includes("Review transfer") && !button.disabled));
@@ -190,6 +270,7 @@ await updatedSolanaHomeRow.waitFor({ state: "visible", timeout: 6_000 });
 await page.getByRole("button", { name: "Open wallet menu" }).click();
 await page.getByRole("button", { name: "Profile", exact: true }).click();
 await page.getByRole("heading", { name: "Edit Profile" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom profile");
 const profileSolanaHolding = page.getByLabel("Solana holding");
 await profileSolanaHolding.waitFor();
 const profileSolanaAmount = Number(await profileSolanaHolding.inputValue());
@@ -203,6 +284,7 @@ await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Receive", exact: true }).click();
 const receiveSheet = page.locator("section[aria-label='Receive']");
 await receiveSheet.getByRole("heading", { name: "Receive" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom receive screen");
 await receiveSheet.getByRole("tab", { name: "Token" }).waitFor();
 await receiveSheet.getByRole("tab", { name: "Cash" }).waitFor();
 await receiveSheet.getByRole("img", { name: "Wallet address QR code" }).waitFor();
@@ -240,6 +322,7 @@ if (!Number.isFinite(cashBeforeAdd)) throw new Error("Phantom cash balance was u
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Add cash", exact: true }).click();
 await page.getByRole("heading", { name: "Add Cash", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom Add Cash");
 await page.getByRole("button", { name: "Apple Pay", exact: true }).click();
 const paymentMethodsDialog = page.getByRole("dialog", { name: "Payment methods" });
 await paymentMethodsDialog.waitFor();
@@ -290,29 +373,37 @@ const expectedCashLabel = new Intl.NumberFormat("en-US", { style: "currency", cu
 await page.getByRole("button").filter({ hasText: "Cash" }).filter({ hasText: expectedCashLabel }).first().waitFor();
 
 await assertMobileLayout("/ledger-wallet", "Demo · No real funds");
+await assertWritingFieldsAvoidIosZoom(page, "Ledger home");
 await page.waitForFunction(() => document.body.innerText.includes("0.01 SOL"), undefined, { timeout: 10_000 });
 await page.getByRole("button", { name: "Transfer" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Ledger transfer");
 await page.getByRole("button", { name: "Close", exact: true }).click();
 await page.getByRole("button", { name: "Accounts" }).click();
 await page.getByRole("heading", { name: "Accounts" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Ledger accounts");
 await page.getByRole("button", { name: "Close", exact: true }).click();
 await page.getByRole("button", { name: "Swap", exact: true }).last().click();
 await page.getByRole("heading", { name: "Swap", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Ledger swap");
 await page.getByRole("button", { name: "Back to Ledger home" }).click();
 await page.getByRole("button", { name: "Earn", exact: true }).click();
 await page.getByRole("heading", { name: "Earn", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Ledger Earn");
 await page.getByRole("button", { name: "Back to Ledger home" }).click();
 await page.getByRole("button", { name: "Card", exact: true }).click();
 await page.getByRole("heading", { name: "Card", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Ledger card");
 await page.getByRole("button", { name: "Back to Ledger home" }).click();
 await page.getByRole("button", { name: "Explore", exact: true }).first().click();
 await page.getByRole("heading", { name: "Explore", exact: true }).waitFor();
 await page.getByRole("button", { name: "Back to Ledger home" }).click();
 
 await assertMobileLayout("/trust-wallet", "Home");
+await assertWritingFieldsAvoidIosZoom(page, "Trust home");
 await page.getByRole("button", { name: "Send" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Trust transfer");
 const sheetBounds = await page.locator("section[aria-label='Send']").boundingBox();
 if (!sheetBounds || sheetBounds.x < 0 || sheetBounds.x + sheetBounds.width > 390 || sheetBounds.y < 0 || sheetBounds.y + sheetBounds.height > 844.5) {
   throw new Error(`Transfer sheet exceeds the mobile viewport: ${JSON.stringify(sheetBounds)}`);
@@ -320,12 +411,14 @@ if (!sheetBounds || sheetBounds.x < 0 || sheetBounds.x + sheetBounds.width > 390
 await page.getByRole("button", { name: "Close", exact: true }).click();
 await page.getByRole("button", { name: "Swap", exact: true }).click();
 await page.getByRole("heading", { name: "Trade tokens", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Trust swap");
 await page.getByRole("button", { name: "Discover", exact: true }).click();
 await page.getByRole("heading", { name: "Explore crypto", exact: true }).waitFor();
 await page.getByRole("button", { name: /Learn crypto/ }).click();
 await page.getByText(/Verify recipient addresses/).waitFor();
 await page.getByRole("button", { name: "Browser", exact: true }).click();
 await page.getByRole("heading", { name: "Web3 browser", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Trust browser");
 await page.getByRole("button", { name: /Wallet help center/ }).click();
 await page.getByText(/Use Receive to view an account address/).waitFor();
 
@@ -505,4 +598,4 @@ const actionableErrors = errors.filter((message) => !message.includes("Failed to
 await browser.close();
 if (actionableErrors.length) throw new Error(`Browser errors: ${actionableErrors.join(" | ")}`);
 
-console.log("Mobile wallet smoke test passed: Phantom recipient focus, simulated QR scan, swipe dismissal, recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");
+console.log("Mobile wallet smoke test passed: Phantom recipient focus, rear-camera QR scan, swipe dismissal, recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");

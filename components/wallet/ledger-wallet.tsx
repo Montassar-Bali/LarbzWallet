@@ -446,10 +446,10 @@ function CustomTokenModal({ onSave, onClose }: { onSave: (token: { name: string;
       <form onSubmit={submit} className="w-full max-w-[390px] rounded-[2rem] border border-[#413052] bg-[#171322] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold">Add Custom Token</h2><button type="button" aria-label="Close custom token form" onClick={onClose} className="text-white/65"><X size={21} /></button></div>
         <div className="space-y-3">
-          <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Token name" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 outline-none focus:border-[#a188ff]" />
-          <input required value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Symbol, e.g. SPX" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 uppercase outline-none focus:border-[#a188ff]" />
-          <input type="number" min="0" step="any" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 outline-none focus:border-[#a188ff]" />
-          <input type="number" min="0" step="any" value={balance} onChange={(event) => setBalance(event.target.value)} placeholder="Balance" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 outline-none focus:border-[#a188ff]" />
+          <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Token name" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base outline-none focus:border-[#a188ff]" />
+          <input required value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Symbol, e.g. SPX" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base uppercase outline-none focus:border-[#a188ff]" />
+          <input type="number" min="0" step="any" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base outline-none focus:border-[#a188ff]" />
+          <input type="number" min="0" step="any" value={balance} onChange={(event) => setBalance(event.target.value)} placeholder="Balance" className="w-full rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base outline-none focus:border-[#a188ff]" />
         </div>
         <button type="submit" className="mt-5 w-full rounded-xl bg-[#b8a5ff] py-3.5 font-bold text-[#15101e]">Add Token</button>
       </form>
@@ -496,10 +496,10 @@ function TransactionModal({
           {(["receive", "send"] as const).map((item) => <button key={item} type="button" onClick={() => onType(item)} className={`rounded-lg py-3 text-sm font-bold capitalize transition ${type === item ? "bg-[#a995f2] text-[#15101e]" : "text-white/65"}`}>{item === "receive" ? "Received" : "Sent"}</button>)}
         </div>
         <div className="space-y-3">
-          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Crypto</span><select value={crypto} onChange={(event) => onCrypto(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-white outline-none focus:border-[#a188ff]">{tokens.map((token) => <option key={token.symbol} value={token.symbol}>{token.symbol} - {token.name}</option>)}</select></label>
-          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Amount</span><input required min="0" step="any" type="number" inputMode="decimal" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0.00" className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-right outline-none focus:border-[#a188ff]" /></label>
-          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Date</span><input required type="date" value={date} onChange={(event) => onDate(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 outline-none focus:border-[#a188ff]" /></label>
-          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Time</span><input required type="time" value={time} onChange={(event) => onTime(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 outline-none focus:border-[#a188ff]" /></label>
+          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Crypto</span><select value={crypto} onChange={(event) => onCrypto(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base text-white outline-none focus:border-[#a188ff]">{tokens.map((token) => <option key={token.symbol} value={token.symbol}>{token.symbol} - {token.name}</option>)}</select></label>
+          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Amount</span><input required min="0" step="any" type="number" inputMode="decimal" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0.00" className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-right text-base outline-none focus:border-[#a188ff]" /></label>
+          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Date</span><input required type="date" value={date} onChange={(event) => onDate(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base outline-none focus:border-[#a188ff]" /></label>
+          <label className="grid grid-cols-[5rem_1fr] items-center gap-3"><span className="text-sm font-bold text-white/60">Time</span><input required type="time" value={time} onChange={(event) => onTime(event.target.value)} className="min-w-0 rounded-xl border border-white/8 bg-[#292436] px-3 py-3 text-base outline-none focus:border-[#a188ff]" /></label>
         </div>
         <button type="submit" className="mt-6 w-full rounded-xl bg-[#b8a5ff] py-3.5 font-bold text-[#15101e]">Add Transaction</button>
         <button type="button" onClick={onClear} className="mt-3 w-full rounded-xl border border-[#a85b67]/40 py-3.5 font-bold text-[#e57983]">Clear transactions</button>
@@ -687,7 +687,7 @@ function SwapScreen({ tokens, currency, initialFrom, onHome, onSwap }: { tokens:
           <div className="flex items-center justify-between text-sm font-semibold text-white/55"><span>You pay</span><button type="button" onClick={() => setAmount(String(fromToken?.balance ?? 0))} className="text-[#b8a5ff]">Max</button></div>
           <div className="mt-4 flex items-center gap-3">
             <input aria-label="Swap amount" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" className="min-w-0 flex-1 bg-transparent text-4xl font-bold outline-none placeholder:text-white/20" />
-            <select aria-label="Token to pay" value={fromToken?.symbol ?? ""} onChange={(event) => setFrom(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 font-bold outline-none">
+            <select aria-label="Token to pay" value={fromToken?.symbol ?? ""} onChange={(event) => setFrom(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 text-base font-bold outline-none">
               {tradable.map((token) => <option key={token.symbol} value={token.symbol} disabled={token.symbol === toToken?.symbol}>{token.symbol}</option>)}
             </select>
           </div>
@@ -702,7 +702,7 @@ function SwapScreen({ tokens, currency, initialFrom, onHome, onSwap }: { tokens:
           <p className="text-sm font-semibold text-white/55">You receive</p>
           <div className="mt-4 flex items-center gap-3">
             <p className="min-w-0 flex-1 truncate text-4xl font-bold">{output > 0 ? formatAmount(output, toToken?.symbol ?? "") : "0"}</p>
-            <select aria-label="Token to receive" value={toToken?.symbol ?? ""} onChange={(event) => setTo(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 font-bold outline-none">
+            <select aria-label="Token to receive" value={toToken?.symbol ?? ""} onChange={(event) => setTo(event.target.value)} className="max-w-[8.5rem] rounded-full bg-[#2a2a2a] px-4 py-3 text-base font-bold outline-none">
               {tradable.map((token) => <option key={token.symbol} value={token.symbol} disabled={token.symbol === fromToken?.symbol}>{token.symbol}</option>)}
             </select>
           </div>
@@ -749,7 +749,7 @@ function EarnScreen({ tokens, positions, onHome, onStart, onWithdraw }: { tokens
       ) : null}
       <form onSubmit={submit} className="rounded-3xl border border-white/8 bg-[#171717] p-5">
         <div className="flex items-center justify-between"><p className="font-bold">Start earning</p><span className="rounded-full bg-[#2d5237] px-3 py-1 text-xs font-bold text-[#82dc91]">{annualRate.toFixed(1)}% APY</span></div>
-        <select aria-label="Asset to earn" value={token?.symbol ?? ""} onChange={(event) => setSymbol(event.target.value)} className="mt-5 w-full rounded-xl border border-white/8 bg-[#292929] px-4 py-3 font-bold outline-none">
+        <select aria-label="Asset to earn" value={token?.symbol ?? ""} onChange={(event) => setSymbol(event.target.value)} className="mt-5 w-full rounded-xl border border-white/8 bg-[#292929] px-4 py-3 text-base font-bold outline-none">
           {eligible.map((item) => <option key={item.symbol} value={item.symbol}>{item.name} ({item.symbol})</option>)}
         </select>
         <div className="mt-3 flex items-center rounded-xl border border-white/8 bg-[#292929] pr-3 focus-within:border-[#a995f2]">
@@ -782,7 +782,7 @@ function CardScreen({ total, currency, frozen, limit, records, onHome, onToggleF
       </div>
       <section className="rounded-2xl bg-[#171717] p-5">
         <label className="text-sm font-bold text-white/60" htmlFor="ledger-card-limit">Monthly spending limit</label>
-        <div className="mt-3 flex gap-2"><input id="ledger-card-limit" type="number" min="0" step="10" value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-white/8 bg-[#292929] px-4 py-3 outline-none focus:border-[#a995f2]" /><button type="button" onClick={() => onSaveLimit(Math.max(0, Number(draftLimit) || 0))} className="rounded-xl bg-[#b8a5ff] px-5 font-bold text-[#15101e]">Save</button></div>
+        <div className="mt-3 flex gap-2"><input id="ledger-card-limit" type="number" min="0" step="10" value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-white/8 bg-[#292929] px-4 py-3 text-base outline-none focus:border-[#a995f2]" /><button type="button" onClick={() => onSaveLimit(Math.max(0, Number(draftLimit) || 0))} className="rounded-xl bg-[#b8a5ff] px-5 font-bold text-[#15101e]">Save</button></div>
         <p className="mt-3 text-xs text-white/45">Current limit: {formatMoney(limit, currency)}</p>
       </section>
       <button type="button" onClick={onHistory} className="flex w-full items-center justify-between rounded-2xl bg-[#171717] px-5 py-4 text-left"><span><span className="block font-bold">Card activity</span><span className="mt-1 block text-sm text-white/45">{records.length} wallet transactions</span></span><ChevronRight size={20} /></button>

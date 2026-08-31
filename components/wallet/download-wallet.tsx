@@ -8,7 +8,6 @@ import {
   BadgeDollarSign,
   BarChart3,
   Bell,
-  Camera,
   Check,
   ChevronDown,
   ChevronRight,
@@ -30,7 +29,6 @@ import {
   Radio,
   RefreshCw,
   Repeat2,
-  Scan,
   Search,
   Send,
   Settings,
@@ -49,6 +47,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, t
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
+import { CameraQrScanner } from "@/components/wallet/camera-qr-scanner";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
 import {
   createTransaction,
@@ -694,7 +693,7 @@ function HomeView({
       ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView /> : <ExploreView onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onSupport={onSupport} />}
 
       <div data-no-pull-refresh className="phantom-home-dock fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-white/35" /></label>
         <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
       </div>
     </>
@@ -835,7 +834,7 @@ function TradeAssetPicker({ title, tokens, cashBalance, selectedAsset, onClose, 
 
 function MarketFilterSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
   const selectedLabel = options.find((option) => option.value === value)?.label ?? label;
-  return <label className="relative flex shrink-0 items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70"><span>{selectedLabel}</span><ChevronDown className="h-4 w-4" /><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="absolute inset-0 cursor-pointer opacity-0">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+  return <label className="relative flex shrink-0 items-center gap-2 rounded-full bg-[#202022] px-4 py-2.5 text-base font-semibold text-white/70"><span>{selectedLabel}</span><ChevronDown className="h-4 w-4" /><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="absolute inset-0 cursor-pointer text-base opacity-0">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
 function TradeView({ tokens, cashBalance, perpPositions, onToken, onExecuteTrade, onOpenPerp, onClosePerp }: { tokens: WalletToken[]; cashBalance: number; perpPositions: PerpPosition[]; onToken: (token: WalletToken) => void; onExecuteTrade: (trade: TradeRequest) => boolean; onOpenPerp: (token: WalletToken) => void; onClosePerp: (position: PerpPosition) => void }) {
@@ -1231,7 +1230,7 @@ function TokenPicker({ tokens, flow, onClose, onSelect }: { tokens: WalletToken[
   return <SwipePanel onDismiss={onClose} scrollable className="px-4 pb-10"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close token picker" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{flow === "send" ? "Select Token" : "Buy"}</h1></div><label className="mt-9 flex items-center gap-4 rounded-full bg-[#1d1d1f] px-6 py-5 text-[20px] text-white/40"><Search className="h-6 w-6" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label><div className="mt-9 space-y-3">{filtered.map((token) => <button key={token.id} type="button" onClick={() => onSelect(token)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-6 py-5 text-left transition hover:bg-[#242426]"><TokenIcon token={token} size="large" /><span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[25px] font-medium">{token.name}<span className="text-[#a295f3]">✿</span></span><span className="mt-1 block text-[19px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span></button>)}{filtered.length === 0 ? <p className="py-10 text-center text-white/50">No token found.</p> : null}</div></SwipePanel>;
 }
 
-function SendRecipientScreen({ token, recipient, scanAddress, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; scanAddress: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
+function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const recent = ["Account 1", "Main Wallet", "Trading"];
   const addresses = ["Account 1", "Main Wallet", "Trading", "Savings"];
   const [pasteError, setPasteError] = useState("");
@@ -1246,15 +1245,7 @@ function SendRecipientScreen({ token, recipient, scanAddress, onRecipient, onBac
       setPasteError("Allow clipboard access, then try again.");
     }
   };
-  useEffect(() => {
-    if (!scannerOpen) return;
-    const timeout = window.setTimeout(() => {
-      onRecipient(scanAddress);
-      setScannerOpen(false);
-    }, 2200);
-    return () => window.clearTimeout(timeout);
-  }, [onRecipient, scanAddress, scannerOpen]);
-  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-28">{scannerOpen ? <div className="absolute inset-0 z-[80] flex flex-col items-center justify-center bg-black" role="dialog" aria-modal="true" aria-label="Simulated QR scanner"><div className="relative grid h-[min(18rem,72vw)] w-[min(18rem,72vw)] place-items-center"><div className="absolute inset-0 rounded-3xl border-2 border-[#a295f3]/40" /><Scan className="h-24 w-24 animate-pulse text-[#a295f3]" /><span role="status" className="absolute bottom-4 text-sm text-white/60">Scanning an in-app wallet QR…</span></div><button type="button" onClick={() => setScannerOpen(false)} className="mt-10 rounded-full bg-[#242426] px-8 py-4 text-lg font-medium">Cancel</button></div> : null}<div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" onFocus={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan QR code" className="text-white/80"><Camera className="h-7 w-7" /></button><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
+  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-28">{scannerOpen ? <CameraQrScanner onClose={() => setScannerOpen(false)} onScan={(address) => { onRecipient(address); setPasteError(""); setScannerOpen(false); }} /> : null}<div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" onFocus={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan QR code" className="text-white/80"><QrCode className="h-7 w-7" /></button><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
 }
 
 function SendAmountScreen({ token, amount, onAmount, onBack, onNext }: { token: WalletToken; amount: string; onAmount: (value: string) => void; onBack: () => void; onNext: () => void }) {
@@ -1618,16 +1609,6 @@ export function DownloadWallet() {
   const homePullStart = useRef<{ x: number; y: number } | null>(null);
   const homeRawPull = useRef(0);
   const homeRefreshTimers = useRef<number[]>([]);
-  const simulatedScanAddress = useMemo(() => {
-    const currentAddress = runtime.currentAccount?.address;
-    const accounts = runtime.state
-      ? Object.values(runtime.state.wallets).flatMap((wallet) => wallet.accounts)
-      : [];
-    return accounts.find((account) => account.address !== currentAddress)?.address
-      ?? currentAddress
-      ?? profile.address;
-  }, [profile.address, runtime.currentAccount?.address, runtime.state]);
-
   const liveSymbols = liveMarketSymbols;
 
   useLivePrices(liveSymbols, (prices, changes, images, marketCaps, changes1h, changes7d, volumes24h) => {
@@ -1977,7 +1958,7 @@ export function DownloadWallet() {
           {view === "support" ? <SupportScreen onBack={() => setView("home")} onCommunity={() => setView("community")} /> : null}
           {view === "disclosures" ? <DisclosuresScreen onBack={() => setView("home")} /> : null}
           {view === "token-picker" ? <TokenPicker tokens={tokens} flow={flow} onClose={() => { resetSend(); setView("home"); }} onSelect={pickToken} /> : null}
-          {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} scanAddress={simulatedScanAddress} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
+          {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
           {view === "send-amount" && currentToken ? <SendAmountScreen token={currentToken} amount={sendAmount} onAmount={setSendAmount} onBack={() => setView("send-recipient")} onNext={() => setView("send-summary")} /> : null}
           {view === "send-summary" && currentToken ? <SummaryScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onBack={() => setView("send-amount")} onConfirm={() => setView("sending")} /> : null}
           {view === "sending" && currentToken ? <SendingScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onComplete={completeSend} onDismiss={() => { resetSend(); setView("home"); }} /> : null}
