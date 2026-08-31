@@ -89,6 +89,32 @@ if (!activatedIdentity?.id?.startsWith("lic_") || activatedIdentity.licenseKey !
 await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activatedIdentity.id));
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
+const responsiveHomeLayout = await page.evaluate(() => {
+  const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
+  const total = document.querySelector('[data-testid="phantom-total-balance"]');
+  const firstTokenValue = document.querySelector('[data-testid="phantom-token-value"]');
+  const firstTokenRow = firstTokenValue?.closest(".phantom-home-token-row");
+  if (!tabs || !total || !firstTokenValue || !firstTokenRow) return null;
+
+  const originalTotal = total.textContent;
+  const originalTokenValue = firstTokenValue.textContent;
+  total.textContent = "$13,989,671.05";
+  firstTokenValue.textContent = "$13,988,310.00";
+
+  const tabLabelsFit = [...tabs.querySelectorAll("button")]
+    .every((button) => button.scrollWidth <= button.clientWidth + 1);
+  const result = {
+    tabsFit: tabs.scrollWidth <= tabs.clientWidth + 1 && tabLabelsFit,
+    totalFits: total.scrollWidth <= total.clientWidth + 1,
+    tokenFits: firstTokenRow.scrollWidth <= firstTokenRow.clientWidth + 1,
+  };
+  total.textContent = originalTotal;
+  firstTokenValue.textContent = originalTokenValue;
+  return result;
+});
+if (!responsiveHomeLayout?.tabsFit || !responsiveHomeLayout.totalFits || !responsiveHomeLayout.tokenFits) {
+  throw new Error(`Phantom home does not fit large values at 390px: ${JSON.stringify(responsiveHomeLayout)}`);
+}
 const phantomFontFamily = await page.locator(".download-wallet-app").evaluate((element) => getComputedStyle(element).fontFamily);
 if (!phantomFontFamily.toLowerCase().includes("sans-serif")) {
   throw new Error(`Phantom did not use the requested sans-serif font: ${phantomFontFamily}`);

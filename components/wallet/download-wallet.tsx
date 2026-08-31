@@ -463,7 +463,10 @@ function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; a
   ];
 
   return (
-    <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      data-testid="phantom-wallet-tabs"
+      className="grid min-w-0 grid-cols-[2.75rem_.85fr_.85fr_1.45fr_1fr] items-center gap-1 overflow-hidden pb-1 min-[400px]:gap-1.5"
+    >
       <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
         <LockAvatar value={avatar} size="small" />
       </button>
@@ -472,7 +475,7 @@ function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; a
           key={value}
           type="button"
           onClick={() => onChange(value)}
-          className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-[clamp(.9rem,4.3vw,1.1rem)] font-semibold transition ${activeTab === value ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
+          className={`min-w-0 overflow-hidden whitespace-nowrap rounded-full px-1 py-2.5 text-center text-[clamp(.625rem,3vw,.9rem)] font-semibold transition min-[400px]:px-1.5 sm:px-3 sm:text-[1rem] ${activeTab === value ? "bg-[#a295f3] text-black" : "bg-[#252527] text-white/65 hover:bg-[#303033] hover:text-white"}`}
         >
           {label}
         </button>
@@ -667,17 +670,17 @@ function HomeView({
         </div>
       ) : null}
 
-      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl" style={pulledContentStyle}>
+      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl min-[400px]:px-4 sm:px-5" style={pulledContentStyle}>
         <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
-        <section className="phantom-home-content px-5 pb-40 pt-8" style={pulledContentStyle}>
+        <section className="phantom-home-content px-4 pb-40 pt-8 sm:px-5" style={pulledContentStyle}>
           <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button></span></div>
-          <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
-          <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
+          <h1 data-testid="phantom-total-balance" className="mt-2 max-w-full whitespace-nowrap text-[clamp(2rem,10vw,3rem)] font-semibold leading-none tracking-[-0.065em] tabular-nums text-white">{formatMoney(displayTotal)}</h1>
+          <div className={`mt-3 flex min-w-0 items-center gap-2 text-[clamp(.9rem,4.2vw,1.125rem)] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="min-w-0 truncate tabular-nums">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 tabular-nums text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><CashBanknoteIcon />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] min-w-0 w-full items-center justify-between gap-3 rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-4 text-left transition hover:bg-[#232323] active:scale-[.99] min-[400px]:px-6"><span className="flex min-w-0 items-center gap-3 text-[20px] font-semibold min-[400px]:gap-4"><CashBanknoteIcon /><span className="truncate">Cash</span></span><span className="min-w-0 shrink whitespace-nowrap text-right text-[clamp(1rem,4.6vw,1.25rem)] tabular-nums">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
           <WatchlistPromo onBrowse={onOpenWatchlist} />
 
@@ -1097,10 +1100,10 @@ function TokenRow({ token, animationDelay, onClick }: { token: WalletToken; anim
   const changeClass = token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#00e676]";
 
   return (
-    <button type="button" onClick={onClick} className="phantom-home-token-row flex min-h-16 w-full items-center gap-3 rounded-[1.45rem] bg-[#191919] px-4 py-2 text-left transition hover:bg-[#232323]" style={animationDelay === undefined ? undefined : { animationDelay: `${animationDelay}ms` }}>
+    <button type="button" onClick={onClick} className="phantom-home-token-row grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-[1.45rem] bg-[#191919] px-3 py-2 text-left transition hover:bg-[#232323] min-[400px]:gap-x-3 min-[400px]:px-4" style={animationDelay === undefined ? undefined : { animationDelay: `${animationDelay}ms` }}>
       <TokenIcon token={token} />
       <span className="min-w-0 flex-1"><span className="block truncate text-[20px] font-semibold">{token.name}</span><span className="mt-0.5 block truncate text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
-      <span className="max-w-[36%] shrink-0 text-right"><span className="block truncate text-[20px] font-medium">{formatMoney(value)}</span><span className={`mt-0.5 block truncate text-[18px] font-semibold ${changeClass}`}>{changeLabel}</span></span>
+      <span className="min-w-fit whitespace-nowrap text-right tabular-nums"><span data-testid="phantom-token-value" className="block text-[clamp(.72rem,3.9vw,1.2rem)] font-medium tracking-[-0.025em]">{formatMoney(value)}</span><span className={`mt-0.5 block text-[clamp(.8rem,4vw,1.1rem)] font-semibold ${changeClass}`}>{changeLabel}</span></span>
     </button>
   );
 }
