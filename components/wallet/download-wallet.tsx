@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowUpRight,
   BadgeDollarSign,
-  Banknote,
   BarChart3,
   Bell,
   Check,
@@ -421,6 +420,19 @@ function TokenGlyph({ token }: { token: WalletToken }) {
   return <span className="relative z-0">{tokenMark(token)}</span>;
 }
 
+function PhantomCashMark({ className = "h-5 w-6" }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} data-testid="phantom-cash-mark" viewBox="0 0 28 24">
+      <path
+        clipRule="evenodd"
+        d="M4.25 3.5h19.5A2.75 2.75 0 0 1 26.5 6.25v11.5a2.75 2.75 0 0 1-2.75 2.75H4.25a2.75 2.75 0 0 1-2.75-2.75V6.25A2.75 2.75 0 0 1 4.25 3.5ZM14 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5ZM5.75 6.75a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm16.5 7.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "small" | "normal" | "large" }) {
   const imageSource = value === "🔐" ? "/assets/logo_m.png" : value.startsWith("/avatars/") ? value : null;
   const dimensions = size === "large" ? "h-24 w-24 text-5xl" : size === "small" ? "h-11 w-11 text-xl" : "h-12 w-12 text-2xl";
@@ -535,14 +547,11 @@ function HomeView({
   cashVisible,
   tokenQuery,
   watchlistSymbols,
-  actionsOpen,
   refreshOffset,
   refreshStatus,
   onTab,
   onMenu,
   onCash,
-  onSearch,
-  onActions,
   onOpenWatchlist,
   onAccounts,
   onExecuteTrade,
@@ -561,14 +570,11 @@ function HomeView({
   cashVisible: boolean;
   tokenQuery: string;
   watchlistSymbols: string[];
-  actionsOpen: boolean;
   refreshOffset: number;
   refreshStatus: HomeRefreshStatus;
   onTab: (tab: Tab) => void;
   onMenu: () => void;
   onCash: () => void;
-  onSearch: (value: string) => void;
-  onActions: () => void;
   onOpenWatchlist: () => void;
   onAccounts: () => void;
   onExecuteTrade: (trade: TradeRequest) => boolean;
@@ -656,7 +662,7 @@ function HomeView({
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
-          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><Banknote className="h-6 w-6 text-white/50" />Cash</span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
+          <button type="button" onClick={onCash} className="mt-8 flex h-[72px] w-full items-center justify-between rounded-[1.55rem] border border-white/[0.035] bg-[#191919] px-6 text-left transition hover:bg-[#232323] active:scale-[.99]"><span className="flex items-center gap-4 text-[20px] font-semibold"><PhantomCashMark /><span data-testid="phantom-cash-label">Cash</span></span><span className="shrink-0 text-[20px]">{profile.showCash && cashVisible ? formatMoney(profile.cash) : "••••"}</span></button>
 
           <WatchlistPromo onBrowse={onOpenWatchlist} />
 
@@ -669,11 +675,19 @@ function HomeView({
         </section>
       ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView /> : <ExploreView onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onSupport={onSupport} />}
 
-      <div data-no-pull-refresh className="phantom-home-dock fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
-        <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
-      </div>
     </>
+  );
+}
+
+function HomeDock({ tokenQuery, actionsOpen, onSearch, onActions }: { tokenQuery: string; actionsOpen: boolean; onSearch: (value: string) => void; onActions: () => void }) {
+  return (
+    <div data-no-pull-refresh className="phantom-home-dock absolute inset-x-0 bottom-0 z-40 mx-auto flex w-full max-w-[560px] items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl">
+      <label data-testid="phantom-home-search" className="flex h-14 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full border border-white/[0.035] bg-[#202022] px-4 text-[16px] font-medium text-white/40">
+        <Search className="h-5 w-5 shrink-0" />
+        <input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 w-full flex-1 bg-transparent outline-none placeholder:text-white/35" />
+      </label>
+      <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
+    </div>
   );
 }
 
@@ -1297,7 +1311,6 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
             {paymentMethod === "card" ? <Check className="h-6 w-6 text-[#a99bf7]" /> : null}
           </button>
         </div>
-        <p className="mt-5 text-center text-[10px] font-bold uppercase tracking-[.14em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p>
       </section>
     </div>
   ) : null;
@@ -1880,15 +1893,15 @@ export function DownloadWallet() {
     setHomeRefreshStatus("refreshing");
     runtime.refresh();
     setHomeRefreshKey((current) => current + 1);
-    const completeTimer = window.setTimeout(() => {
-      setHomeRefreshStatus("complete");
-      const resetTimer = window.setTimeout(() => {
+    homeRefreshTimers.current = [
+      window.setTimeout(() => {
+        setHomeRefreshStatus("complete");
+      }, 700),
+      window.setTimeout(() => {
         setHomePullOffset(0);
         setHomeRefreshStatus("idle");
-      }, 420);
-      homeRefreshTimers.current = [resetTimer];
-    }, 700);
-    homeRefreshTimers.current = [completeTimer];
+      }, 1_120),
+    ];
   };
 
   const canPullToRefresh = view === "home"
@@ -1947,7 +1960,7 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
@@ -1972,6 +1985,7 @@ export function DownloadWallet() {
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}
         </div>
+        {view === "home" ? <HomeDock tokenQuery={tokenQuery} actionsOpen={actionsOpen} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} /> : null}
       </div>
       <style>{`.download-wallet-app div.absolute.inset-0.z-40 > div.mx-auto.mt-3.h-1\\.5.w-20 { margin-top: calc(env(safe-area-inset-top) + 12px); }`}</style>
     </main>
