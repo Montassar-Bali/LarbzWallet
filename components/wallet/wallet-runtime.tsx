@@ -324,6 +324,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const sharedStatusRef = useRef<SharedLedgerStatus>("connecting");
   const activeOwnerIdRef = useRef("");
   const remoteRequestQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pullRemoteRef = useRef<(() => Promise<void>) | null>(null);
   const [repository, setRepository] = useState<WalletLedgerRepository | null>(null);
   const [state, setState] = useState<WalletLedgerState | null>(null);
   const [cookieOwnerId, setCookieOwnerId] = useState("");
@@ -422,6 +423,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     const repository = repositoryRef.current;
     if (!repository) return;
     setState(repository.getState());
+    void pullRemoteRef.current?.();
   }, []);
 
   const commitAndNotify = useCallback((next: WalletLedgerState, syncMetadata = true) => {
@@ -491,6 +493,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       const nextRepository = createBrowserWalletRepository(ownerId);
       if (!nextRepository) return;
       repositoryRef.current = nextRepository;
+      pullRemoteRef.current = () => pullRemote(nextRepository);
       setRepository(nextRepository);
       const next = nextRepository.getState();
       setState(next);
@@ -519,6 +522,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       window.removeEventListener("pageshow", refreshIncomingTransfers);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       repositoryRef.current = null;
+      pullRemoteRef.current = null;
     };
   }, [authLoading, enqueueSharedRequest, identityChecked, identityError, legacyOwnerId, ownerId, refresh]);
 

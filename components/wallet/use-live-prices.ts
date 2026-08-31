@@ -19,6 +19,7 @@ export function useLivePrices(
     changes7d: ChangeMap,
     volumes24h: VolumeMap,
   ) => void,
+  refreshKey = 0,
 ) {
   const symbolKey = Array.from(
     new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
@@ -80,5 +81,5 @@ export function useLivePrices(
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [symbolKey]);
+  }, [refreshKey, symbolKey]);
 }

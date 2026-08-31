@@ -27,6 +27,7 @@ import {
   Plus,
   QrCode,
   Radio,
+  RefreshCw,
   Repeat2,
   Search,
   Send,
@@ -41,7 +42,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
@@ -60,6 +61,7 @@ import { applyLiveMarketSnapshot, emptyLiveMarketSnapshot, type LiveMarketSnapsh
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
+type HomeRefreshStatus = "idle" | "pulling" | "ready" | "refreshing" | "complete";
 type TokenFlow = "send" | "buy";
 type View =
   | "home"
@@ -523,6 +525,8 @@ function HomeView({
   tokenQuery,
   watchlistSymbols,
   actionsOpen,
+  refreshOffset,
+  refreshStatus,
   onTab,
   onMenu,
   onCash,
@@ -538,6 +542,7 @@ function HomeView({
   onCommunity,
   onSupport,
   onDisclosures,
+  onRefresh,
 }: {
   tokens: WalletToken[];
   profile: ProfileRecord;
@@ -546,6 +551,8 @@ function HomeView({
   tokenQuery: string;
   watchlistSymbols: string[];
   actionsOpen: boolean;
+  refreshOffset: number;
+  refreshStatus: HomeRefreshStatus;
   onTab: (tab: Tab) => void;
   onMenu: () => void;
   onCash: () => void;
@@ -561,6 +568,7 @@ function HomeView({
   onCommunity: () => void;
   onSupport: () => void;
   onDisclosures: () => void;
+  onRefresh: () => void;
 }) {
   const referenceTokens = useMemo(() => referenceHomeTokens(tokens), [tokens]);
   const displayTokens = useMemo(
@@ -597,16 +605,43 @@ function HomeView({
     displayTotal === 0 ? 0 : (displayChangeValue / displayTotal) * 100;
   const showingReference = tokenQuery.trim().length === 0;
   const accountName = profile.accountName;
+  const isDraggingRefresh = refreshStatus === "pulling" || refreshStatus === "ready";
+  const isRefreshing = refreshStatus === "refreshing";
+  const refreshStatusText = refreshStatus === "refreshing"
+    ? "Refreshing wallet"
+    : refreshStatus === "complete"
+      ? "Wallet updated"
+      : refreshStatus === "ready"
+        ? "Release to refresh"
+        : "Pull to refresh";
+  const pulledContentStyle = {
+    transform: `translate3d(0, ${refreshOffset}px, 0)`,
+    transition: isDraggingRefresh ? "none" : "transform 260ms cubic-bezier(.22,.8,.24,1)",
+  };
 
   return (
     <>
-      <div className="sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
+      {refreshStatus !== "idle" ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="phantom-refresh-status pointer-events-none absolute left-1/2 top-[calc(env(safe-area-inset-top)+13px)] z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/[0.06] bg-[#19191b] py-1.5 pl-2 pr-3 text-xs font-semibold text-white/65 shadow-[0_10px_35px_rgba(0,0,0,.55)]"
+          style={{ opacity: Math.min(1, refreshOffset / 28) }}
+        >
+          <span className={`grid h-7 w-7 place-items-center rounded-full ${refreshStatus === "complete" ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#a295f3]/15 text-[#a99bf7]"}`}>
+            {refreshStatus === "complete" ? <Check className="h-4 w-4" /> : <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} style={isDraggingRefresh ? { transform: `rotate(${Math.min(240, refreshOffset * 4)}deg)` } : undefined} />}
+          </span>
+          <span>{refreshStatusText}</span>
+        </div>
+      ) : null}
+
+      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 border-b border-white/[0.025] bg-black/85 px-5 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl" style={pulledContentStyle}>
         <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onMenu={onMenu} />
       </div>
 
       {tab === "Home" ? (
-        <section className="px-5 pb-40 pt-8">
-          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span aria-label="Parody wallet disclosure" className="shrink-0 text-[10px] font-semibold uppercase tracking-[.14em] text-white/30">Parody wallet</span></div>
+        <section className="phantom-home-content px-5 pb-40 pt-8" style={pulledContentStyle}>
+          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button><span aria-label="Parody wallet disclosure" className="text-[10px] font-semibold uppercase tracking-[.14em] text-white/30">Parody wallet</span></span></div>
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -616,14 +651,14 @@ function HomeView({
 
           <SectionHeading>Token</SectionHeading>
           <div className="mt-4 space-y-2.5">
-            {filteredTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
+            {filteredTokens.map((token, index) => <TokenRow key={token.id} token={token} animationDelay={260 + Math.min(index, 6) * 45} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
           </div>
           {showingReference ? <><PerpsSection tokens={tokens} positions={perpPositions} onOpen={onOpenPerp} /><PredictionsStrip onOpen={() => onTab("Predictions")} /><DiscoverySections watchlistTokens={watchlistTokens} onWatchlist={onOpenWatchlist} onToken={onToken} onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onCommunity={onCommunity} onSupport={onSupport} onDisclosures={onDisclosures} /></> : null}
         </section>
       ) : tab === "Trade" ? <TradeView tokens={tokens} cashBalance={profile.cash} perpPositions={perpPositions} onToken={onToken} onExecuteTrade={onExecuteTrade} onOpenPerp={onOpenPerp} onClosePerp={onClosePerp} /> : tab === "Predictions" ? <PredictionsView /> : <ExploreView onPerps={() => onTab("Trade")} onPredictions={() => onTab("Predictions")} onMarkets={() => onTab("Trade")} onSupport={onSupport} />}
 
-      <div className="fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
+      <div data-no-pull-refresh className="phantom-home-dock fixed bottom-0 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 border-t border-white/[0.035] bg-black/80 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-2xl" style={{ width: "min(100vw, 560px)" }}>
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.035] bg-[#202022] px-4 py-3 text-[16px] font-medium text-white/40"><Search className="h-5 w-5 shrink-0" /><input value={tokenQuery} onChange={(event) => onSearch(event.target.value)} placeholder="Search Phantom" aria-label="Search Phantom" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label>
         <button type="button" onClick={onActions} aria-label={actionsOpen ? "Close wallet actions" : "Open wallet actions"} className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[0_6px_30px_rgba(0,0,0,.5)] transition hover:scale-105 active:scale-95 ${actionsOpen ? "bg-[#202022] text-white" : "bg-[#a295f3] text-black"}`}>{actionsOpen ? <X className="h-7 w-7" /> : <Plus className="h-8 w-8" />}</button>
       </div>
@@ -1023,14 +1058,14 @@ function PerpsSection({ tokens, positions, onOpen }: { tokens: WalletToken[]; po
   );
 }
 
-function TokenRow({ token, onClick }: { token: WalletToken; onClick: () => void }) {
+function TokenRow({ token, animationDelay, onClick }: { token: WalletToken; animationDelay?: number; onClick: () => void }) {
   const value = token.balance * token.price;
   const changeValue = value * (token.change24h / 100);
   const changeLabel = token.symbol === "BFS" ? "+<$0.01" : value === 0 ? formatMoney(0) : formatSignedMoney(changeValue);
   const changeClass = token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#00e676]";
 
   return (
-    <button type="button" onClick={onClick} className="flex min-h-16 w-full items-center gap-3 rounded-[1.45rem] bg-[#191919] px-4 py-2 text-left transition hover:bg-[#232323]">
+    <button type="button" onClick={onClick} className="phantom-home-token-row flex min-h-16 w-full items-center gap-3 rounded-[1.45rem] bg-[#191919] px-4 py-2 text-left transition hover:bg-[#232323]" style={animationDelay === undefined ? undefined : { animationDelay: `${animationDelay}ms` }}>
       <TokenIcon token={token} />
       <span className="min-w-0 flex-1"><span className="block truncate text-[20px] font-semibold">{token.name}</span><span className="mt-0.5 block truncate text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
       <span className="max-w-[36%] shrink-0 text-right"><span className="block truncate text-[20px] font-medium">{formatMoney(value)}</span><span className={`mt-0.5 block truncate text-[18px] font-semibold ${changeClass}`}>{changeLabel}</span></span>
@@ -1085,13 +1120,16 @@ function ActionMenu({ onAction, onClose }: { onAction: (action: Action) => void;
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
   const [draft, setDraft] = useState(profile);
-  const [balances, setBalances] = useState<Record<string, string>>(() => Object.fromEntries(tokens.map((token) => [token.id, String(token.balance)])));
+  const [balanceDrafts, setBalanceDrafts] = useState<Record<string, string>>({});
 
   const update = <K extends keyof ProfileRecord>(field: K, value: ProfileRecord[K]) => setDraft((current) => ({ ...current, [field]: value }));
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSave(draft, Object.fromEntries(Object.entries(balances).map(([id, value]) => [id, Number(value) || 0])));
+    onSave(draft, Object.fromEntries(tokens.map((token) => {
+      const value = balanceDrafts[token.id];
+      return [token.id, value === undefined ? token.balance : Number(value) || 0];
+    })));
   };
 
   return (
@@ -1114,7 +1152,7 @@ function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToke
 
         <ProfileSection title="Cash Balance"><div className="flex items-center justify-between rounded-[1.5rem] bg-[#1d1d1f] px-5 py-5 text-[18px] text-white/65"><span>Cash (USD)</span><input type="number" min="0" step="any" value={draft.cash} onChange={(event) => update("cash", Number(event.target.value) || 0)} className="w-28 rounded-2xl bg-[#29292b] px-4 py-3 text-right text-[19px] text-white outline-none" /></div></ProfileSection>
 
-        <ProfileSection title="Token Holdings"><div className="overflow-hidden rounded-[1.5rem] bg-[#1d1d1f]">{sortTokens(tokens).map((token) => <div key={token.id} className="flex items-center gap-4 border-b border-white/[0.06] px-5 py-4 last:border-0"><TokenIcon token={token} size="small" /><span className="min-w-0 flex-1 text-[18px]">{token.name}</span><input type="number" min="0" step="any" value={balances[token.id] ?? "0"} onChange={(event) => setBalances((current) => ({ ...current, [token.id]: event.target.value }))} className="w-28 rounded-2xl bg-[#29292b] px-4 py-3 text-right text-[18px] text-white outline-none" /><button type="button" onClick={() => onEditToken(token)} aria-label={`Edit ${token.name}`} className="rounded-full p-2 text-white/45 hover:text-[#a295f3]"><Pencil className="h-5 w-5" /></button><button type="button" onClick={() => onDeleteToken(token)} aria-label={`Delete ${token.name}`} className="rounded-full p-2 text-white/45 hover:text-[#f21b3f]"><X className="h-5 w-5" /></button></div>)}<button type="button" onClick={onAddToken} className="flex w-full items-center justify-center gap-2 border-t border-white/[0.06] px-5 py-5 text-[17px] text-[#a295f3]"><Plus className="h-5 w-5" /> Add token</button></div></ProfileSection>
+        <ProfileSection title="Token Holdings"><div className="overflow-hidden rounded-[1.5rem] bg-[#1d1d1f]">{sortTokens(tokens).map((token) => <div key={token.id} className="flex items-center gap-4 border-b border-white/[0.06] px-5 py-4 last:border-0"><TokenIcon token={token} size="small" /><span className="min-w-0 flex-1 text-[18px]">{token.name}</span><input type="number" min="0" step="any" value={balanceDrafts[token.id] ?? String(token.balance)} onChange={(event) => setBalanceDrafts((current) => ({ ...current, [token.id]: event.target.value }))} aria-label={`${token.name} holding`} className="w-28 rounded-2xl bg-[#29292b] px-4 py-3 text-right text-[18px] text-white outline-none" /><button type="button" onClick={() => onEditToken(token)} aria-label={`Edit ${token.name}`} className="rounded-full p-2 text-white/45 hover:text-[#a295f3]"><Pencil className="h-5 w-5" /></button><button type="button" onClick={() => onDeleteToken(token)} aria-label={`Delete ${token.name}`} className="rounded-full p-2 text-white/45 hover:text-[#f21b3f]"><X className="h-5 w-5" /></button></div>)}<button type="button" onClick={onAddToken} className="flex w-full items-center justify-center gap-2 border-t border-white/[0.06] px-5 py-5 text-[17px] text-[#a295f3]"><Plus className="h-5 w-5" /> Add token</button></div></ProfileSection>
 
         <button type="submit" className="mt-10 w-full rounded-full bg-[#a295f3] px-5 py-4 text-[18px] font-medium text-black">Save Profile</button>
       </div>
@@ -1439,7 +1477,14 @@ export function DownloadWallet() {
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0);
+  const [homePullOffset, setHomePullOffset] = useState(0);
+  const [homeRefreshStatus, setHomeRefreshStatus] = useState<HomeRefreshStatus>("idle");
   const latestMarketSnapshot = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
+  const homeScrollRef = useRef<HTMLDivElement>(null);
+  const homePullStart = useRef<{ x: number; y: number } | null>(null);
+  const homeRawPull = useRef(0);
+  const homeRefreshTimers = useRef<number[]>([]);
 
   const liveSymbols = liveMarketSymbols;
 
@@ -1448,7 +1493,11 @@ export function DownloadWallet() {
     latestMarketSnapshot.current = snapshot;
     setTokens((current) => applyLiveMarketSnapshot(current, snapshot));
     runtime.updateMarketAssets(applyLiveMarketSnapshot(liveTokenCatalogue, snapshot));
-  });
+  }, homeRefreshKey);
+
+  useEffect(() => () => {
+    homeRefreshTimers.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
 
   useEffect(() => {
     const refreshSharedWallet = () => {
@@ -1689,11 +1738,88 @@ export function DownloadWallet() {
     : null;
   const currentPerpToken = tokens.find((token) => token.symbol === selectedPerpSymbol) ?? null;
 
+  const clearHomeRefreshTimers = () => {
+    homeRefreshTimers.current.forEach((timer) => window.clearTimeout(timer));
+    homeRefreshTimers.current = [];
+  };
+
+  const startHomeRefresh = () => {
+    if (homeRefreshStatus === "refreshing") return;
+    clearHomeRefreshTimers();
+    homePullStart.current = null;
+    homeRawPull.current = 0;
+    setHomePullOffset(56);
+    setHomeRefreshStatus("refreshing");
+    runtime.refresh();
+    setHomeRefreshKey((current) => current + 1);
+    homeRefreshTimers.current = [
+      window.setTimeout(() => {
+        setHomeRefreshStatus("complete");
+      }, 700),
+      window.setTimeout(() => {
+        setHomePullOffset(0);
+        setHomeRefreshStatus("idle");
+      }, 1_120),
+    ];
+  };
+
+  const canPullToRefresh = view === "home"
+    && activeTab === "Home"
+    && !drawerOpen
+    && !actionsOpen
+    && !tokenEditorOpen
+    && !notificationPromptOpen
+    && homeRefreshStatus !== "refreshing";
+
+  const handleHomeTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!canPullToRefresh || (homeScrollRef.current?.scrollTop ?? 0) > 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable='true'], [data-no-pull-refresh]")) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    homePullStart.current = { x: touch.clientX, y: touch.clientY };
+    homeRawPull.current = 0;
+  };
+
+  const handleHomeTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const start = homePullStart.current;
+    const touch = event.touches[0];
+    if (!start || !touch || (homeScrollRef.current?.scrollTop ?? 0) > 0) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) return;
+    event.preventDefault();
+    const nextOffset = Math.min(64, deltaY * 0.52);
+    homeRawPull.current = deltaY;
+    setHomePullOffset(nextOffset);
+    setHomeRefreshStatus(deltaY >= 82 ? "ready" : "pulling");
+  };
+
+  const handleHomeTouchEnd = () => {
+    if (!homePullStart.current) return;
+    const shouldRefresh = homeRawPull.current >= 82;
+    homePullStart.current = null;
+    homeRawPull.current = 0;
+    if (shouldRefresh) {
+      startHomeRefresh();
+      return;
+    }
+    setHomePullOffset(0);
+    setHomeRefreshStatus("idle");
+  };
+
+  const handleHomeTouchCancel = () => {
+    homePullStart.current = null;
+    homeRawPull.current = 0;
+    setHomePullOffset(0);
+    setHomeRefreshStatus("idle");
+  };
+
   return (
     <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
-        <div className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+        <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}

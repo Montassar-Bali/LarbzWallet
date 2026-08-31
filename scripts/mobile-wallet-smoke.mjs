@@ -98,6 +98,11 @@ if (await page.getByText("Demo · No real funds", { exact: true }).isVisible().c
   throw new Error("Phantom still shows the repeated demo disclaimer instead of its compact parody watermark.");
 }
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
+const refreshWalletButton = page.getByRole("button", { name: "Refresh wallet data" });
+await refreshWalletButton.waitFor();
+await refreshWalletButton.click();
+await page.locator('[role="status"]').filter({ hasText: "Refreshing wallet" }).waitFor();
+await page.locator('[role="status"]').filter({ hasText: "Wallet updated" }).waitFor({ timeout: 5_000 });
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
@@ -124,6 +129,26 @@ const destination = transferState.wallets.ledger.accounts.find((account) => acco
 if (!source || !destination || destination.balances.SOL < completed.amount) throw new Error("Atomic destination balance update was not persisted.");
 
 await page.getByRole("button", { name: "Close Send" }).click();
+const expectedPhantomSol = source.balances.SOL;
+const expectedPhantomSolLabel = `${expectedPhantomSol.toLocaleString("en-US", { maximumFractionDigits: 5 })} SOL`;
+const updatedSolanaHomeRow = page.getByRole("button")
+  .filter({ hasText: "Solana" })
+  .filter({ hasText: expectedPhantomSolLabel })
+  .first();
+await updatedSolanaHomeRow.waitFor({ state: "visible", timeout: 6_000 });
+
+await page.getByRole("button", { name: "Open wallet menu" }).click();
+await page.getByRole("button", { name: "Profile", exact: true }).click();
+await page.getByRole("heading", { name: "Edit Profile" }).waitFor();
+const profileSolanaHolding = page.getByLabel("Solana holding");
+await profileSolanaHolding.waitFor();
+const profileSolanaAmount = Number(await profileSolanaHolding.inputValue());
+if (Math.abs(profileSolanaAmount - expectedPhantomSol) > 1e-8) {
+  throw new Error(`Edit Profile SOL holding ${profileSolanaAmount} did not match the homepage/account balance ${expectedPhantomSol}.`);
+}
+await page.getByRole("button", { name: "Go back" }).click();
+await page.getByLabel("Search Phantom").waitFor();
+
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Receive", exact: true }).click();
 const receiveSheet = page.locator("section[aria-label='Receive']");
