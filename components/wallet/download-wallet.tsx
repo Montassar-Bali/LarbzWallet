@@ -669,7 +669,7 @@ function HomeView({
 
       {tab === "Home" ? (
         <section className="phantom-home-content px-5 pb-40 pt-8" style={pulledContentStyle}>
-          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button><span aria-label="Parody wallet disclosure" className="text-[10px] font-semibold uppercase tracking-[.14em] text-white/30">Parody wallet</span></span></div>
+          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button></span></div>
           <h1 className="mt-2 overflow-hidden text-[48px] font-semibold leading-none tracking-[-0.065em] text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="truncate">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -1323,7 +1323,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
       <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+18px)]">
         <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
           <button type="button" onClick={() => setStage("amount")} aria-label="Edit cash amount" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><ArrowLeft className="h-6 w-6" /></button>
-          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
+          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1></div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-1 items-center px-1"><output aria-live="polite" className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-bold leading-none tracking-[-.075em]">${amountLabel}</output></div>
@@ -1346,7 +1346,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
     <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+12px)]">
       <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
         <button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><X className="h-6 w-6" /></button>
-        <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
+        <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1></div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-[12rem] flex-1 items-center px-1"><output aria-live="polite" aria-describedby={numericAmount > maximumAmount ? "cash-limit-error" : undefined} className={`max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-bold leading-none tracking-[-.075em] ${numericAmount === 0 ? "text-white/70" : "text-white"}`}>${amountLabel}</output></div>

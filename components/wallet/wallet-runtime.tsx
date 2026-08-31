@@ -78,9 +78,9 @@ const WalletRuntimeContext = createContext<WalletRuntimeValue | null>(null);
 
 const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Ledger", trust: "Trust Wallet" };
 const walletDisclosures: Record<WalletThemeId, string> = {
-  ghost: "Parody wallet",
-  ledger: "Demo · No real funds",
-  trust: "Demo · No real funds",
+  ghost: "",
+  ledger: "",
+  trust: "",
 };
 const securityUserKey = "phantom_wallet_security_user";
 const securitySettingsKey = "phantom_wallet_security_settings";
@@ -841,7 +841,7 @@ function PhantomSendHeader({ onClose, onAdd }: { onClose: () => void; onAdd?: ()
         <h1 className="px-3 text-left text-[24px] font-semibold tracking-[-.035em]">Send</h1>
         {onAdd ? <button type="button" onClick={onAdd} aria-label="Choose one of my accounts" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><Plus className="h-6 w-6" /></button> : <span />}
       </div>
-      <p className="mt-2 pl-1 text-[9px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/65">Parody wallet</p>
+
     </header>
   );
 }
@@ -1013,7 +1013,7 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
           {stage === "processing" ? <div className="grid min-h-[58dvh] place-items-center py-12 text-center" role="status"><div><span className="mx-auto block h-14 w-14 animate-spin rounded-full border-4 border-white/15 border-t-[#a295f3]" /><h2 className="mt-6 text-2xl font-semibold">Transfer pending…</h2><p className="mt-2 text-white/45">Updating both wallet accounts.</p></div></div> : null}
           {stage === "failed" ? <div className="py-8 text-center" role="alert"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-500/15 text-red-300"><X className="h-10 w-10" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer failed</h2><p className="mt-3 text-white/55">{error || "The transfer could not be completed."}</p><p className="mt-4 text-sm text-white/35">No balance changes were saved.</p><button type="button" onClick={() => setStage("review")} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Review and try again</button></div> : null}
           {stage === "success" && transaction ? <div className="py-7 text-center" role="status"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[#00e676] text-black"><Check className="h-10 w-10 stroke-[3]" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer complete</h2><p className="mt-3 text-lg text-white/55">{amount(transaction.amount)} {transaction.tokenSymbol} arrived in the receiving account.</p><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-5 text-left text-sm"><Detail label="Status" value="Completed" /><Detail label="Network" value={transaction.network} /><Detail label="Network fee" value={`${transaction.fee} ${transaction.feeSymbol}`} /><Detail label="Transaction ID" value={transaction.id} mono /></div><button type="button" onClick={reset} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Send another</button></div> : null}
-          <p className="mt-6 text-center text-[9px] font-bold uppercase tracking-[.16em] text-white/25">Parody wallet</p>
+
         </div>
       )}
     </div>
@@ -1154,7 +1154,7 @@ function PhantomReceivePanel({ initialMode, state, onClose }: { initialMode: Rec
       <button type="button" onClick={onClose} className="sr-only">Close Receive</button>
       <header className="shrink-0 px-5 pb-2 pt-[max(3.5rem,calc(env(safe-area-inset-top)+2.3rem))]">
         <div className="flex items-center justify-between">
-          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Receive</h1><p className="mt-1 text-[9px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/65">Parody wallet</p></div>
+          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Receive</h1></div>
           {mode === "cash" ? <button type="button" onClick={() => setHelpOpen(true)} aria-label="About receiving cash" className="grid h-10 w-10 place-items-center rounded-full bg-[#202022] text-white/70"><CircleHelp className="h-5 w-5" /></button> : <span className="h-10 w-10" />}
         </div>
         <div className="mt-5 grid h-11 grid-cols-2 rounded-full border border-white/[0.06] bg-[#1d1d1f] p-1" role="tablist" aria-label="Receive type">
@@ -1189,7 +1189,7 @@ function PhantomReceivePanel({ initialMode, state, onClose }: { initialMode: Rec
             <h2 id="cash-help-title" className="mt-8 text-[24px] font-semibold tracking-[-.035em]">Add cash with stablecoins</h2>
             <p className="mt-3 text-[17px] leading-relaxed text-white/55">Fund your cash account by sending USDC or Tether to this address. Supported stablecoins are credited to your account as cash.</p>
             <button type="button" onClick={() => setHelpOpen(false)} className="mt-8 min-h-14 w-full rounded-full bg-[#a99bf7] px-5 text-[17px] font-semibold text-black">Okay</button>
-            <p className="mt-4 text-center text-[9px] font-bold uppercase tracking-[.16em] text-white/25">Parody wallet</p>
+
           </section>
         </div>
       ) : null}
@@ -1218,7 +1218,7 @@ function HistoryPanel({ walletId, state }: { walletId: WalletThemeId; state: Wal
   const [query, setQuery] = useState("");
   const account = selectedAccount(state, walletId);
   const transactions = transactionsForAccount(state, account.id).filter((transaction) => `${transaction.id} ${transaction.tokenSymbol} ${transaction.senderAddress} ${transaction.recipientAddress}`.toLowerCase().includes(query.toLowerCase()));
-  return <div><label className="flex h-14 items-center gap-3 rounded-full bg-[#202022] px-4"><Search className="h-5 w-5 text-white/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions" aria-label="Search transaction history" className="min-w-0 flex-1 bg-transparent outline-none" /></label><p className="mt-5 text-sm text-white/45">{walletLabels[walletId]} · {account.name}</p><div className="mt-3 space-y-2">{transactions.map((transaction) => { const outgoing = transaction.sourceAccountId === account.id; return <article key={transaction.id} className="rounded-[1.35rem] bg-[#1d1d1f] p-4"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${outgoing ? "bg-[#30293a] text-[#b9afff]" : "bg-[#113426] text-[#00e676]"}`}>{outgoing ? <Send className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><strong className="block">{outgoing ? "Sent" : "Received"} {transaction.tokenSymbol}</strong><span className="block truncate text-sm text-white/40">{new Date(transaction.timestamp).toLocaleString("en-US")}</span></div><span className={`text-right font-semibold ${outgoing ? "text-white" : "text-[#00e676]"}`}>{outgoing ? "−" : "+"}{amount(transaction.amount)}<small className="ml-1 text-white/45">{transaction.tokenSymbol}</small></span></div><details className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-white/45"><summary className="cursor-pointer text-[#a99bf7]">Transaction details</summary><p className="mt-2 break-all font-mono">{transaction.id}</p><p className="mt-2">Status: {transaction.status} · Fee: {transaction.fee} {transaction.feeSymbol}</p><p className="mt-1 uppercase tracking-[.08em]">{walletId === "ghost" ? "Parody transfer" : "Demo transfer"}</p></details></article>; })}{transactions.length === 0 ? <p className="rounded-[1.4rem] bg-[#1d1d1f] px-4 py-10 text-center text-white/45">No matching transactions.</p> : null}</div></div>;
+  return <div><label className="flex h-14 items-center gap-3 rounded-full bg-[#202022] px-4"><Search className="h-5 w-5 text-white/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions" aria-label="Search transaction history" className="min-w-0 flex-1 bg-transparent outline-none" /></label><p className="mt-5 text-sm text-white/45">{walletLabels[walletId]} · {account.name}</p><div className="mt-3 space-y-2">{transactions.map((transaction) => { const outgoing = transaction.sourceAccountId === account.id; return <article key={transaction.id} className="rounded-[1.35rem] bg-[#1d1d1f] p-4"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${outgoing ? "bg-[#30293a] text-[#b9afff]" : "bg-[#113426] text-[#00e676]"}`}>{outgoing ? <Send className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><strong className="block">{outgoing ? "Sent" : "Received"} {transaction.tokenSymbol}</strong><span className="block truncate text-sm text-white/40">{new Date(transaction.timestamp).toLocaleString("en-US")}</span></div><span className={`text-right font-semibold ${outgoing ? "text-white" : "text-[#00e676]"}`}>{outgoing ? "−" : "+"}{amount(transaction.amount)}<small className="ml-1 text-white/45">{transaction.tokenSymbol}</small></span></div><details className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-white/45"><summary className="cursor-pointer text-[#a99bf7]">Transaction details</summary><p className="mt-2 break-all font-mono">{transaction.id}</p><p className="mt-2">Status: {transaction.status} · Fee: {transaction.fee} {transaction.feeSymbol}</p><p className="mt-1 uppercase tracking-[.08em]">{"Transfer"}</p></details></article>; })}{transactions.length === 0 ? <p className="rounded-[1.4rem] bg-[#1d1d1f] px-4 py-10 text-center text-white/45">No matching transactions.</p> : null}</div></div>;
 }
 
 function SecurityPanel({ security }: { security: ReturnType<typeof useWalletSecurity> }) {
