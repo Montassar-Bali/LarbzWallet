@@ -74,6 +74,7 @@ if (await page.getByRole("button", { name: "Send", exact: true }).isVisible().ca
 }
 
 await page.goto(`${baseUrl}/activate`, { waitUntil: "domcontentloaded" });
+await page.waitForLoadState("load");
 await page.getByLabel("License Key").fill("DEMO-STAR-0001-2026");
 await page.getByRole("button", { name: "Activate License" }).click();
 await page.waitForURL(/\/wallet-launch/, { timeout: 10_000 });
@@ -100,7 +101,11 @@ if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => 
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
 await page.getByRole("heading", { name: "Send" }).waitFor();
+await page.getByRole("button", { name: "Choose one of my accounts" }).click();
+await page.getByRole("button", { name: "Use Ledger Account 1" }).click();
 await page.getByLabel("Transfer amount").fill("0.01");
+await page.waitForFunction(() => [...document.querySelectorAll("button")]
+  .some((button) => button.textContent?.includes("Review transfer") && !button.disabled));
 await page.getByRole("button", { name: /Review transfer/ }).click();
 await page.getByRole("heading", { name: "Review transfer" }).waitFor();
 await page.getByRole("button", { name: "Confirm transfer" }).click();
@@ -117,6 +122,25 @@ const completed = transferState.transactions.find((transaction) => transaction.s
 const source = transferState.wallets.ghost.accounts.find((account) => account.id === completed.sourceAccountId);
 const destination = transferState.wallets.ledger.accounts.find((account) => account.id === completed.destinationAccountId);
 if (!source || !destination || destination.balances.SOL < completed.amount) throw new Error("Atomic destination balance update was not persisted.");
+
+await page.getByRole("button", { name: "Close Send" }).click();
+await page.getByRole("button", { name: "Open wallet actions" }).click();
+await page.getByRole("button", { name: "Receive", exact: true }).click();
+const receiveSheet = page.locator("section[aria-label='Receive']");
+await receiveSheet.getByRole("heading", { name: "Receive" }).waitFor();
+await receiveSheet.getByRole("tab", { name: "Token" }).waitFor();
+await receiveSheet.getByRole("tab", { name: "Cash" }).waitFor();
+await receiveSheet.getByRole("img", { name: "Wallet address QR code" }).waitFor();
+await receiveSheet.getByRole("button", { name: "Copy address" }).waitFor();
+await receiveSheet.getByRole("tab", { name: "Cash" }).click();
+await receiveSheet.getByText("Stablecoins · Arrives as cash", { exact: true }).waitFor();
+await receiveSheet.getByRole("button", { name: "About receiving cash" }).click();
+const cashHelpDialog = receiveSheet.getByRole("dialog", { name: "Add cash with stablecoins" });
+await cashHelpDialog.waitFor();
+await cashHelpDialog.getByRole("button", { name: "Okay" }).click();
+await cashHelpDialog.waitFor({ state: "hidden" });
+await receiveSheet.press("Escape");
+await receiveSheet.waitFor({ state: "hidden" });
 
 await assertMobileLayout("/ledger-wallet", "Demo · No real funds");
 await page.waitForFunction(() => document.body.innerText.includes("0.01 SOL"), undefined, { timeout: 10_000 });
@@ -290,8 +314,11 @@ await phantomPage.goto(`${baseUrl}/download-wallet`, { waitUntil: "domcontentloa
 await phantomPage.getByLabel("Search Phantom").waitFor({ timeout: 20_000 });
 await phantomPage.getByRole("button", { name: "Open wallet actions" }).click();
 await phantomPage.getByRole("button", { name: "Send", exact: true }).click();
-await phantomPage.getByText("Shared network connected:", { exact: false }).waitFor({ timeout: 20_000 });
-await phantomPage.getByRole("button", { name: "Close", exact: true }).click();
+await phantomPage.getByRole("button", { name: "Choose one of my accounts" }).click();
+await phantomPage.getByRole("button", { name: "Use Ledger Account 1" }).click();
+await phantomPage.waitForFunction(() => [...document.querySelectorAll("button")]
+  .some((button) => button.textContent?.includes("Review transfer") && !button.disabled), undefined, { timeout: 20_000 });
+await phantomPage.getByRole("button", { name: "Close Send" }).click();
 
 await trustPage.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 await trustPage.getByRole("button", { name: "Send", exact: true }).waitFor({ timeout: 20_000 });
@@ -331,4 +358,4 @@ const actionableErrors = errors.filter((message) => !message.includes("Failed to
 await browser.close();
 if (actionableErrors.length) throw new Error(`Browser errors: ${actionableErrors.join(" | ")}`);
 
-console.log("Mobile wallet smoke test passed: shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");
+console.log("Mobile wallet smoke test passed: Phantom recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");

@@ -1038,14 +1038,49 @@ function TokenRow({ token, onClick }: { token: WalletToken; onClick: () => void 
   );
 }
 
-function ActionMenu({ onAction }: { onAction: (action: Action) => void }) {
-  const items: { label: Action; icon: LucideIcon }[] = [
-    { label: "Send", icon: Send },
-    { label: "Receive", icon: QrCode },
-    { label: "Add Cash", icon: BadgeDollarSign },
-    { label: "Trade", icon: Shuffle },
+function ActionMenu({ onAction, onClose }: { onAction: (action: Action) => void; onClose: () => void }) {
+  const items: { action: Action; label: string; icon: LucideIcon }[] = [
+    { action: "Send", label: "Send", icon: Send },
+    { action: "Receive", label: "Receive", icon: QrCode },
+    { action: "Add Cash", label: "Add cash", icon: BadgeDollarSign },
+    { action: "Trade", label: "Trade", icon: Shuffle },
   ];
-  return <><div className="fixed inset-0 z-30 bg-black/45 backdrop-blur-xl" aria-hidden="true" /><div className="fixed bottom-[calc(env(safe-area-inset-bottom)+104px)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-end gap-3 bg-transparent" style={{ width: "min(calc(100vw - 32px), 528px)" }}>{items.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => onAction(label)} className="flex items-center gap-3 text-[clamp(1rem,5vw,1.3rem)] font-semibold drop-shadow-lg transition hover:translate-x-[-3px]"><span>{label}</span><span className="grid h-[clamp(3.25rem,15vw,4rem)] w-[clamp(3.25rem,15vw,4rem)] place-items-center rounded-full bg-[#a295f3] text-black shadow-xl"><Icon className="h-[clamp(1.35rem,7vw,1.75rem)] w-[clamp(1.35rem,7vw,1.75rem)]" /></span></button>)}</div></>;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-center" role="dialog" aria-label="Wallet actions">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close wallet actions"
+        className="absolute inset-0 bg-black/50 backdrop-blur-[18px]"
+      />
+      <div className="pointer-events-none relative h-full w-full max-w-[560px]">
+        <div className="pointer-events-auto absolute bottom-[calc(env(safe-area-inset-bottom)+112px)] right-5 flex flex-col items-end gap-4">
+          {items.map(({ action, label, icon: Icon }) => (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onAction(action)}
+              className="flex items-center gap-4 text-xl font-semibold tracking-[-0.025em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,.9)] transition active:scale-[.98]"
+            >
+              <span>{label}</span>
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#a99bf7] text-black shadow-[0_10px_30px_rgba(0,0,0,.38)]">
+                <Icon className="h-6 w-6 stroke-[2.25]" />
+              </span>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close wallet actions"
+          className="pointer-events-auto absolute bottom-[calc(env(safe-area-inset-bottom)+14px)] right-5 grid h-12 w-12 place-items-center rounded-full border border-white/[0.04] bg-[#202022] text-white shadow-[0_10px_30px_rgba(0,0,0,.42)] transition active:scale-95"
+        >
+          <X className="h-6 w-6 stroke-[2.25]" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ProfileScreen({ profile, tokens, onBack, onSave, onAddToken, onEditToken, onDeleteToken }: { profile: ProfileRecord; tokens: WalletToken[]; onBack: () => void; onSave: (profile: ProfileRecord, balances: Record<string, number>) => void; onAddToken: () => void; onEditToken: (token: WalletToken) => void; onDeleteToken: (token: WalletToken) => void }) {
@@ -1493,7 +1528,7 @@ export function DownloadWallet() {
     setActionsOpen(false);
     if (action === "Send") { runtime.openTransfer(); return; }
     if (action === "Receive") { runtime.openReceive(); return; }
-    if (action === "Add Cash") { setView("add-cash"); return; }
+    if (action === "Add Cash") { runtime.openReceive("cash"); return; }
     setActiveTab("Trade");
   };
 
@@ -1677,7 +1712,7 @@ export function DownloadWallet() {
           {view === "perp-market" && currentPerpToken ? <PerpMarketScreen token={currentPerpToken} cashBalance={profile.cash} positions={perpPositions} onBack={() => { setView("home"); setActiveTab(perpOriginTab); }} onOpenPosition={openPerpPosition} onClosePosition={closePerpPosition} /> : null}
           {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} onChat={() => { setSelectedToken(null); setView("community"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
-          {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} /> : null}
+          {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} onClose={() => setActionsOpen(false)} /> : null}
           {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onCommunity={() => { setDrawerOpen(false); setView("community"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onSupport={() => { setDrawerOpen(false); setView("support"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}

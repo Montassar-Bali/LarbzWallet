@@ -1,11 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowRight,
   Check,
   ChevronDown,
+  CircleHelp,
   Copy,
   Fingerprint,
   History,
@@ -17,6 +19,7 @@ import {
   Search,
   Send,
   Settings,
+  Share2,
   ShieldCheck,
   UserRound,
   WalletCards,
@@ -26,6 +29,7 @@ import { browserSupportsWebAuthn, platformAuthenticatorIsAvailable, startAuthent
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
+import { AddressQrCode } from "@/components/wallet/address-qr-code";
 import type { WalletThemeId } from "@/config/wallets";
 import {
   getWalletOwnerIdFromCookie,
@@ -54,12 +58,13 @@ import {
 } from "@/lib/wallet-ledger";
 
 type RuntimePanel = "transfer" | "receive" | "accounts" | "history" | "security" | null;
+type ReceiveMode = "token" | "cash";
 
 type WalletRuntimeValue = {
   state: WalletLedgerState | null;
   currentAccount: WalletAccount | null;
   openTransfer: (symbol?: string) => void;
-  openReceive: () => void;
+  openReceive: (mode?: ReceiveMode) => void;
   openAccounts: () => void;
   openHistory: () => void;
   openSecurity: () => void;
@@ -329,6 +334,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const [sharedError, setSharedError] = useState("");
   const [panel, setPanel] = useState<RuntimePanel>(null);
   const [preferredSymbol, setPreferredSymbol] = useState<string>();
+  const [preferredReceiveMode, setPreferredReceiveMode] = useState<ReceiveMode>("token");
   const security = useWalletSecurity();
   const ownerId = resolveWalletOwnerId(cookieOwnerId, user?.id);
 
@@ -550,7 +556,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     state,
     currentAccount,
     openTransfer: (symbol) => { setPreferredSymbol(symbol); setPanel("transfer"); },
-    openReceive: () => setPanel("receive"),
+    openReceive: (mode = "token") => { setPreferredReceiveMode(mode); setPanel("receive"); },
     openAccounts: () => setPanel("accounts"),
     openHistory: () => setPanel("history"),
     openSecurity: () => setPanel("security"),
@@ -597,7 +603,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   return (
     <WalletRuntimeContext.Provider value={value}>
       {children}
-      {state && panel && repository ? <WalletRuntimeSheet walletId={walletId} initialPanel={panel} preferredSymbol={preferredSymbol} state={state} repository={repository} security={security} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} onCommit={commitAndNotify} onClose={() => setPanel(null)} /> : null}
+      {state && panel && repository ? <WalletRuntimeSheet walletId={walletId} initialPanel={panel} preferredSymbol={preferredSymbol} receiveMode={preferredReceiveMode} state={state} repository={repository} security={security} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} onCommit={commitAndNotify} onClose={() => setPanel(null)} /> : null}
       {security.locked ? <WalletLockScreen walletId={walletId} security={security} /> : null}
     </WalletRuntimeContext.Provider>
   );
@@ -695,10 +701,11 @@ export function useWalletRuntime() {
   return value;
 }
 
-function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, state, repository, security, sharedStatus, sharedError, executeTransfer, onCommit, onClose }: {
+function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMode, state, repository, security, sharedStatus, sharedError, executeTransfer, onCommit, onClose }: {
   walletId: WalletThemeId;
   initialPanel: Exclude<RuntimePanel, null>;
   preferredSymbol?: string;
+  receiveMode: ReceiveMode;
   state: WalletLedgerState;
   repository: WalletLedgerRepository;
   security: ReturnType<typeof useWalletSecurity>;
@@ -718,6 +725,41 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, state, re
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [onClose]);
+
+  if (walletId === "ghost" && (panel === "transfer" || panel === "receive")) {
+    const title = panel === "transfer" ? "Send" : "Receive";
+    return (
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center" role="presentation">
+        <button type="button" aria-label="Close wallet sheet" className="absolute inset-0" onClick={onClose} />
+        <section
+          ref={sheetRef}
+          tabIndex={-1}
+          aria-label={title}
+          className="relative flex h-[100dvh] w-full max-w-[560px] flex-col overflow-hidden bg-black text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:h-[94dvh] sm:rounded-[2.5rem] sm:border sm:border-white/10"
+          onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY ?? 0; }}
+          onTouchEnd={(event) => { if ((event.changedTouches[0]?.clientY ?? 0) - touchStart.current > 110) onClose(); }}
+        >
+          <div className="absolute left-1/2 top-[max(.85rem,env(safe-area-inset-top))] z-20 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/40" />
+          {panel === "transfer" ? (
+            <PhantomTransferPanel
+              preferredSymbol={preferredSymbol}
+              state={state}
+              sharedStatus={sharedStatus}
+              sharedError={sharedError}
+              executeTransfer={executeTransfer}
+              onClose={onClose}
+            />
+          ) : (
+            <PhantomReceivePanel
+              initialMode={receiveMode}
+              state={state}
+              onClose={onClose}
+            />
+          )}
+        </section>
+      </div>
+    );
+  }
 
   const title = panel === "transfer" ? "Send" : panel === "receive" ? "Receive" : panel === "accounts" ? "Accounts" : panel === "history" ? "Activity" : "Security";
   return (
@@ -755,6 +797,223 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 function SelectField(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <span className="relative block"><select {...props} className="h-14 w-full appearance-none rounded-[1.2rem] border border-white/[0.06] bg-[#202022] px-4 pr-11 text-[16px] font-medium text-white outline-none focus:ring-2 focus:ring-[#a295f3] disabled:opacity-40" /><ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/45" /></span>;
+}
+
+function RuntimeAssetIcon({ image, name, symbol, className = "h-11 w-11" }: { image?: string; name: string; symbol: string; className?: string }) {
+  return (
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#202022] ${className}`}>
+      {image ? <Image src={image} alt="" fill unoptimized sizes="64px" className="object-cover" /> : <span className="text-sm font-bold text-white/70">{symbol.slice(0, 2)}</span>}
+      <span className="sr-only">{name}</span>
+    </span>
+  );
+}
+
+function shortWalletAddress(address: string) {
+  if (address.length <= 18) return address;
+  return `${address.slice(0, 7)}...${address.slice(-7)}`;
+}
+
+async function writeClipboard(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
+function PhantomSendHeader({ onClose, onAdd }: { onClose: () => void; onAdd?: () => void }) {
+  return (
+    <header className="shrink-0 px-5 pb-3 pt-[max(3.25rem,calc(env(safe-area-inset-top)+2rem))]">
+      <div className="grid grid-cols-[3.25rem_1fr_3.25rem] items-center">
+        <button type="button" onClick={onClose} aria-label="Close Send" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><X className="h-6 w-6" /></button>
+        <h1 className="px-3 text-left text-[24px] font-semibold tracking-[-.035em]">Send</h1>
+        {onAdd ? <button type="button" onClick={onAdd} aria-label="Choose one of my accounts" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><Plus className="h-6 w-6" /></button> : <span />}
+      </div>
+      <p className="mt-2 pl-1 text-[9px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/65">Parody wallet</p>
+    </header>
+  );
+}
+
+function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedError, executeTransfer, onClose }: {
+  preferredSymbol?: string;
+  state: WalletLedgerState;
+  sharedStatus: SharedLedgerStatus;
+  sharedError: string;
+  executeTransfer: (input: TransferInput) => Promise<SimulatedTransaction>;
+  onClose: () => void;
+}) {
+  const initialSource = selectedAccount(state, "ghost");
+  const [sourceWalletId, setSourceWalletId] = useState<WalletThemeId>("ghost");
+  const [sourceAccountId, setSourceAccountId] = useState(initialSource.id);
+  const [destinationWalletId, setDestinationWalletId] = useState<WalletThemeId>("ledger");
+  const [destinationAccountId, setDestinationAccountId] = useState(state.wallets.ledger.selectedAccountId);
+  const [useAddress, setUseAddress] = useState(false);
+  const [destinationAddress, setDestinationAddress] = useState("");
+  const [recipientQuery, setRecipientQuery] = useState("");
+  const [showAccounts, setShowAccounts] = useState(false);
+  const sourceAccount = accountForSelection(state, sourceWalletId, sourceAccountId);
+  const destinationAccount = accountForSelection(state, destinationWalletId, destinationAccountId);
+  const available = sortedAccountAssets(state, sourceAccount).filter((entry) => entry.balance > 0 && entry.asset.symbol !== "USD");
+  const initialSymbol = preferredSymbol && available.some((entry) => entry.asset.symbol === preferredSymbol) ? preferredSymbol : available[0]?.asset.symbol ?? "SOL";
+  const [symbol, setSymbol] = useState(initialSymbol);
+  const [amountValue, setAmountValue] = useState("");
+  const [stage, setStage] = useState<"recipient" | "form" | "review" | "processing" | "failed" | "success">("recipient");
+  const [error, setError] = useState("");
+  const [transaction, setTransaction] = useState<SimulatedTransaction | null>(null);
+  const requestId = useRef(randomClientId("transfer"));
+  const numericAmount = Number(amountValue);
+  const fee = Number.isFinite(numericAmount) && numericAmount > 0 ? calculateNetworkFee(symbol, numericAmount) : calculateNetworkFee(symbol, 0);
+  const balance = sourceAccount.balances[symbol] ?? 0;
+  const asset = state.assets[symbol];
+  const walletIds = Object.keys(walletLabels) as WalletThemeId[];
+  const candidateAccounts = walletIds.flatMap((candidateWalletId) => state.wallets[candidateWalletId].accounts
+    .filter((account) => account.id !== sourceAccount.id)
+    .map((account) => ({ walletId: candidateWalletId, account })));
+  const normalizedQuery = recipientQuery.trim().toLowerCase();
+  const filteredAccounts = candidateAccounts.filter(({ walletId: candidateWalletId, account }) => !normalizedQuery || `${walletLabels[candidateWalletId]} ${account.name} ${account.address}`.toLowerCase().includes(normalizedQuery));
+
+  const changeSourceWallet = (nextWalletId: WalletThemeId) => {
+    const account = selectedAccount(state, nextWalletId);
+    setSourceWalletId(nextWalletId);
+    setSourceAccountId(account.id);
+    const entries = sortedAccountAssets(state, account).filter((entry) => entry.balance > 0 && entry.asset.symbol !== "USD");
+    setSymbol(entries[0]?.asset.symbol ?? "SOL");
+    setAmountValue("");
+  };
+
+  const chooseAccount = (nextWalletId: WalletThemeId, account: WalletAccount) => {
+    setDestinationWalletId(nextWalletId);
+    setDestinationAccountId(account.id);
+    setUseAddress(false);
+    setDestinationAddress("");
+    setError("");
+    setStage("form");
+  };
+
+  const chooseAddress = () => {
+    const address = recipientQuery.trim();
+    setError("");
+    if (address.length < 8 || address.startsWith("@")) {
+      setError("Enter or paste the recipient's complete wallet address.");
+      return;
+    }
+    setDestinationAddress(address);
+    setUseAddress(true);
+    setStage("form");
+  };
+
+  const pasteRecipient = async () => {
+    setError("");
+    try {
+      const value = await navigator.clipboard?.readText();
+      if (!value?.trim()) throw new Error("Clipboard is empty.");
+      setRecipientQuery(value.trim());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not read the clipboard.");
+    }
+  };
+
+  const review = () => {
+    setError("");
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return setError("Enter an amount greater than zero.");
+    if (numericAmount + fee > balance + Number.EPSILON) return setError(`Insufficient ${symbol}, including the ${fee} ${symbol} network fee.`);
+    if (!useAddress && sourceAccount.id === destinationAccount.id) return setError("Source and destination accounts must be different.");
+    setStage("review");
+  };
+
+  const confirm = async () => {
+    if (stage !== "review") return;
+    setStage("processing");
+    setError("");
+    await new Promise((resolve) => window.setTimeout(resolve, 450));
+    try {
+      const completed = await executeTransfer({
+        clientRequestId: requestId.current,
+        sourceWalletId,
+        sourceAccountId: sourceAccount.id,
+        destinationWalletId: useAddress ? undefined : destinationWalletId,
+        destinationAccountId: useAddress ? undefined : destinationAccount.id,
+        destinationAddress: useAddress ? destinationAddress : undefined,
+        tokenSymbol: symbol,
+        amount: numericAmount,
+      });
+      setTransaction(completed);
+      setStage("success");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Transfer failed.");
+      setStage("failed");
+    }
+  };
+
+  const reset = () => {
+    requestId.current = randomClientId("transfer");
+    setAmountValue("");
+    setTransaction(null);
+    setRecipientQuery("");
+    setUseAddress(false);
+    setShowAccounts(false);
+    setError("");
+    setStage("recipient");
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PhantomSendHeader onClose={onClose} onAdd={stage === "recipient" ? () => { setShowAccounts((value) => !value); setError(""); } : undefined} />
+      {stage === "recipient" ? (
+        <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="min-h-0 flex-1 overflow-y-auto pb-5">
+            {sharedStatus !== "connected" ? <p role="status" className="mt-2 rounded-2xl border border-red-400/15 bg-red-400/10 px-4 py-3 text-sm text-red-200">{sharedStatus === "connecting" ? "Connecting the wallet network…" : sharedError || "Transfers are currently unavailable."}</p> : null}
+            {showAccounts || normalizedQuery ? (
+              <div className="mt-5 space-y-2">
+                <h2 className="px-1 text-sm font-semibold text-white/50">{showAccounts ? "My wallet accounts" : "Matching accounts"}</h2>
+                {filteredAccounts.map(({ walletId: candidateWalletId, account }) => (
+                  <button key={account.id} type="button" onClick={() => chooseAccount(candidateWalletId, account)} aria-label={`Use ${walletLabels[candidateWalletId]} ${account.name}`} className="flex w-full items-center gap-3 rounded-[1.25rem] bg-[#19191b] p-4 text-left">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#28282b] text-[#b5aaff]"><WalletCards className="h-5 w-5" /></span>
+                    <span className="min-w-0 flex-1"><strong className="block truncate">{account.name}</strong><span className="mt-0.5 block truncate text-sm text-white/45">{walletLabels[candidateWalletId]} · {shortWalletAddress(account.address)}</span></span>
+                    <ArrowRight className="h-5 w-5 text-white/35" />
+                  </button>
+                ))}
+                {normalizedQuery ? <button type="button" onClick={chooseAddress} className="flex w-full items-center gap-3 rounded-[1.25rem] bg-[#19191b] p-4 text-left"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#a295f3] text-black"><Send className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block">Send to this address</strong><span className="mt-0.5 block truncate font-mono text-xs text-white/45">{recipientQuery.trim()}</span></span><ArrowRight className="h-5 w-5 text-white/35" /></button> : null}
+                {!filteredAccounts.length && !normalizedQuery ? <p className="rounded-[1.25rem] bg-[#19191b] px-4 py-8 text-center text-white/45">No other accounts found.</p> : null}
+              </div>
+            ) : (
+              <div className="grid min-h-[62dvh] place-items-center py-8 text-center">
+                <div className="max-w-[330px]">
+                  <span className="relative mx-auto block h-24 w-40" aria-hidden="true"><Send className="absolute right-4 top-0 h-16 w-16 -rotate-12 fill-[#a295f3] text-[#a295f3]" /><i className="absolute left-7 top-10 h-5 w-8 -rotate-12 rounded-sm bg-[#35d59c]" /><i className="absolute left-16 top-12 h-4 w-7 rotate-12 rounded-sm bg-[#35d59c]" /><i className="absolute left-24 top-8 h-4 w-7 -rotate-6 rounded-sm bg-[#35d59c]" /></span>
+                  <h2 className="mt-5 text-[24px] font-semibold tracking-[-.035em]">No recent transfers</h2>
+                  <p className="mt-3 text-[17px] leading-snug text-white/55">You can search for a username or wallet, or create a contact or bank account.</p>
+                </div>
+              </div>
+            )}
+          </div>
+          {error ? <p role="alert" className="mb-3 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
+          <form onSubmit={(event) => { event.preventDefault(); chooseAddress(); }} className="flex h-14 shrink-0 items-center rounded-full border border-white/[0.08] bg-[#171719] px-4 shadow-[0_10px_35px_rgba(0,0,0,.45)]">
+            <Search className="h-5 w-5 shrink-0 text-white/45" />
+            <input value={recipientQuery} onChange={(event) => { setRecipientQuery(event.target.value); setError(""); }} placeholder="@username or wallet address" aria-label="Recipient username or wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="min-w-0 flex-1 bg-transparent px-3 text-[15px] outline-none placeholder:text-white/35" />
+            <button type="button" onClick={() => setError("Paste or type a complete wallet address on this device.")} aria-label="Scan wallet QR code" className="grid h-9 w-9 place-items-center rounded-full text-white/70"><QrCode className="h-5 w-5" /></button>
+            <button type="button" onClick={() => void pasteRecipient()} className="ml-1 rounded-full bg-[#252527] px-3 py-2 text-sm font-semibold">Paste</button>
+          </form>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[max(1.75rem,env(safe-area-inset-bottom))]">
+          {stage === "form" ? <div><button type="button" onClick={() => setStage("recipient")} className="mt-2 flex items-center gap-2 text-[#a99bf7]"><ArrowLeft className="h-4 w-4" /> Change recipient</button><div className="mt-5 grid grid-cols-2 gap-3"><label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{walletIds.map((id) => <option key={id} value={id}>{walletLabels[id]}</option>)}</SelectField></label><label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label></div><label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label><div className="mt-4 rounded-[1.2rem] bg-[#19191b] p-4"><span className="text-xs font-bold uppercase tracking-[.12em] text-white/35">To</span><strong className="mt-2 block truncate">{useAddress ? shortWalletAddress(destinationAddress) : `${walletLabels[destinationWalletId]} · ${destinationAccount.name}`}</strong></div><div className="mt-5"><div className="flex items-center justify-between"><FieldLabel>Amount</FieldLabel><span className="mb-2 text-xs text-white/45">Available {amount(balance)} {symbol}</span></div><div className="flex items-center rounded-[1.2rem] bg-[#202022] px-4 focus-within:ring-2 focus-within:ring-[#a295f3]"><input inputMode="decimal" value={amountValue} onChange={(event) => setAmountValue(event.target.value)} placeholder="0" aria-label="Transfer amount" className="h-16 min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none" /><button type="button" onClick={() => setAmountValue(String(Math.max(0, balance - calculateNetworkFee(symbol, balance))))} className="rounded-full bg-[#343438] px-3 py-2 text-xs font-bold text-[#b8adff]">MAX</button></div><div className="mt-3 flex justify-between text-sm text-white/45"><span>Network fee</span><span>{fee} {symbol}</span></div></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={review} disabled={!available.length || sharedStatus !== "connected"} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-40">Review transfer <ArrowRight className="h-5 w-5" /></button></div> : null}
+          {stage === "review" ? <div><button type="button" onClick={() => setStage("form")} className="mt-2 flex items-center gap-2 text-[#a99bf7]"><ArrowLeft className="h-4 w-4" /> Edit transfer</button><h2 className="mt-6 text-3xl font-semibold tracking-[-.04em]">Review transfer</h2><div className="mt-6 rounded-[1.7rem] bg-[#1d1d1f] p-5"><div className="text-center"><span className="text-5xl font-semibold">{amount(numericAmount)}</span><span className="ml-2 text-2xl text-white/50">{symbol}</span><p className="mt-2 text-white/45">{money(numericAmount * (asset?.price ?? 0))}</p></div><div className="mt-7 border-t border-white/[0.07] pt-4"><Detail label="From" value={`${walletLabels[sourceWalletId]} · ${sourceAccount.name}`} /><Detail label="To" value={useAddress ? destinationAddress : destinationAccount.address} mono /><Detail label="Network" value={asset?.network ?? symbol} /><Detail label="Network fee" value={`${fee} ${symbol}`} /><Detail label="Total debit" value={`${amount(numericAmount + fee)} ${symbol}`} /></div></div>{error ? <p className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={() => void confirm()} className="mt-6 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Confirm transfer</button></div> : null}
+          {stage === "processing" ? <div className="grid min-h-[58dvh] place-items-center py-12 text-center" role="status"><div><span className="mx-auto block h-14 w-14 animate-spin rounded-full border-4 border-white/15 border-t-[#a295f3]" /><h2 className="mt-6 text-2xl font-semibold">Transfer pending…</h2><p className="mt-2 text-white/45">Updating both wallet accounts.</p></div></div> : null}
+          {stage === "failed" ? <div className="py-8 text-center" role="alert"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-500/15 text-red-300"><X className="h-10 w-10" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer failed</h2><p className="mt-3 text-white/55">{error || "The transfer could not be completed."}</p><p className="mt-4 text-sm text-white/35">No balance changes were saved.</p><button type="button" onClick={() => setStage("review")} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Review and try again</button></div> : null}
+          {stage === "success" && transaction ? <div className="py-7 text-center" role="status"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[#00e676] text-black"><Check className="h-10 w-10 stroke-[3]" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer complete</h2><p className="mt-3 text-lg text-white/55">{amount(transaction.amount)} {transaction.tokenSymbol} arrived in the receiving account.</p><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-5 text-left text-sm"><Detail label="Status" value="Completed" /><Detail label="Network" value={transaction.network} /><Detail label="Network fee" value={`${transaction.fee} ${transaction.feeSymbol}`} /><Detail label="Transaction ID" value={transaction.id} mono /></div><button type="button" onClick={reset} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Send another</button></div> : null}
+          <p className="mt-6 text-center text-[9px] font-bold uppercase tracking-[.16em] text-white/25">Parody wallet</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TransferPanel({ walletId, preferredSymbol, state, sharedStatus, sharedError, executeTransfer }: { walletId: WalletThemeId; preferredSymbol?: string; state: WalletLedgerState; sharedStatus: SharedLedgerStatus; sharedError: string; executeTransfer: (input: TransferInput) => Promise<SimulatedTransaction> }) {
@@ -844,6 +1103,94 @@ function TransferPanel({ walletId, preferredSymbol, state, sharedStatus, sharedE
 
 function Detail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return <div className="flex items-start justify-between gap-5 border-b border-white/[0.055] py-3 last:border-0"><span className="text-white/45">{label}</span><span className={`min-w-0 break-all text-right font-medium ${mono ? "font-mono text-xs" : ""}`}>{value}</span></div>;
+}
+
+function PhantomReceivePanel({ initialMode, state, onClose }: { initialMode: ReceiveMode; state: WalletLedgerState; onClose: () => void }) {
+  const account = selectedAccount(state, "ghost");
+  const tokenAssets = Object.values(state.assets).filter((asset) => asset.symbol !== "USD");
+  const defaultSymbol = tokenAssets.some((asset) => asset.symbol === "SOL") ? "SOL" : tokenAssets[0]?.symbol ?? "SOL";
+  const [mode, setMode] = useState<ReceiveMode>(initialMode);
+  const [symbol, setSymbol] = useState(defaultSymbol);
+  const [notice, setNotice] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const asset = state.assets[symbol] ?? tokenAssets[0];
+  const stablecoinAssets = [state.assets.USDC, state.assets.USDT].filter(Boolean);
+
+  const showNotice = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 1800);
+  };
+
+  const copy = async () => {
+    try {
+      await writeClipboard(account.address);
+      showNotice("Address copied");
+    } catch {
+      showNotice("Could not copy the address");
+    }
+  };
+
+  const share = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Receive in ${account.name}`, text: account.address });
+        showNotice("Address shared");
+        return;
+      }
+      await writeClipboard(account.address);
+      showNotice("Address copied for sharing");
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      showNotice("Could not share the address");
+    }
+  };
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col bg-black">
+      <button type="button" onClick={onClose} className="sr-only">Close Receive</button>
+      <header className="shrink-0 px-5 pb-2 pt-[max(3.5rem,calc(env(safe-area-inset-top)+2.3rem))]">
+        <div className="flex items-center justify-between">
+          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Receive</h1><p className="mt-1 text-[9px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/65">Parody wallet</p></div>
+          {mode === "cash" ? <button type="button" onClick={() => setHelpOpen(true)} aria-label="About receiving cash" className="grid h-10 w-10 place-items-center rounded-full bg-[#202022] text-white/70"><CircleHelp className="h-5 w-5" /></button> : <span className="h-10 w-10" />}
+        </div>
+        <div className="mt-5 grid h-11 grid-cols-2 rounded-full border border-white/[0.06] bg-[#1d1d1f] p-1" role="tablist" aria-label="Receive type">
+          <button type="button" role="tab" aria-selected={mode === "token"} onClick={() => setMode("token")} className={`rounded-full text-[16px] font-semibold transition ${mode === "token" ? "bg-[#f0f0f0] text-black" : "text-white/45"}`}>Token</button>
+          <button type="button" role="tab" aria-selected={mode === "cash"} onClick={() => setMode("cash")} className={`rounded-full text-[16px] font-semibold transition ${mode === "cash" ? "bg-[#f0f0f0] text-black" : "text-white/45"}`}>Cash</button>
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="flex flex-1 flex-col items-center justify-center py-8">
+          <AddressQrCode value={account.address} className="w-full max-w-[350px] border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]">
+            {mode === "token" && asset ? <RuntimeAssetIcon image={asset.image} name={asset.name} symbol={asset.symbol} className="h-full w-full" /> : <span className="relative block h-full w-full rounded-[28%] bg-[#19191b]">{stablecoinAssets.slice(0, 2).map((stablecoin, index) => <span key={stablecoin.symbol} className={`absolute h-[58%] w-[58%] overflow-hidden rounded-full border-2 border-[#19191b] ${index === 0 ? "left-[6%] top-[8%]" : "bottom-[8%] right-[6%]"}`}>{stablecoin.image ? <Image src={stablecoin.image} alt="" fill unoptimized sizes="48px" className="object-cover" /> : <span className="grid h-full w-full place-items-center text-[8px] font-bold">{stablecoin.symbol}</span>}</span>)}</span>}
+          </AddressQrCode>
+          {mode === "token" ? (
+            <label className="relative mt-7 flex min-h-11 w-full max-w-[350px] cursor-pointer items-center justify-between gap-3 text-[16px] font-semibold">
+              <span className="min-w-0 truncate">{asset?.name ?? symbol} <span className="text-white/45">· {shortWalletAddress(account.address)}</span></span>
+              <ChevronDown className="h-5 w-5 shrink-0 text-white/55" />
+              <select value={symbol} onChange={(event) => setSymbol(event.target.value)} aria-label="Receive token" className="absolute inset-0 cursor-pointer opacity-0">{tokenAssets.map((entry) => <option key={entry.symbol} value={entry.symbol}>{entry.name} ({entry.symbol})</option>)}</select>
+            </label>
+          ) : <p className="mt-7 w-full max-w-[350px] text-[16px] font-semibold">Stablecoins <span className="text-white/45">· Arrives as cash</span></p>}
+        </div>
+        <div className="mt-auto space-y-3">
+          {notice ? <p role="status" className="text-center text-sm font-medium text-[#00e676]">{notice}</p> : null}
+          <button type="button" onClick={() => void copy()} className="min-h-14 w-full rounded-full bg-[#a99bf7] px-5 text-[17px] font-semibold text-black">Copy address</button>
+          <button type="button" onClick={() => void share()} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#1b1b1d] px-5 text-[17px] font-semibold"><Share2 className="h-5 w-5" /> Share</button>
+        </div>
+      </div>
+      {helpOpen ? (
+        <div className="absolute inset-0 z-30 flex items-end bg-black/55 backdrop-blur-sm" role="presentation">
+          <button type="button" aria-label="Close cash information" className="absolute inset-0" onClick={() => setHelpOpen(false)} />
+          <section role="dialog" aria-modal="true" aria-labelledby="cash-help-title" className="relative w-full rounded-t-[2.5rem] border border-white/[0.08] bg-[#101011] px-6 pb-[max(1.6rem,env(safe-area-inset-bottom))] pt-7 shadow-[0_-24px_70px_rgba(0,0,0,.7)]">
+            <div className="flex items-center -space-x-2" aria-hidden="true">{stablecoinAssets.slice(0, 2).map((stablecoin) => <RuntimeAssetIcon key={stablecoin.symbol} image={stablecoin.image} name={stablecoin.name} symbol={stablecoin.symbol} className="h-12 w-12 border-4 border-[#101011]" />)}<ArrowRight className="mx-3 h-5 w-5 text-white/70" /><span className="grid h-12 w-12 place-items-center rounded-full border-4 border-[#101011] bg-[#a295f3] text-black"><WalletCards className="h-6 w-6" /></span></div>
+            <h2 id="cash-help-title" className="mt-8 text-[24px] font-semibold tracking-[-.035em]">Add cash with stablecoins</h2>
+            <p className="mt-3 text-[17px] leading-relaxed text-white/55">Fund your cash account by sending USDC or Tether to this address. Supported stablecoins are credited to your account as cash.</p>
+            <button type="button" onClick={() => setHelpOpen(false)} className="mt-8 min-h-14 w-full rounded-full bg-[#a99bf7] px-5 text-[17px] font-semibold text-black">Okay</button>
+            <p className="mt-4 text-center text-[9px] font-bold uppercase tracking-[.16em] text-white/25">Parody wallet</p>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ReceivePanel({ walletId, state }: { walletId: WalletThemeId; state: WalletLedgerState }) {
