@@ -44,7 +44,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
@@ -1109,12 +1109,19 @@ function SwipePanel({ onDismiss, className = "", scrollable = false, children }:
   const { containerStyle, handleProps } = useSwipeDismiss({ onDismiss });
   return (
     <div
-      className={`absolute inset-0 z-40 flex flex-col bg-black will-change-transform ${scrollable ? "overflow-y-auto" : ""} ${className}`}
+      className={`absolute inset-0 z-40 flex flex-col overflow-hidden bg-black will-change-transform ${className}`}
       style={containerStyle}
-      onTouchStart={(e) => e.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
+      onTouchEnd={(event) => event.stopPropagation()}
+      onTouchCancel={(event) => event.stopPropagation()}
     >
-      <div {...handleProps}><span className="block h-1.5 w-20 rounded-full bg-[#363638]" /></div>
-      {children}
+      <div className="sticky top-0 z-30 w-full shrink-0 bg-black pt-[max(.75rem,env(safe-area-inset-top))]">
+        <div {...handleProps}><span className="block h-1.5 w-20 rounded-full bg-[#363638]" /></div>
+      </div>
+      <div className={`flex min-h-0 w-full flex-1 flex-col ${scrollable ? "overflow-y-auto overscroll-contain" : ""}`}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1221,7 +1228,7 @@ function TokenPicker({ tokens, flow, onClose, onSelect }: { tokens: WalletToken[
   return <SwipePanel onDismiss={onClose} scrollable className="px-4 pb-10"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close token picker" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{flow === "send" ? "Select Token" : "Buy"}</h1></div><label className="mt-9 flex items-center gap-4 rounded-full bg-[#1d1d1f] px-6 py-5 text-[20px] text-white/40"><Search className="h-6 w-6" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label><div className="mt-9 space-y-3">{filtered.map((token) => <button key={token.id} type="button" onClick={() => onSelect(token)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-6 py-5 text-left transition hover:bg-[#242426]"><TokenIcon token={token} size="large" /><span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[25px] font-medium">{token.name}<span className="text-[#a295f3]">✿</span></span><span className="mt-1 block text-[19px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span></button>)}{filtered.length === 0 ? <p className="py-10 text-center text-white/50">No token found.</p> : null}</div></SwipePanel>;
 }
 
-function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
+function SendRecipientScreen({ token, recipient, scanAddress, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; scanAddress: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const recent = ["Account 1", "Main Wallet", "Trading"];
   const addresses = ["Account 1", "Main Wallet", "Trading", "Savings"];
   const [pasteError, setPasteError] = useState("");
@@ -1236,38 +1243,37 @@ function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: 
       setPasteError("Allow clipboard access, then try again.");
     }
   };
-  const simulateScan = useCallback(() => {
-    setScannerOpen(true);
+  useEffect(() => {
+    if (!scannerOpen) return;
     const timeout = window.setTimeout(() => {
-      const fakeAddress = `Ph${Math.random().toString(36).slice(2, 14)}...${Math.random().toString(36).slice(2, 8)}`;
-      onRecipient(fakeAddress);
+      onRecipient(scanAddress);
       setScannerOpen(false);
     }, 2200);
     return () => window.clearTimeout(timeout);
-  }, [onRecipient]);
-  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-28">{scannerOpen ? <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black"><div className="relative grid h-72 w-72 place-items-center"><div className="absolute inset-0 rounded-3xl border-2 border-[#a295f3]/40" /><Scan className="h-24 w-24 animate-pulse text-[#a295f3]" /><span className="absolute bottom-4 text-sm text-white/60">Scanning...</span></div><button type="button" onClick={() => setScannerOpen(false)} className="mt-10 rounded-full bg-[#242426] px-8 py-4 text-lg font-medium">Cancel</button></div> : null}<div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" onTouchStart={(e) => e.stopPropagation()} className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={simulateScan} aria-label="Scan QR code" className="text-white/80"><Camera className="h-7 w-7" /></button><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
+  }, [onRecipient, scanAddress, scannerOpen]);
+  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-28">{scannerOpen ? <div className="absolute inset-0 z-[80] flex flex-col items-center justify-center bg-black" role="dialog" aria-modal="true" aria-label="Simulated QR scanner"><div className="relative grid h-[min(18rem,72vw)] w-[min(18rem,72vw)] place-items-center"><div className="absolute inset-0 rounded-3xl border-2 border-[#a295f3]/40" /><Scan className="h-24 w-24 animate-pulse text-[#a295f3]" /><span role="status" className="absolute bottom-4 text-sm text-white/60">Scanning an in-app wallet QR…</span></div><button type="button" onClick={() => setScannerOpen(false)} className="mt-10 rounded-full bg-[#242426] px-8 py-4 text-lg font-medium">Cancel</button></div> : null}<div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" onFocus={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan QR code" className="text-white/80"><Camera className="h-7 w-7" /></button><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
 }
 
 function SendAmountScreen({ token, amount, onAmount, onBack, onNext }: { token: WalletToken; amount: string; onAmount: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const numericAmount = Number(amount) || 0;
   const canContinue = numericAmount > 0 && numericAmount <= token.balance;
-  return <SwipePanel onDismiss={onBack} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Enter Amount</h1></div><button type="button" onClick={onNext} disabled={!canContinue} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="flex flex-1 flex-col items-center justify-center"><label className="flex items-baseline justify-center text-[72px] font-medium tracking-[-0.08em]"><input inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0" aria-label={`Amount in ${token.symbol}`} onTouchStart={(e) => e.stopPropagation()} className="w-[190px] bg-transparent text-right outline-none placeholder:text-white" /><span className="ml-3">{token.symbol}</span></label><p className="mt-5 text-[31px] text-white/55">~{formatMoney(numericAmount * token.price)}</p></div><div className="flex items-center justify-between pb-5 text-[18px]"><div><p className="text-white/55">Available To Send</p><p className="mt-2 font-medium">{formatAmount(token.balance)} {token.symbol}</p></div><button type="button" onClick={() => onAmount(String(token.balance))} className="rounded-full bg-[#242426] px-7 py-4 text-[19px]">Max</button></div><button type="button" onClick={onNext} disabled={!canContinue} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
+  return <SwipePanel onDismiss={onBack} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Enter Amount</h1></div><button type="button" onClick={onNext} disabled={!canContinue} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="flex flex-1 flex-col items-center justify-center"><label className="flex max-w-full items-baseline justify-center text-[clamp(2.75rem,17vw,4.5rem)] font-medium tracking-[-0.08em]"><input inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0" aria-label={`Amount in ${token.symbol}`} onTouchStart={(e) => e.stopPropagation()} className="w-[min(48vw,190px)] bg-transparent text-right outline-none placeholder:text-white" /><span className="ml-3">{token.symbol}</span></label><p className="mt-5 text-[clamp(1.35rem,7vw,1.95rem)] text-white/55">~{formatMoney(numericAmount * token.price)}</p></div><div className="flex items-center justify-between pb-5 text-[18px]"><div><p className="text-white/55">Available To Send</p><p className="mt-2 font-medium">{formatAmount(token.balance)} {token.symbol}</p></div><button type="button" onClick={() => onAmount(String(token.balance))} className="rounded-full bg-[#242426] px-7 py-4 text-[19px]">Max</button></div><button type="button" onClick={onNext} disabled={!canContinue} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
 }
 
 function SummaryScreen({ token, amount, recipient, onBack, onConfirm }: { token: WalletToken; amount: number; recipient: string; onBack: () => void; onConfirm: () => void }) {
-  return <SwipePanel onDismiss={onBack} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Summary</h1></div><div className="flex flex-1 flex-col items-center pt-20"><Send className="h-16 w-16 text-[#a295f3]" /><p className="mt-8 text-[72px] font-semibold tracking-[-0.08em]">{formatAmount(amount)} {token.symbol}</p><p className="mt-3 text-[28px] text-white/55">~{formatMoney(amount * token.price)}</p><div className="mt-14 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="To" value={shortAddress(recipient)} /><SummaryRow label="Network" value={token.symbol === "BTC" ? "Bitcoin" : "Solana"} /><SummaryRow label="Network fee" value={token.symbol === "SOL" ? "0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onConfirm} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Send</button></SwipePanel>;
+  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Summary</h1></div><div className="flex flex-1 flex-col items-center pt-12"><Send className="h-16 w-16 text-[#a295f3]" /><p className="mt-8 max-w-full break-words text-center text-[clamp(2.5rem,15vw,4.5rem)] font-semibold tracking-[-0.08em]">{formatAmount(amount)} {token.symbol}</p><p className="mt-3 text-[clamp(1.25rem,6vw,1.75rem)] text-white/55">~{formatMoney(amount * token.price)}</p><div className="mt-10 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="To" value={shortAddress(recipient)} /><SummaryRow label="Network" value={token.symbol === "BTC" ? "Bitcoin" : "Solana"} /><SummaryRow label="Network fee" value={token.symbol === "SOL" ? "0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onConfirm} className="mt-6 w-full shrink-0 rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Send</button></SwipePanel>;
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return <div className="flex items-center justify-between border-b border-white/[0.06] px-7 py-6 last:border-0"><span className="text-white/55">{label}</span><span className="font-medium">{value}</span></div>;
 }
 
-function SendingScreen({ token, amount, recipient, onComplete }: { token: WalletToken; amount: number; recipient: string; onComplete: () => void }) {
+function SendingScreen({ token, amount, recipient, onComplete, onDismiss }: { token: WalletToken; amount: number; recipient: string; onComplete: () => void; onDismiss: () => void }) {
   useEffect(() => {
     const timeoutId = window.setTimeout(onComplete, 1500);
     return () => window.clearTimeout(timeoutId);
   }, [onComplete]);
-  return <SwipePanel onDismiss={onComplete} className="items-center px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#242426] text-[48px] text-[#a295f3] animate-pulse">•••</div><h1 className="mt-9 text-[32px] font-semibold">Sending...</h1><p className="mt-4 text-[19px] text-white/70">{formatAmount(amount)} {token.symbol} to {shortAddress(recipient)}</p></div><button type="button" onClick={onComplete} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Close</button></SwipePanel>;
+  return <SwipePanel onDismiss={onDismiss} className="items-center px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#242426] text-[48px] text-[#a295f3] animate-pulse">•••</div><h1 className="mt-9 text-[32px] font-semibold">Sending...</h1><p className="mt-4 text-[19px] text-white/70">{formatAmount(amount)} {token.symbol} to {shortAddress(recipient)}</p></div><button type="button" onClick={onDismiss} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Cancel</button></SwipePanel>;
 }
 
 function SentScreen({ token, amount, recipient, onClose, onHistory }: { token: WalletToken; amount: number; recipient: string; onClose: () => void; onHistory: () => void }) {
@@ -1275,7 +1281,7 @@ function SentScreen({ token, amount, recipient, onClose, onHistory }: { token: W
 }
 
 function ReceiveScreen({ profile, onClose }: { profile: ProfileRecord; onClose: () => void }) {
-  return <SwipePanel onDismiss={onClose} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><AddressQrCode value={profile.address} className="w-64 border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><p className="mt-10 text-center text-[20px] text-white/65">Your wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></SwipePanel>;
+  return <SwipePanel onDismiss={onClose} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><AddressQrCode value={profile.address} className="w-[min(16rem,72vw)] border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><p className="mt-10 text-center text-[20px] text-white/65">Your wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex max-w-full items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span className="truncate">{shortAddress(profile.address)}</span><Copy className="h-5 w-5 shrink-0 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></SwipePanel>;
 }
 
 function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: () => void; onAdd: (amount: number) => void }) {
@@ -1609,6 +1615,15 @@ export function DownloadWallet() {
   const homePullStart = useRef<{ x: number; y: number } | null>(null);
   const homeRawPull = useRef(0);
   const homeRefreshTimers = useRef<number[]>([]);
+  const simulatedScanAddress = useMemo(() => {
+    const currentAddress = runtime.currentAccount?.address;
+    const accounts = runtime.state
+      ? Object.values(runtime.state.wallets).flatMap((wallet) => wallet.accounts)
+      : [];
+    return accounts.find((account) => account.address !== currentAddress)?.address
+      ?? currentAddress
+      ?? profile.address;
+  }, [profile.address, runtime.currentAccount?.address, runtime.state]);
 
   const liveSymbols = liveMarketSymbols;
 
@@ -1622,6 +1637,10 @@ export function DownloadWallet() {
   useEffect(() => () => {
     homeRefreshTimers.current.forEach((timer) => window.clearTimeout(timer));
   }, []);
+
+  useEffect(() => {
+    if (homeScrollRef.current) homeScrollRef.current.scrollTop = 0;
+  }, [view]);
 
   useEffect(() => {
     const refreshSharedWallet = () => {
@@ -1944,8 +1963,8 @@ export function DownloadWallet() {
   };
 
   return (
-    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]" style={{ height: "100dvh" }}>
-      <div className="relative mx-auto w-full max-w-[min(560px,100vw)] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]" style={{ height: "100dvh", maxHeight: "100dvh" }}><style>{`@media (min-width: 640px) { .download-wallet-app > div { height: calc(100dvh - 2rem) !important; max-height: calc(100dvh - 2rem) !important; } }`}</style>
+    <main className="download-wallet-app fixed inset-0 z-0 h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
+      <div className="relative mx-auto h-[100dvh] max-h-[100dvh] w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
 {view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
@@ -1955,10 +1974,10 @@ export function DownloadWallet() {
           {view === "support" ? <SupportScreen onBack={() => setView("home")} onCommunity={() => setView("community")} /> : null}
           {view === "disclosures" ? <DisclosuresScreen onBack={() => setView("home")} /> : null}
           {view === "token-picker" ? <TokenPicker tokens={tokens} flow={flow} onClose={() => { resetSend(); setView("home"); }} onSelect={pickToken} /> : null}
-          {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
+          {view === "send-recipient" && currentToken ? <SendRecipientScreen token={currentToken} recipient={recipient} scanAddress={simulatedScanAddress} onRecipient={setRecipient} onBack={() => setView("token-picker")} onNext={() => setView("send-amount")} /> : null}
           {view === "send-amount" && currentToken ? <SendAmountScreen token={currentToken} amount={sendAmount} onAmount={setSendAmount} onBack={() => setView("send-recipient")} onNext={() => setView("send-summary")} /> : null}
           {view === "send-summary" && currentToken ? <SummaryScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onBack={() => setView("send-amount")} onConfirm={() => setView("sending")} /> : null}
-          {view === "sending" && currentToken ? <SendingScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onComplete={completeSend} /> : null}
+          {view === "sending" && currentToken ? <SendingScreen token={currentToken} amount={Number(sendAmount) || 0} recipient={recipient} onComplete={completeSend} onDismiss={() => { resetSend(); setView("home"); }} /> : null}
           {view === "sent" && currentToken && sentRecord ? <SentScreen token={currentToken} amount={sentRecord.amount} recipient={sentRecord.counterpartyLabel} onClose={() => { resetSend(); setView("home"); }} onHistory={() => setView("history")} /> : null}
           {view === "receive" ? <ReceiveScreen profile={profile} onClose={() => setView("home")} /> : null}
           {view === "add-cash" ? <AddCashScreen balance={profile.cash} onClose={() => setView("home")} onAdd={addCash} /> : null}
@@ -1973,7 +1992,6 @@ export function DownloadWallet() {
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}
         </div>
       </div>
-      <style>{`.download-wallet-app div.absolute.inset-0.z-40 > div.mx-auto.mt-3.h-1\\.5.w-20 { margin-top: calc(env(safe-area-inset-top) + 12px); }`}</style>
     </main>
   );
 }

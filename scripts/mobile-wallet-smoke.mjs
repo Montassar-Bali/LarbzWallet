@@ -90,7 +90,7 @@ await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activated
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
 const phantomFontFamily = await page.locator(".download-wallet-app").evaluate((element) => getComputedStyle(element).fontFamily);
-if (phantomFontFamily !== "sans-serif") {
+if (!phantomFontFamily.toLowerCase().includes("sans-serif")) {
   throw new Error(`Phantom did not use the requested sans-serif font: ${phantomFontFamily}`);
 }
 if (await page.getByText("Demo · No real funds", { exact: true }).isVisible().catch(() => false)) {
@@ -104,7 +104,30 @@ await page.locator('[role="status"]').filter({ hasText: "Refreshing wallet" }).w
 await page.locator('[role="status"]').filter({ hasText: "Wallet updated" }).waitFor({ timeout: 5_000 });
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
-await page.getByRole("heading", { name: "Send" }).waitFor();
+const phantomSendSheet = page.locator("section[aria-label='Send']");
+await phantomSendSheet.getByRole("heading", { name: "Send" }).waitFor();
+const phantomRecipientInput = phantomSendSheet.getByLabel("Recipient username or wallet address");
+await phantomRecipientInput.tap();
+await phantomRecipientInput.pressSequentially("sim_focus_probe", { delay: 15 });
+const recipientFocusState = await phantomRecipientInput.evaluate((input) => ({
+  focused: document.activeElement === input,
+  value: input.value,
+}));
+if (!recipientFocusState.focused || recipientFocusState.value !== "sim_focus_probe" || !await phantomSendSheet.isVisible()) {
+  throw new Error(`Phantom Send closed or lost its recipient input after focus/type: ${JSON.stringify(recipientFocusState)}`);
+}
+
+await phantomSendSheet.getByRole("button", { name: "Scan wallet QR code" }).click();
+const simulatedScanner = page.getByRole("dialog", { name: "Simulated QR scanner" });
+await simulatedScanner.waitFor();
+await simulatedScanner.getByRole("status").filter({ hasText: "Scanning wallet QR code" }).waitFor();
+await simulatedScanner.waitFor({ state: "hidden", timeout: 8_000 });
+const scannedRecipient = await phantomRecipientInput.inputValue();
+if (!/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(scannedRecipient)) {
+  throw new Error(`Phantom scanner did not return a complete simulated wallet address: ${scannedRecipient}`);
+}
+await phantomSendSheet.getByRole("button", { name: "Send to this address" }).waitFor();
+await phantomRecipientInput.fill("");
 await page.getByRole("button", { name: "Choose one of my accounts" }).click();
 await page.getByRole("button", { name: "Use Ledger Account 1" }).click();
 await page.getByLabel("Transfer amount").fill("0.01");
@@ -116,7 +139,9 @@ await page.getByRole("button", { name: "Confirm transfer" }).click();
 await page.getByRole("heading", { name: "Transfer complete" }).waitFor({ timeout: 10_000 });
 
 const transferState = await page.evaluate(() => {
-  const key = Object.keys(window.localStorage).find((item) => item.startsWith("larpz_wallet_ledger_v2:")) ?? "larpz_wallet_ledger_v1";
+  const ownerId = JSON.parse(window.localStorage.getItem("larpz_session") || "null")?.userId;
+  const safeOwnerId = typeof ownerId === "string" ? ownerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120) : "";
+  const key = safeOwnerId ? `larpz_wallet_ledger_v2:${safeOwnerId}` : "larpz_wallet_ledger_v1";
   return JSON.parse(window.localStorage.getItem(key) || "null");
 });
 if (!transferState?.transactions?.some((transaction) => transaction.status === "completed" && transaction.sourceWalletId === "ghost" && transaction.destinationWalletId === "ledger")) {
@@ -163,11 +188,22 @@ const cashHelpDialog = receiveSheet.getByRole("dialog", { name: "Add cash with s
 await cashHelpDialog.waitFor();
 await cashHelpDialog.getByRole("button", { name: "Okay" }).click();
 await cashHelpDialog.waitFor({ state: "hidden" });
-await receiveSheet.press("Escape");
+const receiveSwipeHandle = receiveSheet.locator('[data-swipe-dismiss-handle="true"]');
+await receiveSwipeHandle.waitFor();
+const receiveHandleBounds = await receiveSwipeHandle.boundingBox();
+if (!receiveHandleBounds) throw new Error("Phantom Receive swipe handle has no visible bounds.");
+const receiveHandleX = receiveHandleBounds.x + receiveHandleBounds.width / 2;
+const receiveHandleY = receiveHandleBounds.y + receiveHandleBounds.height / 2;
+await page.mouse.move(receiveHandleX, receiveHandleY);
+await page.mouse.down();
+await page.mouse.move(receiveHandleX, receiveHandleY + 150, { steps: 8 });
+await page.mouse.up();
 await receiveSheet.waitFor({ state: "hidden" });
 
 const cashBeforeAdd = await page.evaluate(() => {
-  const key = Object.keys(window.localStorage).find((item) => item.startsWith("larpz_wallet_ledger_v2:")) ?? "larpz_wallet_ledger_v1";
+  const ownerId = JSON.parse(window.localStorage.getItem("larpz_session") || "null")?.userId;
+  const safeOwnerId = typeof ownerId === "string" ? ownerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120) : "";
+  const key = safeOwnerId ? `larpz_wallet_ledger_v2:${safeOwnerId}` : "larpz_wallet_ledger_v1";
   const state = JSON.parse(window.localStorage.getItem(key) || "null");
   const wallet = state?.wallets?.ghost;
   const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
@@ -193,16 +229,36 @@ await page.getByText("Card · $1.52 fee", { exact: true }).waitFor();
 await page.getByText("Delivery", { exact: true }).waitFor();
 await page.getByRole("button", { name: "Add Cash", exact: true }).click();
 await page.getByLabel("Search Phantom").waitFor();
+await page.waitForFunction((expectedCash) => {
+  const ownerId = JSON.parse(window.localStorage.getItem("larpz_session") || "null")?.userId;
+  const safeOwnerId = typeof ownerId === "string" ? ownerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120) : "";
+  const state = safeOwnerId
+    ? JSON.parse(window.localStorage.getItem(`larpz_wallet_ledger_v2:${safeOwnerId}`) || "null")
+    : null;
+  const wallet = state?.wallets?.ghost;
+  const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
+  return Math.abs(Number(account?.balances?.USD ?? Number.NaN) - expectedCash) < 1e-9;
+}, cashBeforeAdd + 50, { timeout: 8_000 });
 
 const cashAfterAdd = await page.evaluate(() => {
-  const key = Object.keys(window.localStorage).find((item) => item.startsWith("larpz_wallet_ledger_v2:")) ?? "larpz_wallet_ledger_v1";
+  const ownerId = JSON.parse(window.localStorage.getItem("larpz_session") || "null")?.userId;
+  const safeOwnerId = typeof ownerId === "string" ? ownerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120) : "";
+  const key = safeOwnerId ? `larpz_wallet_ledger_v2:${safeOwnerId}` : "larpz_wallet_ledger_v1";
   const state = JSON.parse(window.localStorage.getItem(key) || "null");
   const wallet = state?.wallets?.ghost;
   const account = wallet?.accounts?.find((candidate) => candidate.id === wallet.selectedAccountId);
   return Number(account?.balances?.USD ?? 0);
 });
 if (Math.abs(cashAfterAdd - cashBeforeAdd - 50) > 1e-9) {
-  throw new Error(`Add Cash changed Phantom cash by ${cashAfterAdd - cashBeforeAdd}, expected exactly $50.`);
+  const cashDebug = await page.evaluate(() => ({
+    session: JSON.parse(window.localStorage.getItem("larpz_session") || "null"),
+    profile: JSON.parse(window.localStorage.getItem("larpz_download_profile") || "null"),
+    ledgerKeys: Object.keys(window.localStorage).filter((key) => key.startsWith("larpz_wallet_ledger")),
+    visibleCashRows: [...document.querySelectorAll("button")]
+      .filter((button) => button.textContent?.includes("Cash"))
+      .map((button) => button.textContent),
+  }));
+  throw new Error(`Add Cash changed Phantom cash by ${cashAfterAdd - cashBeforeAdd}, expected exactly $50: ${JSON.stringify(cashDebug)}`);
 }
 const expectedCashLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(cashAfterAdd);
 await page.getByRole("button").filter({ hasText: "Cash" }).filter({ hasText: expectedCashLabel }).first().waitFor();
@@ -423,4 +479,4 @@ const actionableErrors = errors.filter((message) => !message.includes("Failed to
 await browser.close();
 if (actionableErrors.length) throw new Error(`Browser errors: ${actionableErrors.join(" | ")}`);
 
-console.log("Mobile wallet smoke test passed: Phantom recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");
+console.log("Mobile wallet smoke test passed: Phantom recipient focus, simulated QR scan, swipe dismissal, recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");

@@ -30,6 +30,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { AddressQrCode } from "@/components/wallet/address-qr-code";
+import { useSwipeDismiss } from "@/components/wallet/use-swipe-dismiss";
 import type { WalletThemeId } from "@/config/wallets";
 import {
   getWalletOwnerIdFromCookie,
@@ -720,11 +721,15 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
   onClose: () => void;
 }) {
   const [panel, setPanel] = useState(initialPanel);
-  const touchStart = useRef(0);
   const sheetRef = useRef<HTMLElement>(null);
+  const { containerStyle, handleProps } = useSwipeDismiss({ onDismiss: onClose });
 
   useEffect(() => {
-    sheetRef.current?.focus();
+    const sheet = sheetRef.current;
+    if (sheet && !sheet.contains(document.activeElement)) sheet.focus();
+  }, []);
+
+  useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
@@ -740,10 +745,11 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
           tabIndex={-1}
           aria-label={title}
           className="relative flex h-[100dvh] w-full max-w-[560px] flex-col overflow-hidden bg-black text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:h-[94dvh] sm:rounded-[2.5rem] sm:border sm:border-white/10"
-          onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY ?? 0; }}
-          onTouchEnd={(event) => { if ((event.changedTouches[0]?.clientY ?? 0) - touchStart.current > 110) onClose(); }}
+          style={containerStyle}
         >
-          <div className="absolute left-1/2 top-[max(.85rem,env(safe-area-inset-top))] z-20 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/40" />
+          <div {...handleProps} className={`${handleProps.className} absolute left-1/2 top-[max(.6rem,env(safe-area-inset-top))] z-20 -translate-x-1/2`}>
+            <span className="block h-1.5 w-12 rounded-full bg-white/40" />
+          </div>
           {panel === "transfer" ? (
             <PhantomTransferPanel
               preferredSymbol={preferredSymbol}
@@ -769,9 +775,9 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
   return (
     <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 backdrop-blur-md sm:items-center" role="presentation">
       <button type="button" aria-label="Close wallet sheet" className="absolute inset-0" onClick={onClose} />
-      <section ref={sheetRef} tabIndex={-1} aria-label={title} className="relative flex max-h-[94dvh] min-h-[68dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[2.2rem] border border-white/10 bg-[#111112] text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:max-h-[88dvh] sm:rounded-[2.2rem]" onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY ?? 0; }} onTouchEnd={(event) => { if ((event.changedTouches[0]?.clientY ?? 0) - touchStart.current > 110) onClose(); }}>
+      <section ref={sheetRef} tabIndex={-1} aria-label={title} className="relative flex max-h-[94dvh] min-h-[68dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[2.2rem] border border-white/10 bg-[#111112] text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:max-h-[88dvh] sm:rounded-[2.2rem]" style={containerStyle}>
         <header className="shrink-0 border-b border-white/[0.06] px-5 pb-4 pt-3">
-          <div className="mx-auto h-1.5 w-16 rounded-full bg-white/35" />
+          <div {...handleProps}><span className="block h-1.5 w-16 rounded-full bg-white/35" /></div>
           <div className="mt-4 flex items-center justify-between">
             <div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/70">{walletDisclosures[walletId]}</p><h1 className="mt-1 text-[28px] font-semibold tracking-[-.04em]">{title}</h1></div>
             <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 place-items-center rounded-full bg-[#252527]"><X className="h-5 w-5" /></button>
@@ -863,6 +869,7 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
   const [destinationAddress, setDestinationAddress] = useState("");
   const [recipientQuery, setRecipientQuery] = useState("");
   const [showAccounts, setShowAccounts] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const sourceAccount = accountForSelection(state, sourceWalletId, sourceAccountId);
   const destinationAccount = accountForSelection(state, destinationWalletId, destinationAccountId);
   const available = sortedAccountAssets(state, sourceAccount).filter((entry) => entry.balance > 0 && entry.asset.symbol !== "USD");
@@ -883,6 +890,19 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
     .map((account) => ({ walletId: candidateWalletId, account })));
   const normalizedQuery = recipientQuery.trim().toLowerCase();
   const filteredAccounts = candidateAccounts.filter(({ walletId: candidateWalletId, account }) => !normalizedQuery || `${walletLabels[candidateWalletId]} ${account.name} ${account.address}`.toLowerCase().includes(normalizedQuery));
+  const scanCandidate = candidateAccounts.find(({ walletId: candidateWalletId }) => candidateWalletId !== sourceWalletId) ?? candidateAccounts[0];
+  const simulatedScanAddress = scanCandidate?.account.address ?? "";
+
+  useEffect(() => {
+    if (!scannerOpen || !simulatedScanAddress) return;
+    const timeoutId = window.setTimeout(() => {
+      setRecipientQuery(simulatedScanAddress);
+      setShowAccounts(false);
+      setError("");
+      setScannerOpen(false);
+    }, 1_800);
+    return () => window.clearTimeout(timeoutId);
+  }, [scannerOpen, simulatedScanAddress]);
 
   const changeSourceWallet = (nextWalletId: WalletThemeId) => {
     const account = selectedAccount(state, nextWalletId);
@@ -925,6 +945,15 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
     }
   };
 
+  const openScanner = () => {
+    if (!simulatedScanAddress) {
+      setError("No other wallet account is available for a simulated scan.");
+      return;
+    }
+    setError("");
+    setScannerOpen(true);
+  };
+
   const review = () => {
     setError("");
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) return setError("Enter an amount greater than zero.");
@@ -964,12 +993,28 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
     setRecipientQuery("");
     setUseAddress(false);
     setShowAccounts(false);
+    setScannerOpen(false);
     setError("");
     setStage("recipient");
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {scannerOpen ? (
+        <div role="dialog" aria-modal="true" aria-label="Simulated QR scanner" className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black px-6 text-center">
+          <div className="relative grid aspect-square w-full max-w-[300px] place-items-center overflow-hidden rounded-[2rem] border border-[#a295f3]/50 bg-[#111113] shadow-[0_24px_80px_rgba(0,0,0,.75)]">
+            <span className="absolute left-6 top-6 h-12 w-12 rounded-tl-2xl border-l-4 border-t-4 border-[#a295f3]" />
+            <span className="absolute right-6 top-6 h-12 w-12 rounded-tr-2xl border-r-4 border-t-4 border-[#a295f3]" />
+            <span className="absolute bottom-6 left-6 h-12 w-12 rounded-bl-2xl border-b-4 border-l-4 border-[#a295f3]" />
+            <span className="absolute bottom-6 right-6 h-12 w-12 rounded-br-2xl border-b-4 border-r-4 border-[#a295f3]" />
+            <QrCode className="h-24 w-24 animate-pulse text-[#a295f3]" />
+            <span className="absolute left-8 right-8 top-1/2 h-0.5 animate-pulse bg-[#35d59c] shadow-[0_0_18px_#35d59c]" />
+          </div>
+          <p role="status" className="mt-7 text-lg font-semibold">Scanning wallet QR code…</p>
+          <p className="mt-2 max-w-[300px] text-sm leading-6 text-white/45">This demo scanner finds another registered in-app wallet address. No camera access is used.</p>
+          <button type="button" onClick={() => setScannerOpen(false)} aria-label="Cancel scan" className="mt-8 min-h-12 rounded-full bg-[#242426] px-8 text-base font-semibold text-white/80">Cancel</button>
+        </div>
+      ) : null}
       <PhantomSendHeader onClose={onClose} onAdd={stage === "recipient" ? () => { setShowAccounts((value) => !value); setError(""); } : undefined} />
       {stage === "recipient" ? (
         <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -1001,8 +1046,8 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
           {error ? <p role="alert" className="mb-3 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
           <form onSubmit={(event) => { event.preventDefault(); chooseAddress(); }} className="flex h-14 shrink-0 items-center rounded-full border border-white/[0.08] bg-[#171719] px-4 shadow-[0_10px_35px_rgba(0,0,0,.45)]">
             <Search className="h-5 w-5 shrink-0 text-white/45" />
-            <input value={recipientQuery} onChange={(event) => { setRecipientQuery(event.target.value); setError(""); }} placeholder="@username or wallet address" aria-label="Recipient username or wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="min-w-0 flex-1 bg-transparent px-3 text-[15px] outline-none placeholder:text-white/35" />
-            <button type="button" onClick={() => setError("Paste or type a complete wallet address on this device.")} aria-label="Scan wallet QR code" className="grid h-9 w-9 place-items-center rounded-full text-white/70"><QrCode className="h-5 w-5" /></button>
+            <input value={recipientQuery} onChange={(event) => { setRecipientQuery(event.target.value); setError(""); }} onFocus={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} placeholder="@username or wallet address" aria-label="Recipient username or wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="min-w-0 flex-1 bg-transparent px-3 text-[15px] outline-none placeholder:text-white/35" />
+            <button type="button" onClick={openScanner} aria-label="Scan wallet QR code" className="grid h-9 w-9 place-items-center rounded-full text-white/70"><QrCode className="h-5 w-5" /></button>
             <button type="button" onClick={() => void pasteRecipient()} className="ml-1 rounded-full bg-[#252527] px-3 py-2 text-sm font-semibold">Paste</button>
           </form>
         </div>
@@ -1201,7 +1246,7 @@ function ReceivePanel({ walletId, state }: { walletId: WalletThemeId; state: Wal
   const account = selectedAccount(state, walletId);
   const [copied, setCopied] = useState(false);
   const copy = async () => { await navigator.clipboard?.writeText(account.address); setCopied(true); window.setTimeout(() => setCopied(false), 1800); };
-  return <div className="py-5 text-center"><span className="mx-auto grid h-24 w-24 place-items-center rounded-[2rem] bg-white p-3 text-black"><QrCode className="h-full w-full" /></span><h2 className="mt-6 text-2xl font-semibold">Receive in {account.name}</h2><p className="mt-2 text-white/45">Use this address as the destination in any of the three wallets.</p><button type="button" onClick={() => void copy()} className="mt-6 w-full rounded-[1.4rem] bg-[#202022] p-5 text-left"><span className="block text-xs font-bold uppercase tracking-[.1em] text-white/35">{walletLabels[walletId]} address</span><span className="mt-2 flex items-center justify-between gap-3 font-mono text-sm"><span className="break-all">{account.address}</span><Copy className="h-5 w-5 shrink-0 text-[#a99bf7]" /></span></button><p className="mt-4 text-sm text-[#00e676]">{copied ? "Address copied" : walletDisclosures[walletId]}</p></div>;
+  return <div className="py-5 text-center"><AddressQrCode value={account.address} className="mx-auto w-full max-w-[280px] border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><h2 className="mt-6 text-2xl font-semibold">Receive in {account.name}</h2><p className="mt-2 text-white/45">Use this address as the destination in any of the three wallets.</p><button type="button" onClick={() => void copy()} className="mt-6 w-full rounded-[1.4rem] bg-[#202022] p-5 text-left"><span className="block text-xs font-bold uppercase tracking-[.1em] text-white/35">{walletLabels[walletId]} address</span><span className="mt-2 flex items-center justify-between gap-3 font-mono text-sm"><span className="break-all">{account.address}</span><Copy className="h-5 w-5 shrink-0 text-[#a99bf7]" /></span></button><p className="mt-4 text-sm text-[#00e676]">{copied ? "Address copied" : walletDisclosures[walletId]}</p></div>;
 }
 
 function AccountsPanel({ activeWalletId, state, repository, onCommit }: { activeWalletId: WalletThemeId; state: WalletLedgerState; repository: WalletLedgerRepository; onCommit: (state: WalletLedgerState) => void }) {
