@@ -8,6 +8,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   Bell,
+  Camera,
   Check,
   ChevronDown,
   ChevronRight,
@@ -29,6 +30,7 @@ import {
   Radio,
   RefreshCw,
   Repeat2,
+  Scan,
   Search,
   Send,
   Settings,
@@ -42,7 +44,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
@@ -58,6 +60,8 @@ import {
 import { createId, readStorage, writeStorage } from "@/lib/storage";
 import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
 import { applyLiveMarketSnapshot, emptyLiveMarketSnapshot, type LiveMarketSnapshot } from "@/lib/wallet-market";
+import { useSwipeDismiss } from "@/components/wallet/use-swipe-dismiss";
+import { AddressQrCode } from "@/components/wallet/address-qr-code";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
@@ -788,7 +792,7 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
   const watchedCount = watchlistSymbols.filter((symbol) => tokens.some((token) => token.symbol === symbol)).length;
 
   return (
-    <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+32px)]">
+    <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+32px)]">
       <ScreenHeader title="Watchlist" onBack={onBack} />
       <div className="px-4 pb-12">
         <div className="mt-4 rounded-[1.7rem] border border-white/[0.04] bg-[linear-gradient(145deg,#211d2c,#151517)] p-5">
@@ -806,7 +810,7 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
           {filteredTokens.length === 0 ? <div className="px-5 py-12 text-center"><Search className="mx-auto h-8 w-8 text-white/25" /><p className="mt-3 text-lg text-white/55">No currencies found.</p></div> : null}
         </div>
       </div>
-    </div>
+    </SwipePanel>
   );
 }
 
@@ -981,7 +985,7 @@ function PerpMarketScreen({ token, cashBalance, positions, onBack, onOpenPositio
   };
 
   return (
-    <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+32px)]">
+    <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+32px)]">
       <ScreenHeader title={`${token.symbol}-PERP`} onBack={onBack} />
       <section className="px-4 pb-12">
         <div className="flex items-center gap-4 pt-3"><TokenIcon token={token} size="large" /><div className="min-w-0 flex-1"><p className="flex items-center gap-2 text-sm font-bold uppercase tracking-[.1em] text-white/45"><span className="h-2 w-2 rounded-full bg-[#00e676]" /> Live market</p><h1 className="mt-1 truncate text-[38px] font-semibold leading-none tracking-[-.06em]">{formatPrice(token.price)}</h1><p className={`mt-2 text-lg font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{positive ? "+" : ""}{token.change24h.toFixed(2)}% today</p></div></div>
@@ -1015,7 +1019,7 @@ function PerpMarketScreen({ token, cashBalance, positions, onBack, onOpenPositio
         <div className="mt-9 flex items-center justify-between"><h2 className="text-[28px] font-semibold tracking-[-.05em]">Your positions</h2><span className="text-sm text-white/45">{tokenPositions.length} open</span></div>
         <div className="mt-4 space-y-3">{tokenPositions.map((position) => <PerpPositionCard key={position.id} position={position} currentPrice={token.price} onClose={() => onClosePosition(position)} />)}{tokenPositions.length === 0 ? <div className="rounded-[1.6rem] bg-[#191919] px-5 py-8 text-center"><Infinity className="mx-auto h-8 w-8 text-[#a99bf7]" /><p className="mt-3 text-lg font-semibold">No open {token.symbol} positions</p><p className="mt-1 text-sm text-white/45">Choose long or short to open one.</p></div> : null}</div>
       </section>
-    </div>
+    </SwipePanel>
   );
 }
 
@@ -1098,6 +1102,20 @@ function TokenRow({ token, animationDelay, onClick }: { token: WalletToken; anim
       <span className="min-w-0 flex-1"><span className="block truncate text-[20px] font-semibold">{token.name}</span><span className="mt-0.5 block truncate text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
       <span className="max-w-[36%] shrink-0 text-right"><span className="block truncate text-[20px] font-medium">{formatMoney(value)}</span><span className={`mt-0.5 block truncate text-[18px] font-semibold ${changeClass}`}>{changeLabel}</span></span>
     </button>
+  );
+}
+
+function SwipePanel({ onDismiss, className = "", scrollable = false, children }: { onDismiss: () => void; className?: string; scrollable?: boolean; children: ReactNode }) {
+  const { containerStyle, handleProps } = useSwipeDismiss({ onDismiss });
+  return (
+    <div
+      className={`absolute inset-0 z-40 flex flex-col bg-black will-change-transform ${scrollable ? "overflow-y-auto" : ""} ${className}`}
+      style={containerStyle}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
+      <div {...handleProps}><span className="block h-1.5 w-20 rounded-full bg-[#363638]" /></div>
+      {children}
+    </div>
   );
 }
 
@@ -1200,13 +1218,14 @@ function TokenPicker({ tokens, flow, onClose, onSelect }: { tokens: WalletToken[
   const [query, setQuery] = useState("");
   const filtered = sortTokens(tokens).filter((token) => `${token.name} ${token.symbol}`.toLowerCase().includes(query.trim().toLowerCase()));
 
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-10"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close token picker" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{flow === "send" ? "Select Token" : "Buy"}</h1></div><label className="mt-9 flex items-center gap-4 rounded-full bg-[#1d1d1f] px-6 py-5 text-[20px] text-white/40"><Search className="h-6 w-6" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label><div className="mt-9 space-y-3">{filtered.map((token) => <button key={token.id} type="button" onClick={() => onSelect(token)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-6 py-5 text-left transition hover:bg-[#242426]"><TokenIcon token={token} size="large" /><span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[25px] font-medium">{token.name}<span className="text-[#a295f3]">✿</span></span><span className="mt-1 block text-[19px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span></button>)}{filtered.length === 0 ? <p className="py-10 text-center text-white/50">No token found.</p> : null}</div></div>;
+  return <SwipePanel onDismiss={onClose} scrollable className="px-4 pb-10"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close token picker" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{flow === "send" ? "Select Token" : "Buy"}</h1></div><label className="mt-9 flex items-center gap-4 rounded-full bg-[#1d1d1f] px-6 py-5 text-[20px] text-white/40"><Search className="h-6 w-6" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-white/35" /></label><div className="mt-9 space-y-3">{filtered.map((token) => <button key={token.id} type="button" onClick={() => onSelect(token)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-6 py-5 text-left transition hover:bg-[#242426]"><TokenIcon token={token} size="large" /><span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[25px] font-medium">{token.name}<span className="text-[#a295f3]">✿</span></span><span className="mt-1 block text-[19px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span></button>)}{filtered.length === 0 ? <p className="py-10 text-center text-white/50">No token found.</p> : null}</div></SwipePanel>;
 }
 
 function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: { token: WalletToken; recipient: string; onRecipient: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const recent = ["Account 1", "Main Wallet", "Trading"];
   const addresses = ["Account 1", "Main Wallet", "Trading", "Savings"];
   const [pasteError, setPasteError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const pasteAddress = async () => {
     try {
       const value = await navigator.clipboard.readText();
@@ -1217,17 +1236,26 @@ function SendRecipientScreen({ token, recipient, onRecipient, onBack, onNext }: 
       setPasteError("Allow clipboard access, then try again.");
     }
   };
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-28"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input autoFocus value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></div>;
+  const simulateScan = useCallback(() => {
+    setScannerOpen(true);
+    const timeout = window.setTimeout(() => {
+      const fakeAddress = `Ph${Math.random().toString(36).slice(2, 14)}...${Math.random().toString(36).slice(2, 8)}`;
+      onRecipient(fakeAddress);
+      setScannerOpen(false);
+    }, 2200);
+    return () => window.clearTimeout(timeout);
+  }, [onRecipient]);
+  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-28">{scannerOpen ? <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black"><div className="relative grid h-72 w-72 place-items-center"><div className="absolute inset-0 rounded-3xl border-2 border-[#a295f3]/40" /><Scan className="h-24 w-24 animate-pulse text-[#a295f3]" /><span className="absolute bottom-4 text-sm text-white/60">Scanning...</span></div><button type="button" onClick={() => setScannerOpen(false)} className="mt-10 rounded-full bg-[#242426] px-8 py-4 text-lg font-medium">Cancel</button></div> : null}<div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">{token.symbol}</h1></div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="mt-16 flex items-center gap-3 border-b border-white/[0.12] pb-4"><input value={recipient} onChange={(event) => { onRecipient(event.target.value); setPasteError(""); }} placeholder="To: username or address" onTouchStart={(e) => e.stopPropagation()} className="min-w-0 flex-1 bg-transparent text-[22px] text-white outline-none placeholder:text-white/55" /><button type="button" onClick={simulateScan} aria-label="Scan QR code" className="text-white/80"><Camera className="h-7 w-7" /></button><button type="button" onClick={() => void pasteAddress()} aria-label="Paste wallet address" className="text-white/80"><Copy className="h-7 w-7" /></button></div>{pasteError ? <p role="alert" className="mt-3 text-sm text-[#ff7189]">{pasteError}</p> : null}<h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><Clock3 className="h-6 w-6" /> Recently Used</h2><div className="mt-5 space-y-5">{recent.map((name, index) => <button key={name} type="button" onClick={() => onRecipient(name)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[18px] text-white/80">{index === 0 ? "●" : index === 1 ? "M" : "T"}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block text-[17px] text-white/55">Used {index === 0 ? "4d" : index === 1 ? "12d" : "14d"} ago</span></span></button>)}</div><h2 className="mt-14 flex items-center gap-3 text-[22px] font-medium text-white/65"><WalletCards className="h-6 w-6" /> Address Book</h2><div className="mt-5 space-y-5">{addresses.map((name) => <button key={name} type="button" onClick={() => onRecipient(`${name} · wDwe...mE6c`)} className="flex items-center gap-6 text-left"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#242426] text-[17px] text-white">{name.slice(0, 2).toUpperCase()}</span><span><span className="block text-[22px]">{name}</span><span className="mt-1 block font-mono text-[17px] text-white/55">wDwe...mE6c</span></span></button>)}</div><button type="button" onClick={onNext} disabled={!recipient.trim()} className="mt-16 w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
 }
 
 function SendAmountScreen({ token, amount, onAmount, onBack, onNext }: { token: WalletToken; amount: string; onAmount: (value: string) => void; onBack: () => void; onNext: () => void }) {
   const numericAmount = Number(amount) || 0;
   const canContinue = numericAmount > 0 && numericAmount <= token.balance;
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Enter Amount</h1></div><button type="button" onClick={onNext} disabled={!canContinue} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="flex flex-1 flex-col items-center justify-center"><label className="flex items-baseline justify-center text-[72px] font-medium tracking-[-0.08em]"><input autoFocus inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0" aria-label={`Amount in ${token.symbol}`} className="w-[190px] bg-transparent text-right outline-none placeholder:text-white" /><span className="ml-3">{token.symbol}</span></label><p className="mt-5 text-[31px] text-white/55">~{formatMoney(numericAmount * token.price)}</p></div><div className="flex items-center justify-between pb-5 text-[18px]"><div><p className="text-white/55">Available To Send</p><p className="mt-2 font-medium">{formatAmount(token.balance)} {token.symbol}</p></div><button type="button" onClick={() => onAmount(String(token.balance))} className="rounded-full bg-[#242426] px-7 py-4 text-[19px]">Max</button></div><button type="button" onClick={onNext} disabled={!canContinue} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></div>;
+  return <SwipePanel onDismiss={onBack} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center justify-between"><div className="flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Enter Amount</h1></div><button type="button" onClick={onNext} disabled={!canContinue} className="text-[22px] text-[#a295f3] disabled:text-white/25">Next</button></div><div className="flex flex-1 flex-col items-center justify-center"><label className="flex items-baseline justify-center text-[72px] font-medium tracking-[-0.08em]"><input inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} placeholder="0" aria-label={`Amount in ${token.symbol}`} onTouchStart={(e) => e.stopPropagation()} className="w-[190px] bg-transparent text-right outline-none placeholder:text-white" /><span className="ml-3">{token.symbol}</span></label><p className="mt-5 text-[31px] text-white/55">~{formatMoney(numericAmount * token.price)}</p></div><div className="flex items-center justify-between pb-5 text-[18px]"><div><p className="text-white/55">Available To Send</p><p className="mt-2 font-medium">{formatAmount(token.balance)} {token.symbol}</p></div><button type="button" onClick={() => onAmount(String(token.balance))} className="rounded-full bg-[#242426] px-7 py-4 text-[19px]">Max</button></div><button type="button" onClick={onNext} disabled={!canContinue} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Next</button></SwipePanel>;
 }
 
 function SummaryScreen({ token, amount, recipient, onBack, onConfirm }: { token: WalletToken; amount: number; recipient: string; onBack: () => void; onConfirm: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Summary</h1></div><div className="flex flex-1 flex-col items-center pt-20"><Send className="h-16 w-16 text-[#a295f3]" /><p className="mt-8 text-[72px] font-semibold tracking-[-0.08em]">{formatAmount(amount)} {token.symbol}</p><p className="mt-3 text-[28px] text-white/55">~{formatMoney(amount * token.price)}</p><div className="mt-14 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="To" value={shortAddress(recipient)} /><SummaryRow label="Network" value={token.symbol === "BTC" ? "Bitcoin" : "Solana"} /><SummaryRow label="Network fee" value={token.symbol === "SOL" ? "0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onConfirm} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Send</button></div>;
+  return <SwipePanel onDismiss={onBack} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><ArrowLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Summary</h1></div><div className="flex flex-1 flex-col items-center pt-20"><Send className="h-16 w-16 text-[#a295f3]" /><p className="mt-8 text-[72px] font-semibold tracking-[-0.08em]">{formatAmount(amount)} {token.symbol}</p><p className="mt-3 text-[28px] text-white/55">~{formatMoney(amount * token.price)}</p><div className="mt-14 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="To" value={shortAddress(recipient)} /><SummaryRow label="Network" value={token.symbol === "BTC" ? "Bitcoin" : "Solana"} /><SummaryRow label="Network fee" value={token.symbol === "SOL" ? "0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onConfirm} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Send</button></SwipePanel>;
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -1239,15 +1267,15 @@ function SendingScreen({ token, amount, recipient, onComplete }: { token: Wallet
     const timeoutId = window.setTimeout(onComplete, 1500);
     return () => window.clearTimeout(timeoutId);
   }, [onComplete]);
-  return <div className="absolute inset-0 z-40 flex flex-col items-center bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#242426] text-[48px] text-[#a295f3] animate-pulse">•••</div><h1 className="mt-9 text-[32px] font-semibold">Sending...</h1><p className="mt-4 text-[19px] text-white/70">{formatAmount(amount)} {token.symbol} to {shortAddress(recipient)}</p></div><button type="button" onClick={onComplete} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Close</button></div>;
+  return <SwipePanel onDismiss={onComplete} className="items-center px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#242426] text-[48px] text-[#a295f3] animate-pulse">•••</div><h1 className="mt-9 text-[32px] font-semibold">Sending...</h1><p className="mt-4 text-[19px] text-white/70">{formatAmount(amount)} {token.symbol} to {shortAddress(recipient)}</p></div><button type="button" onClick={onComplete} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Close</button></SwipePanel>;
 }
 
 function SentScreen({ token, amount, recipient, onClose, onHistory }: { token: WalletToken; amount: number; recipient: string; onClose: () => void; onHistory: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col items-center bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#20b486] text-black"><Check className="h-16 w-16" /></div><h1 className="mt-9 text-[32px] font-semibold">Sent!</h1><p className="mt-4 text-center text-[19px] text-white/80">{formatAmount(amount)} {token.symbol} sent to {shortAddress(recipient)}</p><button type="button" onClick={onHistory} className="mt-8 text-[19px] text-[#a295f3]">View transaction</button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Close</button></div>;
+  return <SwipePanel onDismiss={onClose} className="items-center px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#20b486] text-black"><Check className="h-16 w-16" /></div><h1 className="mt-9 text-[32px] font-semibold">Sent!</h1><p className="mt-4 text-center text-[19px] text-white/80">{formatAmount(amount)} {token.symbol} sent to {shortAddress(recipient)}</p><button type="button" onClick={onHistory} className="mt-8 text-[19px] text-[#a295f3]">View transaction</button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#1d1d1f] px-5 py-5 text-[20px] text-white/75">Close</button></SwipePanel>;
 }
 
 function ReceiveScreen({ profile, onClose }: { profile: ProfileRecord; onClose: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><div className="grid h-64 w-64 place-items-center rounded-3xl bg-white p-5"><QrCode className="h-full w-full text-black" /></div><p className="mt-10 text-center text-[20px] text-white/65">Your wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
+  return <SwipePanel onDismiss={onClose} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close receive" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Receive</h1></div><div className="flex flex-1 flex-col items-center justify-center"><AddressQrCode value={profile.address} className="w-64 border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><p className="mt-10 text-center text-[20px] text-white/65">Your wallet address</p><button type="button" onClick={() => navigator.clipboard?.writeText(profile.address)} className="mt-4 flex items-center gap-3 rounded-full bg-[#1d1d1f] px-6 py-4 font-mono text-[17px]"><span>{shortAddress(profile.address)}</span><Copy className="h-5 w-5 text-[#a295f3]" /></button></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></SwipePanel>;
 }
 
 function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: () => void; onAdd: (amount: number) => void }) {
@@ -1320,7 +1348,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
 
   if (stage === "review") {
     return (
-      <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+18px)]">
+      <SwipePanel onDismiss={() => setStage("amount")} className="h-full overflow-hidden px-5 pb-[calc(env(safe-area-inset-bottom)+18px)]">
         <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
           <button type="button" onClick={() => setStage("amount")} aria-label="Edit cash amount" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><ArrowLeft className="h-6 w-6" /></button>
           <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1></div>
@@ -1336,14 +1364,14 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
           <p className="mt-3 text-center text-[12px] text-white/35">Current in-app balance: {formatMoney(balance)}</p>
         </div>
         {paymentSheet}
-      </div>
+      </SwipePanel>
     );
   }
 
   const keypad = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"];
 
   return (
-    <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+    <SwipePanel onDismiss={onClose} className="h-full overflow-hidden px-5 pb-[calc(env(safe-area-inset-bottom)+12px)]">
       <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
         <button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><X className="h-6 w-6" /></button>
         <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1></div>
@@ -1364,21 +1392,21 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
         </div>
       </div>
       {paymentSheet}
-    </div>
+    </SwipePanel>
   );
 }
 
 function BuyScreen({ token, onClose, onBuy }: { token: WalletToken; onClose: () => void; onBuy: (amount: number) => void }) {
   const [amount, setAmount] = useState("1");
   const quantity = Number(amount) || 0;
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close buy" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Buy {token.symbol}</h1></div><div className="flex flex-1 flex-col items-center justify-center"><TokenIcon token={token} size="large" /><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">{formatAmount(quantity)} {token.symbol}</p><p className="mt-3 text-[28px] text-white/55">~{formatMoney(quantity * token.price)}</p><label className="mt-12 w-full rounded-2xl bg-[#1d1d1f] px-5 py-4"><span className="block text-sm text-white/50">Amount to buy</span><input autoFocus inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-2 w-full bg-transparent text-[22px] outline-none" /></label></div><button type="button" onClick={() => onBuy(quantity)} disabled={quantity <= 0} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Buy {token.symbol}</button></div>;
+  return <SwipePanel onDismiss={onClose} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close buy" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Buy {token.symbol}</h1></div><div className="flex flex-1 flex-col items-center justify-center"><TokenIcon token={token} size="large" /><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">{formatAmount(quantity)} {token.symbol}</p><p className="mt-3 text-[28px] text-white/55">~{formatMoney(quantity * token.price)}</p><label className="mt-12 w-full rounded-2xl bg-[#1d1d1f] px-5 py-4"><span className="block text-sm text-white/50">Amount to buy</span><input inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} onTouchStart={(e) => e.stopPropagation()} className="mt-2 w-full bg-transparent text-[22px] outline-none" /></label></div><button type="button" onClick={() => onBuy(quantity)} disabled={quantity <= 0} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black disabled:bg-[#403967] disabled:text-white/35">Buy {token.symbol}</button></SwipePanel>;
 }
 
 function HistoryScreen({ records, onBack, onRecord }: { records: WalletActivity[]; onBack: () => void; onRecord: (record: WalletActivity) => void }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "send" | "receive">("all");
   const visibleRecords = filter === "all" ? records : records.filter((record) => record.type === filter);
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black px-4 pb-20"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Close history" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">History</h1><button type="button" onClick={() => setFiltersOpen((current) => !current)} aria-label="Filter history" aria-expanded={filtersOpen} className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><MoreHorizontal className="h-7 w-7" /></button></div>{filtersOpen ? <div className="mt-5 flex gap-2 rounded-[1.3rem] bg-[#19191b] p-2">{(["all", "send", "receive"] as const).map((value) => <button key={value} type="button" onClick={() => { setFilter(value); setFiltersOpen(false); }} aria-pressed={filter === value} className={`flex-1 rounded-full px-3 py-2.5 text-sm font-semibold capitalize ${filter === value ? "bg-[#a295f3] text-black" : "text-white/55"}`}>{value === "all" ? "All" : value === "send" ? "Sent" : "Received"}</button>)}</div> : null}{visibleRecords.length === 0 ? <p className="mt-40 text-center text-[20px] text-white/55">No {filter === "all" ? "recent" : filter === "send" ? "sent" : "received"} activity</p> : <div className="mt-12 space-y-3">{visibleRecords.map((record) => <button key={record.id} type="button" onClick={() => onRecord(record)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-5 py-5 text-left"><span className={`grid h-12 w-12 place-items-center rounded-full ${record.type === "send" ? "bg-[#f21b3f]" : "bg-[#20b486]"} text-black`}>{record.type === "send" ? <ArrowUpRight className="h-6 w-6" /> : <ArrowDownLeft className="h-6 w-6" />}</span><span className="min-w-0 flex-1"><span className="block text-[19px] capitalize">{record.type} {record.tokenSymbol}</span><span className="mt-1 block text-[15px] text-white/50">{shortAddress(record.counterpartyLabel)}</span></span><span className="text-right"><span className="block text-[18px]">{record.amount} {record.tokenSymbol}</span><span className="mt-1 block text-[14px] text-white/50">{new Date(record.date).toLocaleDateString()}</span></span></button>)}</div>}</div>;
+  return <SwipePanel onDismiss={onBack} scrollable className="px-4 pb-20"><div className="mt-14 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Close history" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">History</h1><button type="button" onClick={() => setFiltersOpen((current) => !current)} aria-label="Filter history" aria-expanded={filtersOpen} className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><MoreHorizontal className="h-7 w-7" /></button></div>{filtersOpen ? <div className="mt-5 flex gap-2 rounded-[1.3rem] bg-[#19191b] p-2">{(["all", "send", "receive"] as const).map((value) => <button key={value} type="button" onClick={() => { setFilter(value); setFiltersOpen(false); }} aria-pressed={filter === value} className={`flex-1 rounded-full px-3 py-2.5 text-sm font-semibold capitalize ${filter === value ? "bg-[#a295f3] text-black" : "text-white/55"}`}>{value === "all" ? "All" : value === "send" ? "Sent" : "Received"}</button>)}</div> : null}{visibleRecords.length === 0 ? <p className="mt-40 text-center text-[20px] text-white/55">No {filter === "all" ? "recent" : filter === "send" ? "sent" : "received"} activity</p> : <div className="mt-12 space-y-3">{visibleRecords.map((record) => <button key={record.id} type="button" onClick={() => onRecord(record)} className="flex w-full items-center gap-5 rounded-[1.5rem] bg-[#19191b] px-5 py-5 text-left"><span className={`grid h-12 w-12 place-items-center rounded-full ${record.type === "send" ? "bg-[#f21b3f]" : "bg-[#20b486]"} text-black`}>{record.type === "send" ? <ArrowUpRight className="h-6 w-6" /> : <ArrowDownLeft className="h-6 w-6" />}</span><span className="min-w-0 flex-1"><span className="block text-[19px] capitalize">{record.type} {record.tokenSymbol}</span><span className="mt-1 block text-[15px] text-white/50">{shortAddress(record.counterpartyLabel)}</span></span><span className="text-right"><span className="block text-[18px]">{record.amount} {record.tokenSymbol}</span><span className="mt-1 block text-[14px] text-white/50">{new Date(record.date).toLocaleDateString()}</span></span></button>)}</div>}</SwipePanel>;
 }
 
 function CommunityScreen({ username, onBack }: { username: string; onBack: () => void }) {
@@ -1396,7 +1424,7 @@ function CommunityScreen({ username, onBack }: { username: string; onBack: () =>
     writeStorage(communityMessagesStorageKey, next);
     setDraft("");
   };
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black"><ScreenHeader title="Community Chat" onBack={onBack} /><div className="flex-1 space-y-3 overflow-y-auto px-4 py-6">{messages.map((message) => <article key={message.id} className={`max-w-[88%] rounded-[1.4rem] px-4 py-3 ${message.author === username ? "ml-auto bg-[#a295f3] text-black" : "bg-[#1d1d1f]"}`}><strong className={`block text-sm ${message.author === username ? "text-black/60" : "text-[#a99bf7]"}`}>@{message.author}</strong><p className="mt-1 text-[17px] leading-6">{message.text}</p>{message.createdAt !== new Date(0).toISOString() ? <time className={`mt-2 block text-xs ${message.author === username ? "text-black/45" : "text-white/35"}`}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time> : null}</article>)}</div><form onSubmit={submit} className="flex items-center gap-3 border-t border-white/[0.05] bg-black/90 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-3 backdrop-blur-xl"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write a message" aria-label="Community message" className="min-w-0 flex-1 rounded-full bg-[#202022] px-5 py-4 text-[17px] outline-none placeholder:text-white/35" /><button type="submit" disabled={!draft.trim()} aria-label="Send community message" className="grid h-13 w-13 shrink-0 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-35"><Send className="h-6 w-6" /></button></form></div>;
+  return <SwipePanel onDismiss={onBack}><ScreenHeader title="Community Chat" onBack={onBack} /><div className="flex-1 space-y-3 overflow-y-auto px-4 py-6">{messages.map((message) => <article key={message.id} className={`max-w-[88%] rounded-[1.4rem] px-4 py-3 ${message.author === username ? "ml-auto bg-[#a295f3] text-black" : "bg-[#1d1d1f]"}`}><strong className={`block text-sm ${message.author === username ? "text-black/60" : "text-[#a99bf7]"}`}>@{message.author}</strong><p className="mt-1 text-[17px] leading-6">{message.text}</p>{message.createdAt !== new Date(0).toISOString() ? <time className={`mt-2 block text-xs ${message.author === username ? "text-black/45" : "text-white/35"}`}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time> : null}</article>)}</div><form onSubmit={submit} className="flex items-center gap-3 border-t border-white/[0.05] bg-black/90 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-3 backdrop-blur-xl"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write a message" aria-label="Community message" onTouchStart={(e) => e.stopPropagation()} className="min-w-0 flex-1 rounded-full bg-[#202022] px-5 py-4 text-[17px] outline-none placeholder:text-white/35" /><button type="submit" disabled={!draft.trim()} aria-label="Send community message" className="grid h-13 w-13 shrink-0 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-35"><Send className="h-6 w-6" /></button></form></SwipePanel>;
 }
 
 function SupportScreen({ onBack, onCommunity }: { onBack: () => void; onCommunity: () => void }) {
@@ -1406,15 +1434,15 @@ function SupportScreen({ onBack, onCommunity }: { onBack: () => void; onCommunit
     { question: "Why is a balance different on another wallet?", answer: "Phantom, Ledger and Trust keep separate balances. Choose the intended wallet and account before confirming." },
     { question: "How do I manage my watchlist?", answer: "Open Watchlist from the side menu, then use the heart next to any live currency." },
   ];
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Help & Support" onBack={onBack} /><section className="px-4 py-6"><div className="rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><CircleHelp className="h-10 w-10 text-[#a99bf7]" /><h1 className="mt-5 text-3xl font-semibold tracking-[-.05em]">How can we help?</h1><p className="mt-2 leading-6 text-white/55">Browse the common questions below or open Community Chat.</p></div><h2 className="mb-3 mt-9 text-sm font-bold uppercase tracking-[.12em] text-white/45">Frequently asked questions</h2><div className="space-y-2">{questions.map(({ question, answer }) => { const open = openQuestion === question; return <article key={question} className="overflow-hidden rounded-[1.35rem] bg-[#191919]"><button type="button" onClick={() => setOpenQuestion(open ? null : question)} aria-expanded={open} className="flex w-full items-center justify-between gap-4 px-5 py-5 text-left text-lg font-semibold"><span>{question}</span><ChevronDown className={`h-5 w-5 shrink-0 text-white/45 transition ${open ? "rotate-180" : ""}`} /></button>{open ? <p className="border-t border-white/[0.05] px-5 py-4 leading-6 text-white/55">{answer}</p> : null}</article>; })}</div><button type="button" onClick={onCommunity} className="mt-8 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black"><MessageCircle className="h-5 w-5" /> Open Community Chat</button></section></div>;
+  return <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Help & Support" onBack={onBack} /><section className="px-4 py-6"><div className="rounded-[1.8rem] bg-[linear-gradient(145deg,#24202f,#151518)] p-6"><CircleHelp className="h-10 w-10 text-[#a99bf7]" /><h1 className="mt-5 text-3xl font-semibold tracking-[-.05em]">How can we help?</h1><p className="mt-2 leading-6 text-white/55">Browse the common questions below or open Community Chat.</p></div><h2 className="mb-3 mt-9 text-sm font-bold uppercase tracking-[.12em] text-white/45">Frequently asked questions</h2><div className="space-y-2">{questions.map(({ question, answer }) => { const open = openQuestion === question; return <article key={question} className="overflow-hidden rounded-[1.35rem] bg-[#191919]"><button type="button" onClick={() => setOpenQuestion(open ? null : question)} aria-expanded={open} className="flex w-full items-center justify-between gap-4 px-5 py-5 text-left text-lg font-semibold"><span>{question}</span><ChevronDown className={`h-5 w-5 shrink-0 text-white/45 transition ${open ? "rotate-180" : ""}`} /></button>{open ? <p className="border-t border-white/[0.05] px-5 py-4 leading-6 text-white/55">{answer}</p> : null}</article>; })}</div><button type="button" onClick={onCommunity} className="mt-8 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black"><MessageCircle className="h-5 w-5" /> Open Community Chat</button></section></SwipePanel>;
 }
 
 function DisclosuresScreen({ onBack }: { onBack: () => void }) {
-  return <div className="absolute inset-0 z-40 overflow-y-auto bg-black pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Disclosures" onBack={onBack} /><section className="space-y-3 px-4 py-6"><div className="rounded-[1.7rem] bg-[#191919] p-6"><Info className="h-8 w-8 text-[#a99bf7]" /><h1 className="mt-5 text-2xl font-semibold">About this wallet</h1><p className="mt-3 leading-7 text-white/55">This experience does not hold, send, or receive real cryptocurrency. Market prices may be live, but all portfolio actions stay inside the app.</p></div><div className="rounded-[1.7rem] bg-[#191919] p-6"><h2 className="text-xl font-semibold">Market data</h2><p className="mt-3 leading-7 text-white/55">Prices can be delayed or temporarily unavailable and should not be used for financial decisions.</p></div><button type="button" onClick={onBack} className="w-full rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black">Done</button></section></div>;
+  return <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+36px)]"><ScreenHeader title="Disclosures" onBack={onBack} /><section className="space-y-3 px-4 py-6"><div className="rounded-[1.7rem] bg-[#191919] p-6"><Info className="h-8 w-8 text-[#a99bf7]" /><h1 className="mt-5 text-2xl font-semibold">About this wallet</h1><p className="mt-3 leading-7 text-white/55">This experience does not hold, send, or receive real cryptocurrency. Market prices may be live, but all portfolio actions stay inside the app.</p></div><div className="rounded-[1.7rem] bg-[#191919] p-6"><h2 className="text-xl font-semibold">Market data</h2><p className="mt-3 leading-7 text-white/55">Prices can be delayed or temporarily unavailable and should not be used for financial decisions.</p></div><button type="button" onClick={onBack} className="w-full rounded-full bg-[#a295f3] px-5 py-4 text-lg font-semibold text-black">Done</button></section></SwipePanel>;
 }
 
 function TransactionDetail({ record, onClose }: { record: WalletActivity; onClose: () => void }) {
-  return <div className="absolute inset-0 z-40 flex flex-col bg-black px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mx-auto mt-3 h-1.5 w-20 rounded-full bg-[#363638]" /><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></div>;
+  return <SwipePanel onDismiss={onClose} className="px-4 pb-[calc(env(safe-area-inset-bottom)+18px)]"><div className="mt-14 flex items-center gap-5"><button type="button" onClick={onClose} aria-label="Close transaction" className="grid h-14 w-14 place-items-center rounded-full bg-[#242426]"><X className="h-7 w-7" /></button><h1 className="text-[25px] font-semibold">Sent</h1></div><div className="flex flex-1 flex-col items-center pt-20"><div className="grid h-28 w-28 place-items-center rounded-full bg-[#f5a623] text-black text-5xl">₿</div><p className="mt-8 text-[60px] font-medium tracking-[-0.08em]">-{record.amount} {record.tokenSymbol}</p><div className="mt-12 w-full overflow-hidden rounded-[1.7rem] bg-[#1d1d1f] text-[20px]"><SummaryRow label="Date" value={new Date(record.date).toLocaleString()} /><SummaryRow label="Status" value="Succeeded" /><SummaryRow label="To" value={shortAddress(record.counterpartyLabel)} /><SummaryRow label="Network" value={record.tokenSymbol === "SOL" ? "Solana" : "Bitcoin"} /><SummaryRow label="Network Fee" value={record.tokenSymbol === "SOL" ? "-0.00008 SOL" : "$0.005"} /></div></div><button type="button" onClick={onClose} className="w-full rounded-full bg-[#a295f3] px-5 py-5 text-[20px] font-medium text-black">Done</button></SwipePanel>;
 }
 
 function useLiveMarketChart(symbol: string, period: string, livePrice: number) {
@@ -1497,67 +1525,23 @@ function LiveMarketChart({ points, loading, unavailable, symbol, period }: { poi
 function TokenDetail({ token, isWatched, onBack, onToggleWatchlist, onSend, onReceive, onTrade, onChat }: { token: WalletToken; isWatched: boolean; onBack: () => void; onToggleWatchlist: () => void; onSend: () => void; onReceive: () => void; onTrade: () => void; onChat: () => void }) {
   const [period, setPeriod] = useState("LIVE");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [dismissOffset, setDismissOffset] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartY = useRef<number | null>(null);
-  const dragMoved = useRef(false);
+  const { containerStyle, handleProps } = useSwipeDismiss({ threshold: 90, onDismiss: onBack });
+
+  const accent = token.change24h >= 0 ? "#00e676" : "#ff1744";
   const positive = token.change24h >= 0;
-  const accent = positive ? "#00e676" : "#ff1744";
   const changeValue = token.price * (token.change24h / 100);
   const { points, loading, unavailable } = useLiveMarketChart(token.symbol, period, token.price);
   const liveChatCount = token.symbol === "SOL" ? 291 : token.symbol === "BTC" ? 99 : 12;
-  const finishDismissDrag = (clientY: number) => {
-    if (dragStartY.current === null) return;
-    const distance = Math.max(0, clientY - dragStartY.current);
-    dragStartY.current = null;
-    setIsDragging(false);
-    if (distance >= 90) {
-      onBack();
-      return;
-    }
-    setDismissOffset(0);
-  };
 
   return <div
     className="absolute inset-0 z-40 flex min-h-full flex-col overflow-y-auto bg-black pb-0 will-change-transform"
-    style={{
-      transform: `translateY(${dismissOffset}px)`,
-      opacity: Math.max(0.72, 1 - dismissOffset / 900),
-      transition: isDragging ? "none" : "transform 220ms cubic-bezier(.22,1,.36,1), opacity 220ms ease",
-    }}
+    style={containerStyle}
+    onTouchStart={(e) => e.stopPropagation()}
   >
     <div className="sticky top-0 z-20 border-b border-white/[0.025] bg-black/90 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
-      <button
-        type="button"
-        onClick={() => {
-          if (!dragMoved.current) onBack();
-          dragMoved.current = false;
-        }}
-        aria-label="Swipe down to close asset details"
-        className="mx-auto flex h-9 w-28 touch-none cursor-grab items-start justify-center pt-1 active:cursor-grabbing"
-        onPointerDown={(event) => {
-          dragStartY.current = event.clientY;
-          dragMoved.current = false;
-          setDismissOffset(0);
-          setIsDragging(true);
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (dragStartY.current === null) return;
-          const distance = Math.max(0, event.clientY - dragStartY.current);
-          if (distance > 8) dragMoved.current = true;
-          setDismissOffset(distance);
-        }}
-        onPointerUp={(event) => finishDismissDrag(event.clientY)}
-        onPointerCancel={() => {
-          dragStartY.current = null;
-          dragMoved.current = false;
-          setIsDragging(false);
-          setDismissOffset(0);
-        }}
-      >
+      <div {...handleProps} className="mx-auto flex h-9 w-28 touch-none cursor-grab items-start justify-center pt-1 active:cursor-grabbing">
         <span className="block h-1.5 w-20 rounded-full bg-white/45" />
-      </button>
+      </div>
       <div className="mt-5 flex items-center justify-between"><button type="button" onClick={onBack} aria-label="Back to wallet"><TokenIcon token={token} /></button><div className="relative flex gap-2"><button type="button" onClick={onToggleWatchlist} aria-label={isWatched ? `Remove ${token.name} from watchlist` : `Add ${token.name} to watchlist`} aria-pressed={isWatched} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><Heart className={`h-6 w-6 ${isWatched ? "fill-[#a295f3] text-[#a295f3]" : "text-white"}`} /></button><button type="button" onClick={() => setMoreOpen((current) => !current)} aria-label="More asset options" aria-expanded={moreOpen} className="grid h-12 w-12 place-items-center rounded-full bg-[#1d1d1f]"><MoreHorizontal className="h-6 w-6" /></button>{moreOpen ? <div className="absolute right-0 top-14 z-30 min-w-48 overflow-hidden rounded-[1.2rem] border border-white/[0.06] bg-[#252527] p-1.5 shadow-2xl"><button type="button" onClick={onSend} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><Send className="h-5 w-5 text-[#a99bf7]" /> Send {token.symbol}</button><button type="button" onClick={onReceive} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><QrCode className="h-5 w-5 text-[#a99bf7]" /> Receive</button><button type="button" onClick={() => { onToggleWatchlist(); setMoreOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-white/[0.05]"><Heart className="h-5 w-5 text-[#a99bf7]" /> {isWatched ? "Unfollow" : "Follow"}</button></div> : null}</div></div>
     </div>
     <div className="px-5 pt-3">
@@ -1960,8 +1944,8 @@ export function DownloadWallet() {
   };
 
   return (
-    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
-      <div className="relative mx-auto h-full w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100%-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
+    <main className="download-wallet-app fixed inset-0 z-0 overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]" style={{ height: "100dvh" }}>
+      <div className="relative mx-auto w-full max-w-[min(560px,100vw)] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]" style={{ height: "100dvh", maxHeight: "100dvh" }}><style>{`@media (min-width: 640px) { .download-wallet-app > div { height: calc(100dvh - 2rem) !important; max-height: calc(100dvh - 2rem) !important; } }`}</style>
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
 {view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
