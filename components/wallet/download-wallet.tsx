@@ -1306,7 +1306,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
       <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+18px)]">
         <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
           <button type="button" onClick={() => setStage("amount")} aria-label="Edit cash amount" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><ArrowLeft className="h-6 w-6" /></button>
-          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99b
+          <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-1 items-center px-1"><output aria-live="polite" className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em]">${amountLabel}</output></div>
@@ -1329,6 +1329,7 @@ function AddCashScreen({ balance, onClose, onAdd }: { balance: number; onClose: 
     <div className="absolute inset-0 z-40 flex h-full flex-col overflow-hidden bg-black px-5 pb-[calc(env(safe-area-inset-bottom)+12px)]">
       <header className="flex shrink-0 items-center gap-4 pt-[calc(env(safe-area-inset-top)+24px)]">
         <button type="button" onClick={onClose} aria-label="Close add cash" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022]"><X className="h-6 w-6" /></button>
+        <div><h1 className="text-[24px] font-semibold tracking-[-.035em]">Add Cash</h1><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[.15em] text-[#a99bf7]/60">Parody wallet · No payment is processed</p></div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-[12rem] flex-1 items-center px-1"><output aria-live="polite" aria-describedby={numericAmount > maximumAmount ? "cash-limit-error" : undefined} className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(4.5rem,22vw,7rem)] font-semibold leading-none tracking-[-.075em] text-white/70">${amountLabel}</output></div>
@@ -1625,13 +1626,13 @@ export function DownloadWallet() {
     const refreshSharedWallet = () => {
       const loadedTokens = mergeLiveTokenCatalogue(getTokens());
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
-      setProfile(readStorage(profileStorageKey, defaultProfile));
+      setProfile(readProfile());
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
     };
     const timeoutId = window.setTimeout(() => {
       const loadedTokens = mergeLiveTokenCatalogue(migrateLegacyReferenceHoldings(getTokens()));
       setTokens(applyLiveMarketSnapshot(loadedTokens, latestMarketSnapshot.current));
-      setProfile(readStorage(profileStorageKey, defaultProfile));
+      setProfile(readProfile());
       setRecords(getTransactions().filter((record) => !["act_001", "act_002", "act_003"].includes(record.id)));
       const storedWatchlist = readStorage<unknown>(watchlistStorageKey, defaultWatchlistSymbols);
       const normalizedWatchlist = Array.isArray(storedWatchlist)
