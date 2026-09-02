@@ -111,7 +111,8 @@ function SplitMoney({ amount, currency, className = "", testId }: { amount: numb
   const formatted = formatMoney(amount, currency);
   const fraction = formatted.match(/([.,]\d{2})$/)?.[1] ?? "";
   const whole = fraction ? formatted.slice(0, -fraction.length) : formatted;
-  return <span data-testid={testId} className={`block max-w-full overflow-hidden text-ellipsis whitespace-nowrap ${className}`}><span>{whole}</span>{fraction ? <span className="text-[0.58em] text-white/55">{fraction}</span> : null}</span>;
+  const shortAmount = Math.abs(amount) < 1;
+  return <span data-testid={testId} className={`block max-w-full overflow-hidden text-ellipsis whitespace-nowrap ${className}`}><span>{whole}</span>{fraction ? <span className={`ml-[0.02em] inline-block leading-none tracking-[-0.02em] ${shortAmount ? "-translate-y-[0.04em] text-[0.68em] text-white/80" : "-translate-y-[0.025em] text-[0.6em] text-white/70"}`}>{fraction}</span> : null}</span>;
 }
 
 function formatHistoryDate(value: string) {
