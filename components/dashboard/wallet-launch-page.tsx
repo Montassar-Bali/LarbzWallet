@@ -10,13 +10,13 @@ import { walletInstallPaths, type WalletThemeId } from "@/config/wallets";
 
 const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featured?: boolean }[] = [
   { id: "ghost", label: "Download Now", icon: Download, featured: true },
-  { id: "ledger", label: "Get Ledger Wallet", icon: RefreshCw },
+  { id: "ledger", label: "Get Larpz Wallet", icon: RefreshCw },
   { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
 ];
 
 const homeScreenNames: Record<WalletThemeId, string> = {
   ghost: "Phantom",
-  ledger: "Ledger Wallet",
+  ledger: "Larpz Wallet",
   trust: "Trust Wallet",
 };
 
@@ -48,7 +48,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
       appleIcon.href = activeWallet === "ghost"
         ? "/icons/phantom-pwa-180.png"
         : activeWallet === "ledger"
-          ? "/icons/wallets/ledger.png"
+          ? "/assets/logo_m.png"
           : "/icons/wallets/trust.png";
     }
   }, [activeWallet]);

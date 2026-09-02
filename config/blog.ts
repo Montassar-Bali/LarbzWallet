@@ -46,8 +46,8 @@ export const blogPosts: BlogPost[] = [
     id: "fake-ledger-wallet",
     href: "/fake-ledger-wallet",
     category: "Ledger",
-    title: "Fake Ledger Wallet",
-    excerpt: "Simulate the Ledger Live experience on mobile. Fake BTC, ETH, SOL balances with a UI that mirrors the real Ledger app exactly.",
+    title: "Larpz Wallet Simulator",
+    excerpt: "Use a clearly branded, hardware-wallet-inspired mobile simulator with internal BTC, ETH, and SOL balances.",
   },
   {
     id: "fake-exodus-wallet",
@@ -81,8 +81,8 @@ export const blogPosts: BlogPost[] = [
     id: "ledger-wallet-ipa",
     href: "/ledger-wallet-ipa",
     category: "iOS",
-    title: "Ledger Wallet IPA",
-    excerpt: "No IPA needed — a fake Ledger wallet PWA installs directly on iOS without App Store restrictions or sideloading workarounds.",
+    title: "Larpz Wallet for iOS",
+    excerpt: "No IPA is needed — the Larpz Wallet PWA installs directly from the browser without sideloading.",
   },
   {
     id: "exodus-wallet-ipa",
@@ -102,7 +102,7 @@ export const blogPosts: BlogPost[] = [
     id: "fake-ledger-wallet-download",
     href: "/fake-ledger-wallet-download",
     category: "Download",
-    title: "Fake Ledger Wallet Download",
-    excerpt: "Get the fake Ledger wallet on your phone — no downloads, no app stores. Installs as a PWA directly from your browser.",
+    title: "Install Larpz Wallet",
+    excerpt: "Install the clearly branded Larpz Wallet simulator as a PWA directly from your browser.",
   },
 ];

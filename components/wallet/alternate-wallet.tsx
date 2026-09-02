@@ -48,14 +48,14 @@ type WalletDesign = {
 
 const designs: Record<AlternateWalletId, WalletDesign> = {
   ledger: {
-    name: "Ledger Live",
-    subtitle: "Ledger Wallet",
-    logo: "/icons/wallets/ledger.svg",
-    background: "#0a0c10",
-    surface: "#171b22",
-    softSurface: "#11151b",
-    accent: "#a3e635",
-    accentText: "#10130c",
+    name: "Larpz Wallet",
+    subtitle: "Internal demo wallet",
+    logo: "/assets/logo_m.png",
+    background: "#000000",
+    surface: "#171717",
+    softSurface: "#111111",
+    accent: "#a995f2",
+    accentText: "#15101e",
     tokens: [
       { name: "Bitcoin", symbol: "BTC", balance: "0 BTC", value: "$0.00", color: "#f7931a", mark: "₿" },
       { name: "Ethereum", symbol: "ETH", balance: "0 ETH", value: "$0.00", color: "#627eea", mark: "◆" },

@@ -263,7 +263,7 @@ async function fetchProviderQuotes(symbols: string[]) {
   }
 }
 
-async function fetchCoinGeckoQuotes(symbols: string[]) {
+async function fetchCoinGeckoQuotes(symbols: string[], clientApiKey?: string) {
   const ids = Array.from(
     new Set(
       symbols
@@ -289,7 +289,7 @@ async function fetchCoinGeckoQuotes(symbols: string[]) {
     const headers: Record<string, string> = {
       Accept: "application/json",
     };
-    const apiKey = process.env.COINGECKO_API_KEY;
+    const apiKey = process.env.COINGECKO_API_KEY ?? clientApiKey;
     if (apiKey) {
       headers["x-cg-demo-api-key"] = apiKey;
     }
@@ -336,9 +336,10 @@ async function fetchCoinGeckoQuotes(symbols: string[]) {
 
 export async function fetchCryptoPrices(
   symbols: string[],
+  clientApiKey?: string,
 ): Promise<PriceSnapshot> {
   const requestedSymbols = normalizedSymbols(symbols);
-  const key = requestedSymbols.join("|");
+  const key = `${requestedSymbols.join("|")}|${clientApiKey ? "client-key" : "server-key"}`;
   const now = Date.now();
 
   if (cache && cache.key === key && cache.expiresAt > now) {
@@ -361,7 +362,7 @@ export async function fetchCryptoPrices(
   }
 
   const [coinGeckoQuotes, providerQuotes] = await Promise.all([
-    fetchCoinGeckoQuotes(requestedSymbols),
+    fetchCoinGeckoQuotes(requestedSymbols, clientApiKey),
     fetchProviderQuotes(requestedSymbols),
   ]);
 

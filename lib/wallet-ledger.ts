@@ -21,7 +21,7 @@ const legacyTransactionKeys: Record<WalletThemeId, string> = {
 
 const walletNames: Record<WalletThemeId, string> = {
   ghost: "Phantom",
-  ledger: "Ledger",
+  ledger: "Larpz Wallet",
   trust: "Trust Wallet",
 };
 

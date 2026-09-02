@@ -2,7 +2,7 @@ import Image from "next/image";
 
 const phoneMocks = [
   { src: "/assets/mockup-phone.png", alt: "Solana wallet demo" },
-  { src: "/assets/mockup-phone-l.png", alt: "Ledger wallet demo" },
+  { src: "/assets/mockup-phone-l.png", alt: "Larpz Wallet demo" },
   { src: "/assets/mockup-phone-t.png", alt: "Trust wallet demo" },
   { src: "/assets/mockup-phone-e.png", alt: "Exodus wallet demo" },
   { src: "/assets/mockup-phone-l.png", alt: "", clone: true },

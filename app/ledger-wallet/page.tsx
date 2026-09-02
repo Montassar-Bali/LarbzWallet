@@ -3,14 +3,14 @@ import type { Metadata } from "next";
 import { WalletLaunchPage } from "@/components/dashboard/wallet-launch-page";
 
 export const metadata: Metadata = {
-  title: "Ledger Wallet",
+  title: "Larpz Wallet",
   manifest: "/manifests/ledger.webmanifest",
   icons: {
-    apple: [{ url: "/icons/wallets/ledger.png", sizes: "280x280", type: "image/png" }],
+    apple: [{ url: "/assets/logo_m.png", sizes: "1200x1200", type: "image/png" }],
   },
   appleWebApp: {
     capable: true,
-    title: "Ledger Wallet",
+    title: "Larpz Wallet",
     statusBarStyle: "black-translucent",
   },
 };

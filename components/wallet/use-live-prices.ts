@@ -20,16 +20,23 @@ export function useLivePrices(
     volumes24h: VolumeMap,
   ) => void,
   refreshKey = 0,
+  onSettled?: (success: boolean) => void,
+  marketApiKey = "",
 ) {
   const symbolKey = Array.from(
     new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
   ).join(",");
 
   const onUpdateRef = useRef(onUpdate);
+  const onSettledRef = useRef(onSettled);
 
   useEffect(() => {
     onUpdateRef.current = onUpdate;
   }, [onUpdate]);
+
+  useEffect(() => {
+    onSettledRef.current = onSettled;
+  }, [onSettled]);
 
   useEffect(() => {
     if (!symbolKey) return;
@@ -37,13 +44,17 @@ export function useLivePrices(
     let cancelled = false;
 
     const refresh = async () => {
+      let success = false;
       try {
         const response = await fetch(
           `/api/prices?symbols=${encodeURIComponent(symbolKey)}`,
-          { cache: "no-store" },
+          {
+            cache: "no-store",
+            headers: marketApiKey ? { "x-larpz-market-api-key": marketApiKey } : undefined,
+          },
         );
 
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(`Price request failed with ${response.status}.`);
 
         const payload = (await response.json()) as {
           prices?: PriceMap;
@@ -53,9 +64,15 @@ export function useLivePrices(
           changes1h?: ChangeMap;
           changes7d?: ChangeMap;
           volumes24h?: VolumeMap;
+          error?: string;
         };
 
-        if (!cancelled && payload.prices) {
+        const hasUsableQuote = Object.values(payload.prices ?? {}).some(
+          (price) => Number.isFinite(price) && price >= 0,
+        );
+
+        if (!cancelled && !payload.error && payload.prices && hasUsableQuote) {
+          success = true;
           onUpdateRef.current(
             payload.prices,
             payload.changes ?? {},
@@ -68,6 +85,8 @@ export function useLivePrices(
         }
       } catch {
         // Keep locally seeded quotes if the provider is unavailable.
+      } finally {
+        if (!cancelled) onSettledRef.current?.(success);
       }
     };
 
@@ -81,5 +100,5 @@ export function useLivePrices(
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [refreshKey, symbolKey]);
+  }, [marketApiKey, refreshKey, symbolKey]);
 }

@@ -70,7 +70,7 @@ type WalletRuntimeValue = {
   openAccounts: () => void;
   openHistory: () => void;
   openSecurity: () => void;
-  replaceCurrentBalances: (balances: Record<string, number>) => void;
+  replaceCurrentBalances: (balances: Record<string, number>) => Promise<boolean>;
   renameCurrentAccount: (name: string) => void;
   updateMarketAssets: (tokens: WalletToken[]) => void;
   refresh: () => void;
@@ -78,10 +78,10 @@ type WalletRuntimeValue = {
 
 const WalletRuntimeContext = createContext<WalletRuntimeValue | null>(null);
 
-const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Ledger", trust: "Trust Wallet" };
+const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Larpz Wallet", trust: "Trust Wallet" };
 const walletDisclosures: Record<WalletThemeId, string> = {
   ghost: "",
-  ledger: "",
+  ledger: "LARPZ WALLET · INTERNAL DEMO · NO REAL FUNDS",
   trust: "",
 };
 const securityUserKey = "phantom_wallet_security_user";
@@ -226,7 +226,7 @@ function useWalletSecurity() {
     setBusy(true);
     setError("");
     try {
-      const optionsJSON = await jsonRequest<Parameters<typeof startRegistration>[0]["optionsJSON"]>("/api/wallet-security/register/options", { userId, userName: "Phantom wallet user" });
+      const optionsJSON = await jsonRequest<Parameters<typeof startRegistration>[0]["optionsJSON"]>("/api/wallet-security/register/options", { userId, userName: "Larpz Wallet user" });
       const response = await startRegistration({ optionsJSON });
       await jsonRequest("/api/wallet-security/register/verify", { userId, response });
       const nextSettings = { ...settings, enabled: true };
@@ -446,19 +446,22 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     }
   }, [enqueueSharedRequest, ownerId]);
 
-  const patchRemoteAccount = useCallback((accountId: string, patch: { name?: string; balances?: Record<string, number> }) => {
-    if (!ownerId || sharedStatusRef.current !== "connected") return;
+  const patchRemoteAccount = useCallback(async (accountId: string, patch: { name?: string; balances?: Record<string, number> }) => {
+    if (!ownerId || sharedStatusRef.current !== "connected") return true;
     const requestOwnerId = ownerId;
-    void enqueueSharedRequest({ action: "patchAccount", ownerId, accountId, ...patch })
-      .then((response) => {
-        if (activeOwnerIdRef.current !== requestOwnerId) return;
-        const activeRepository = repositoryRef.current;
-        if (!activeRepository) return;
-        const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
-        setState(merged);
-        notifyWalletLedgerChanged(merged);
-      })
-      .catch((caught) => setSharedError(caught instanceof Error ? caught.message : "Could not save the wallet account."));
+    try {
+      const response = await enqueueSharedRequest({ action: "patchAccount", ownerId, accountId, ...patch });
+      if (activeOwnerIdRef.current !== requestOwnerId) return false;
+      const activeRepository = repositoryRef.current;
+      if (!activeRepository) return false;
+      const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
+      setState(merged);
+      notifyWalletLedgerChanged(merged);
+      return true;
+    } catch (caught) {
+      setSharedError(caught instanceof Error ? caught.message : "Could not save the wallet account.");
+      return false;
+    }
   }, [enqueueSharedRequest, ownerId]);
 
   useEffect(() => {
@@ -566,8 +569,8 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     openAccounts: () => setPanel("accounts"),
     openHistory: () => setPanel("history"),
     openSecurity: () => setPanel("security"),
-    replaceCurrentBalances: (balances) => {
-      if (!repositoryRef.current || !currentAccount) return;
+    replaceCurrentBalances: async (balances) => {
+      if (!repositoryRef.current || !currentAccount) return false;
       const changedBalances = Object.fromEntries(
         Object.entries(balances).filter(([rawSymbol, balance]) => {
           const symbol = rawSymbol.toUpperCase();
@@ -575,13 +578,21 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
         }),
       );
       commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, balances), false);
-      if (Object.keys(changedBalances).length > 0) patchRemoteAccount(currentAccount.id, { balances: changedBalances });
+      if (Object.keys(changedBalances).length > 0) {
+        const saved = await patchRemoteAccount(currentAccount.id, { balances: changedBalances });
+        if (!saved && repositoryRef.current) {
+          const rollback = Object.fromEntries(Object.keys(changedBalances).map((symbol) => [symbol, currentAccount.balances[symbol] ?? 0]));
+          commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, rollback), false);
+          return false;
+        }
+      }
+      return true;
     },
     renameCurrentAccount: (name) => {
       if (!repositoryRef.current || !currentAccount || !name.trim()) return;
       const trimmedName = name.trim();
       commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, trimmedName), false);
-      if (trimmedName !== currentAccount.name) patchRemoteAccount(currentAccount.id, { name: trimmedName });
+      if (trimmedName !== currentAccount.name) void patchRemoteAccount(currentAccount.id, { name: trimmedName });
     },
     updateMarketAssets: (tokens) => {
       if (!repositoryRef.current) return;
@@ -664,7 +675,7 @@ function WalletActivationGate({
         <p className="mt-6 text-xs font-bold uppercase tracking-[.16em] text-[#a99bf7]">{walletLabels[walletId]}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Link this installed wallet</h1>
         <p className="mt-3 leading-relaxed text-white/55">
-          Enter the same activation key in Phantom, Ledger, and Trust Wallet so every app opens the same shared wallet account.
+          Enter the same activation key in Phantom, Larpz Wallet, and Trust Wallet so every app opens the same shared wallet account.
         </p>
         {isRecovering ? (
           <p className="mt-4 rounded-[1.1rem] border border-amber-300/15 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
@@ -722,6 +733,8 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
   onClose: () => void;
 }) {
   const [panel, setPanel] = useState(initialPanel);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannedAddress, setScannedAddress] = useState("");
   const sheetRef = useRef<HTMLElement>(null);
   const { containerStyle, handleProps } = useSwipeDismiss({ onDismiss: onClose });
 
@@ -775,8 +788,9 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
   const title = panel === "transfer" ? "Send" : panel === "receive" ? "Receive" : panel === "accounts" ? "Accounts" : panel === "history" ? "Activity" : "Security";
   return (
     <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 backdrop-blur-md sm:items-center" role="presentation">
+      {scannerOpen ? <CameraQrScanner onClose={() => setScannerOpen(false)} onScan={(address) => { setScannedAddress(address); setPanel("transfer"); setScannerOpen(false); }} /> : null}
       <button type="button" aria-label="Close wallet sheet" className="absolute inset-0" onClick={onClose} />
-      <section ref={sheetRef} tabIndex={-1} aria-label={title} className="relative flex max-h-[94dvh] min-h-[68dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[2.2rem] border border-white/10 bg-[#111112] text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:max-h-[88dvh] sm:rounded-[2.2rem]" style={containerStyle}>
+      <section ref={sheetRef} tabIndex={-1} aria-label={title} className={`relative flex max-h-[94dvh] min-h-[68dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[2.2rem] border border-white/10 bg-[#111112] text-white shadow-[0_-20px_80px_rgba(0,0,0,.7)] outline-none sm:max-h-[88dvh] sm:rounded-[2.2rem] ${walletId === "ledger" ? "ledger-wallet-font" : ""}`} style={containerStyle}>
         <header className="shrink-0 border-b border-white/[0.06] px-5 pb-4 pt-3">
           <div {...handleProps}><span className="block h-1.5 w-16 rounded-full bg-white/35" /></div>
           <div className="mt-4 flex items-center justify-between">
@@ -788,10 +802,11 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
               const Icon = item === "transfer" ? Send : item === "receive" ? QrCode : item === "accounts" ? WalletCards : item === "history" ? History : Settings;
               return <button key={item} type="button" onClick={() => setPanel(item)} className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold capitalize ${panel === item ? "bg-[#a295f3] text-black" : "bg-[#232325] text-white/60"}`}><Icon className="h-4 w-4" />{item}</button>;
             })}
+            <button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan recipient QR code" className="flex shrink-0 items-center gap-2 rounded-full bg-[#232325] px-4 py-2.5 text-sm font-semibold text-white/60"><QrCode className="h-4 w-4" />Scan</button>
           </nav>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-5">
-          {panel === "transfer" ? <TransferPanel walletId={walletId} preferredSymbol={preferredSymbol} state={state} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} /> : null}
+          {panel === "transfer" ? <TransferPanel key={scannedAddress || "manual"} walletId={walletId} preferredSymbol={preferredSymbol} initialDestinationAddress={scannedAddress} state={state} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} /> : null}
           {panel === "receive" ? <ReceivePanel walletId={walletId} state={state} /> : null}
           {panel === "accounts" ? <AccountsPanel activeWalletId={walletId} state={state} repository={repository} onCommit={onCommit} /> : null}
           {panel === "history" ? <HistoryPanel walletId={walletId} state={state} /> : null}
@@ -1044,15 +1059,15 @@ function PhantomTransferPanel({ preferredSymbol, state, sharedStatus, sharedErro
   );
 }
 
-function TransferPanel({ walletId, preferredSymbol, state, sharedStatus, sharedError, executeTransfer }: { walletId: WalletThemeId; preferredSymbol?: string; state: WalletLedgerState; sharedStatus: SharedLedgerStatus; sharedError: string; executeTransfer: (input: TransferInput) => Promise<SimulatedTransaction> }) {
+function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, state, sharedStatus, sharedError, executeTransfer }: { walletId: WalletThemeId; preferredSymbol?: string; initialDestinationAddress?: string; state: WalletLedgerState; sharedStatus: SharedLedgerStatus; sharedError: string; executeTransfer: (input: TransferInput) => Promise<SimulatedTransaction> }) {
   const initialSource = selectedAccount(state, walletId);
   const firstOtherWallet = walletId === "ghost" ? "ledger" : "ghost";
   const [sourceWalletId, setSourceWalletId] = useState<WalletThemeId>(walletId);
   const [sourceAccountId, setSourceAccountId] = useState(initialSource.id);
   const [destinationWalletId, setDestinationWalletId] = useState<WalletThemeId>(firstOtherWallet);
   const [destinationAccountId, setDestinationAccountId] = useState(state.wallets[firstOtherWallet].selectedAccountId);
-  const [useAddress, setUseAddress] = useState(false);
-  const [destinationAddress, setDestinationAddress] = useState("");
+  const [useAddress, setUseAddress] = useState(Boolean(initialDestinationAddress));
+  const [destinationAddress, setDestinationAddress] = useState(initialDestinationAddress ?? "");
   const sourceAccount = accountForSelection(state, sourceWalletId, sourceAccountId);
   const destinationAccount = accountForSelection(state, destinationWalletId, destinationAccountId);
   const available = sortedAccountAssets(state, sourceAccount).filter((entry) => entry.balance > 0);
@@ -1235,7 +1250,7 @@ function AccountsPanel({ activeWalletId, state, repository, onCommit }: { active
   const [editName, setEditName] = useState("");
   const wallet = state.wallets[walletId];
   const create = () => { if (!newName.trim()) return; repository.createAccount(walletId, newName); setNewName(""); onCommit(repository.getState()); };
-  return <div><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? "border-[#a295f3]/60 bg-[#a295f3]/10" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? "bg-[#a295f3] text-black" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="w-full rounded-lg bg-[#29292b] px-3 py-2 text-base outline-none ring-[#a295f3] focus:ring-2" /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} className="grid h-11 w-11 place-items-center rounded-full bg-[#a295f3] text-black"><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className="grid h-11 w-11 place-items-center rounded-full bg-[#29292b]"><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className="mt-4 w-full rounded-full bg-[#29292b] py-3 text-sm font-semibold text-[#b9afff] disabled:text-[#00e676]">{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-4"><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" onClick={create} disabled={!newName.trim()} className="grid h-13 w-13 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-40"><Plus className="h-6 w-6" /></button></div></div></div>;
+  return <div><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? "border-[#a295f3]/60 bg-[#a295f3]/10" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? "bg-[#a295f3] text-black" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="w-full rounded-lg bg-[#29292b] px-3 py-2 text-base outline-none ring-[#a295f3] focus:ring-2" /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} aria-label={`Save ${account.name} name`} className="grid h-11 w-11 place-items-center rounded-full bg-[#a295f3] text-black"><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className="grid h-11 w-11 place-items-center rounded-full bg-[#29292b]"><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className="mt-4 w-full rounded-full bg-[#29292b] py-3 text-sm font-semibold text-[#b9afff] disabled:text-[#00e676]">{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-4"><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" aria-label="Add account" onClick={create} disabled={!newName.trim()} className="grid h-13 w-13 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-40"><Plus className="h-6 w-6" /></button></div></div></div>;
 }
 
 function HistoryPanel({ walletId, state }: { walletId: WalletThemeId; state: WalletLedgerState }) {
@@ -1250,7 +1265,7 @@ function SecurityPanel({ security }: { security: ReturnType<typeof useWalletSecu
   const [notice, setNotice] = useState("");
   const biometricLabel = /iPhone|iPad|iPod/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent) ? "Face ID" : "device biometrics";
   const run = async (operation: () => Promise<void>, success: string) => { setNotice(""); try { await operation(); setNotice(success); } catch (error) { setNotice(error instanceof Error ? error.message : "Security action failed."); } };
-  return <div><div className="flex items-start gap-4 rounded-[1.5rem] bg-[#1d1d1f] p-5"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#29243a] text-[#b8adff]"><ShieldCheck className="h-6 w-6" /></span><div><h2 className="text-xl font-semibold">Wallet lock</h2><p className="mt-1 text-sm leading-relaxed text-white/45">{biometricLabel} verifies you using this phone&apos;s built-in security. Phantom never receives or stores your biometric data.</p></div></div>{security.supported === false ? <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-200">This phone does not make Face ID available to the installed wallet. Set a recovery PIN below.</p> : null}<div className="mt-5 space-y-3">{!security.status.enrolled ? <button type="button" disabled={!security.supported || security.busy} onClick={() => void run(security.register, `${biometricLabel} enabled.`)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Enable {biometricLabel}</button> : <><button type="button" disabled={security.busy} onClick={() => void run(security.unlock, "Identity verified.")} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Verify with {biometricLabel}</button><button type="button" disabled={security.busy} onClick={() => void run(security.disable, `${biometricLabel} disabled.`)} className="min-h-14 w-full rounded-full bg-[#29292b] px-4 font-semibold text-red-300 disabled:opacity-40">Disable {biometricLabel}</button></>}<label className="block rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>Auto-lock timeout</FieldLabel><SelectField value={security.settings.timeoutMinutes} onChange={(event) => security.updateTimeout(Number(event.target.value))}><option value={1}>After 1 minute</option><option value={5}>After 5 minutes</option><option value={15}>After 15 minutes</option><option value={30}>After 30 minutes</option></SelectField></label><div className="rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>{security.status.pinEnabled ? "Change recovery PIN" : "Create recovery PIN"}</FieldLabel><div className="flex gap-2"><input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(event) => setPinValue(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6–12 digits" aria-label="Recovery PIN" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" disabled={security.busy || pin.length < 6} onClick={() => void run(() => security.setPin(pin), "Recovery PIN saved.")} className="rounded-full bg-[#a295f3] px-5 font-semibold text-black disabled:opacity-40">Save</button></div></div><button type="button" onClick={() => void security.lock()} disabled={!security.status.enrolled && !security.status.pinEnabled} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full border border-white/15 font-semibold disabled:opacity-35"><Lock className="h-5 w-5" />Lock Wallet</button></div>{notice || security.error ? <p role="status" className="mt-4 rounded-xl bg-[#252527] px-4 py-3 text-sm text-white/70">{notice || security.error}</p> : null}</div>;
+  return <div><div className="flex items-start gap-4 rounded-[1.5rem] bg-[#1d1d1f] p-5"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#29243a] text-[#b8adff]"><ShieldCheck className="h-6 w-6" /></span><div><h2 className="text-xl font-semibold">Wallet lock</h2><p className="mt-1 text-sm leading-relaxed text-white/45">{biometricLabel} verifies you using this phone&apos;s built-in security. Larpz Wallet never receives or stores your biometric data.</p></div></div>{security.supported === false ? <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-200">This phone does not make Face ID available to the installed wallet. Set a recovery PIN below.</p> : null}<div className="mt-5 space-y-3">{!security.status.enrolled ? <button type="button" disabled={!security.supported || security.busy} onClick={() => void run(security.register, `${biometricLabel} enabled.`)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Enable {biometricLabel}</button> : <><button type="button" disabled={security.busy} onClick={() => void run(security.unlock, "Identity verified.")} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Verify with {biometricLabel}</button><button type="button" disabled={security.busy} onClick={() => void run(security.disable, `${biometricLabel} disabled.`)} className="min-h-14 w-full rounded-full bg-[#29292b] px-4 font-semibold text-red-300 disabled:opacity-40">Disable {biometricLabel}</button></>}<label className="block rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>Auto-lock timeout</FieldLabel><SelectField value={security.settings.timeoutMinutes} onChange={(event) => security.updateTimeout(Number(event.target.value))}><option value={1}>After 1 minute</option><option value={5}>After 5 minutes</option><option value={15}>After 15 minutes</option><option value={30}>After 30 minutes</option></SelectField></label><div className="rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>{security.status.pinEnabled ? "Change recovery PIN" : "Create recovery PIN"}</FieldLabel><div className="flex gap-2"><input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(event) => setPinValue(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6–12 digits" aria-label="Recovery PIN" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" disabled={security.busy || pin.length < 6} onClick={() => void run(() => security.setPin(pin), "Recovery PIN saved.")} className="rounded-full bg-[#a295f3] px-5 font-semibold text-black disabled:opacity-40">Save</button></div></div><button type="button" onClick={() => void security.lock()} disabled={!security.status.enrolled && !security.status.pinEnabled} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full border border-white/15 font-semibold disabled:opacity-35"><Lock className="h-5 w-5" />Lock Wallet</button></div>{notice || security.error ? <p role="status" className="mt-4 rounded-xl bg-[#252527] px-4 py-3 text-sm text-white/70">{notice || security.error}</p> : null}</div>;
 }
 
 function WalletLockScreen({ walletId, security }: { walletId: WalletThemeId; security: ReturnType<typeof useWalletSecurity> }) {

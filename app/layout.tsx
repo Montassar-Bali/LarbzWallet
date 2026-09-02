@@ -85,7 +85,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable} h-full antialiased`}
+    >
       <body className="min-h-full bg-[var(--background)] text-[var(--foreground)]">
         <AppProvider>{children}</AppProvider>
       </body>

@@ -26,13 +26,13 @@ export const walletThemes: WalletTheme[] = [
   },
   {
     id: "ledger",
-    name: "Ledger Style",
-    description: "Minimal enterprise look with grayscale surfaces and strong numeric hierarchy.",
+    name: "Larpz Wallet",
+    description: "Larpz's mobile portfolio experience with live markets and shared demo accounts.",
     palette: {
-      background: "#0d0f12",
-      card: "#161a20",
-      accent: "#a3e635",
-      text: "#f1f5f9",
+      background: "#000000",
+      card: "#171717",
+      accent: "#a995f2",
+      text: "#ffffff",
     },
   },
   {

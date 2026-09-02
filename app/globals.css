@@ -77,6 +77,67 @@ body {
   font-weight: 500;
 }
 
+.ledger-wallet-font,
+.ledger-wallet-font .font-sans {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+.ledger-wallet-font {
+  font-weight: 500;
+}
+
+[data-ledger-color-scheme="light"] {
+  color-scheme: light;
+  background: #f4f2f7 !important;
+  color: #19171d !important;
+}
+
+[data-ledger-color-scheme="light"] [class~="bg-black"],
+[data-ledger-color-scheme="light"] [class*="bg-black/"] {
+  background-color: #f4f2f7 !important;
+}
+
+[data-ledger-color-scheme="light"] [class*="bg-[#171717]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#171322]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#1d1d1f]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#211f22]"] {
+  background-color: #ffffff !important;
+}
+
+[data-ledger-color-scheme="light"] [class*="bg-[#242424]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#242326]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#292929]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#292436]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#111112]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#19191b]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#202022]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#232325]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#252527]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#28282b]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#29292b]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#2a2a2a]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#2a2a2d]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#343438]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#3a3a3a]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#414043]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#444246]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#1c1921]"],
+[data-ledger-color-scheme="light"] [class*="bg-[#29272b]"] {
+  background-color: #e9e6ed !important;
+}
+
+[data-ledger-color-scheme="light"] [class~="text-white"] {
+  color: #19171d !important;
+}
+
+[data-ledger-color-scheme="light"] [class*="text-white/"] {
+  color: #68636e !important;
+}
+
+[data-ledger-color-scheme="light"] [class*="border-white/"] {
+  border-color: rgb(25 23 29 / 12%) !important;
+}
+
 /* ── Noise texture overlay (CSS-only) ── */
 .noise-overlay {
   position: fixed;

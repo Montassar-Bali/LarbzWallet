@@ -32,7 +32,7 @@ export const faqItems: FaqItem[] = [
   {
     question: "What's the difference between the wallets?",
     answer:
-      "All plans include all four wallets. The fake Ghost Wallet supports custom memecoins. The fake Trust Wallet has a multi-chain look with BTC, ETH, SOL, TRX, and BNB. The fake Ledger wallet mimics the hardware wallet interface with BTC/SOL/ETH/TRX/BNB. The fake Exodus wallet shows a multi-chain portfolio view. Switch between them anytime from your dashboard.",
+      "All plans include all four wallets. The fake Ghost Wallet supports custom memecoins. The fake Trust Wallet has a multi-chain look with BTC, ETH, SOL, TRX, and BNB. Larpz Wallet provides a hardware-wallet-inspired interface with BTC, SOL, ETH, TRX, and BNB. The fake Exodus wallet shows a multi-chain portfolio view. Switch between them anytime from your dashboard.",
   },
   {
     question: "Is my payment anonymous?",

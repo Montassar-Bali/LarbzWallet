@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
     .slice(0, 100);
 
   try {
-    const snapshot = await fetchCryptoPrices(symbols);
+    const clientApiKey = request.headers.get("x-larpz-market-api-key")?.trim().slice(0, 180);
+    const snapshot = await fetchCryptoPrices(symbols, clientApiKey || undefined);
     return NextResponse.json(snapshot, { status: 200 });
   } catch {
     return NextResponse.json(
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
         updatedAt: new Date().toISOString(),
         error: "Unable to fetch live display prices. Fallback prices remain active.",
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

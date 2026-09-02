@@ -60,7 +60,8 @@ export async function GET(request: NextRequest) {
     endpoint.searchParams.set("precision", "full");
 
     const headers: Record<string, string> = { Accept: "application/json" };
-    const apiKey = process.env.COINGECKO_API_KEY;
+    const clientApiKey = request.headers.get("x-larpz-market-api-key")?.trim().slice(0, 180);
+    const apiKey = process.env.COINGECKO_API_KEY ?? clientApiKey;
     if (apiKey) headers["x-cg-demo-api-key"] = apiKey;
 
     const response = await fetch(endpoint, { headers, cache: "no-store" });
