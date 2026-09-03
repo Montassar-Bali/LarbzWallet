@@ -106,8 +106,8 @@ function capturePageErrors(targetPage, label = "wallet") {
 }
 capturePageErrors(page);
 
-async function assertMobileLayout(route, readyText, timeout = 15_000) {
-  await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded" });
+async function assertMobileLayout(route, readyText, timeout = 15_000, navigate = true) {
+  if (navigate) await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction((text) => document.body.innerText.includes(text) || [...document.querySelectorAll("input")].some((input) => input.placeholder.includes(text)), readyText, { timeout });
   const layout = await page.evaluate(() => ({
     width: window.innerWidth,
@@ -672,7 +672,36 @@ await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
 await ledgerBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 await page.locator('[data-testid="ledger-home"]').waitFor();
 
-await assertMobileLayout("/trust-wallet", "Explore perpetual markets", 20_000);
+await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
+const trustSplash = page.locator('[data-testid="trust-splash"]');
+await trustSplash.waitFor({ state: "visible", timeout: 10_000 });
+const trustSplashState = await trustSplash.evaluate((splash) => {
+  const style = window.getComputedStyle(splash);
+  const bounds = splash.getBoundingClientRect();
+  const mark = splash.querySelector(".trust-splash-mark-frame");
+  const markStyle = mark ? window.getComputedStyle(mark) : null;
+  return {
+    background: style.backgroundColor,
+    animationName: style.animationName,
+    markAnimationName: markStyle?.animationName ?? "none",
+    left: bounds.left,
+    right: bounds.right,
+    width: bounds.width,
+    height: bounds.height,
+  };
+});
+if (trustSplashState.background !== "rgb(0, 0, 0)" || trustSplashState.animationName !== "larpz-trust-splash-exit" || trustSplashState.markAnimationName !== "larpz-trust-mark" || trustSplashState.left < -1 || trustSplashState.right > 391 || trustSplashState.width !== 390 || trustSplashState.height < 844) {
+  throw new Error(`Trust wallet splash is not a full-screen animated black launch experience: ${JSON.stringify(trustSplashState)}`);
+}
+const trustWalletContent = page.locator('[data-testid="trust-wallet-content"]');
+if (await trustWalletContent.getAttribute("aria-hidden") !== "true" || await trustWalletContent.getAttribute("inert") === null) {
+  throw new Error("Trust wallet content became interactive before the splash animation completed.");
+}
+await trustSplash.waitFor({ state: "detached", timeout: 5_000 });
+if (await trustWalletContent.getAttribute("aria-hidden") !== "false" || await trustWalletContent.getAttribute("inert") !== null) {
+  throw new Error("Trust wallet splash did not hand control to the wallet after its animation.");
+}
+await assertMobileLayout("/trust-wallet", "Explore perpetual markets", 20_000, false);
 await page.locator('[data-testid="trust-wallet"]').waitFor();
 await page.locator('[data-testid="trust-home"]').waitFor();
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style home");

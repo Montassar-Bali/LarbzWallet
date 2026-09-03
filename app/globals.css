@@ -225,6 +225,12 @@ html[data-wallet-theme="trust"][data-trust-color-scheme="light"] [class~="bg-[#4
   color: #ffffff !important;
 }
 
+html[data-wallet-theme="trust"][data-trust-color-scheme="light"] .trust-wallet-splash {
+  color-scheme: dark;
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
 [data-ledger-color-scheme="light"] {
   color-scheme: light;
   background: #f4f2f7 !important;
