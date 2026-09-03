@@ -49,28 +49,36 @@ import {
   selectedAccount,
   sortedAccountAssets,
   transactionsForAccount,
+  walletAccountDomain,
+  walletAccountIdFromDomain,
   walletLedgerEvent,
   walletLedgerStorageKeyFor,
+  type BalanceOperationInput,
   type RemoteWalletSnapshot,
   type TransferInput,
   type WalletAccount,
   type WalletLedgerRepository,
   type WalletLedgerState,
   type SimulatedTransaction,
+  type WalletBalanceOperation,
 } from "@/lib/wallet-ledger";
 
 type RuntimePanel = "transfer" | "receive" | "accounts" | "history" | "security" | null;
 type ReceiveMode = "token" | "cash";
+export type RuntimeBalanceOperationInput = Pick<BalanceOperationInput, "clientRequestId" | "deltas" | "activities">;
 
 type WalletRuntimeValue = {
   state: WalletLedgerState | null;
   currentAccount: WalletAccount | null;
   openTransfer: (symbol?: string) => void;
+  openScanner: () => void;
   openReceive: (mode?: ReceiveMode) => void;
   openAccounts: () => void;
   openHistory: () => void;
   openSecurity: () => void;
+  applyBalanceOperation: (input: RuntimeBalanceOperationInput) => Promise<WalletBalanceOperation>;
   replaceCurrentBalances: (balances: Record<string, number>) => Promise<boolean>;
+  saveCurrentAccountName: (name: string) => Promise<boolean>;
   renameCurrentAccount: (name: string) => void;
   updateMarketAssets: (tokens: WalletToken[]) => void;
   refresh: () => void;
@@ -78,16 +86,17 @@ type WalletRuntimeValue = {
 
 const WalletRuntimeContext = createContext<WalletRuntimeValue | null>(null);
 
-const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Larpz Wallet", trust: "Trust Wallet" };
+const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Larpz Wallet", trust: "Larpz Trust-style Wallet" };
 const walletDisclosures: Record<WalletThemeId, string> = {
   ghost: "",
   ledger: "LARPZ WALLET · INTERNAL DEMO · NO REAL FUNDS",
-  trust: "",
+  trust: "LARPZ WALLET · TRUST-STYLE DEMO · NO REAL FUNDS",
 };
 const securityUserKey = "phantom_wallet_security_user";
 const securitySettingsKey = "phantom_wallet_security_settings";
 const unlockedSessionKey = "phantom_wallet_unlocked_at";
 const anonymousWalletOwnerKey = "phantom_wallet_owner_id";
+const sharedLedgerBroadcastChannel = "larpz-wallet-ledger-refresh-v1";
 
 type SecuritySettings = { enabled: boolean; timeoutMinutes: number };
 type SecurityStatus = { enrolled: boolean; credentialCount: number; pinEnabled: boolean; authenticated: boolean };
@@ -127,10 +136,13 @@ async function jsonRequest<T>(url: string, body?: unknown, method = "POST") {
 
 type SharedLedgerStatus = "connecting" | "connected" | "local" | "error";
 type SharedLedgerResponse = {
-  connected: true;
-  snapshot: RemoteWalletSnapshot;
+  connected: boolean;
+  snapshot?: RemoteWalletSnapshot;
   transaction?: SimulatedTransaction;
+  operation?: WalletBalanceOperation;
   ownerId?: string;
+  error?: string;
+  code?: string;
 };
 
 class SharedLedgerRequestError extends Error {
@@ -148,8 +160,11 @@ async function sharedLedgerRequest(body: unknown) {
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  const data = await response.json() as SharedLedgerResponse & { error?: string; code?: string };
+  const data = await response.json() as SharedLedgerResponse;
   if (!response.ok) throw new SharedLedgerRequestError(data.code ?? "REMOTE_ERROR", data.error ?? "Shared wallet request failed.");
+  if (!data.connected && !(data.code === "DATABASE_NOT_CONFIGURED" && data.ownerId)) {
+    throw new SharedLedgerRequestError(data.code ?? "REMOTE_ERROR", data.error ?? "Shared wallet request failed.");
+  }
   return data;
 }
 
@@ -327,6 +342,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const activeOwnerIdRef = useRef("");
   const remoteRequestQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pullRemoteRef = useRef<(() => Promise<void>) | null>(null);
+  const sharedBroadcastRef = useRef<BroadcastChannel | null>(null);
   const [repository, setRepository] = useState<WalletLedgerRepository | null>(null);
   const [state, setState] = useState<WalletLedgerState | null>(null);
   const [cookieOwnerId, setCookieOwnerId] = useState("");
@@ -336,6 +352,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const [sharedStatus, setSharedStatus] = useState<SharedLedgerStatus>("connecting");
   const [sharedError, setSharedError] = useState("");
   const [panel, setPanel] = useState<RuntimePanel>(null);
+  const [scannerRequested, setScannerRequested] = useState(false);
   const [preferredSymbol, setPreferredSymbol] = useState<string>();
   const [preferredReceiveMode, setPreferredReceiveMode] = useState<ReceiveMode>("token");
   const security = useWalletSecurity();
@@ -428,23 +445,36 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     void pullRemoteRef.current?.();
   }, []);
 
-  const commitAndNotify = useCallback((next: WalletLedgerState, syncMetadata = true) => {
+  const announceSharedUpdate = useCallback(() => {
+    try {
+      sharedBroadcastRef.current?.postMessage({ type: "wallet-ledger-updated", timestamp: Date.now() });
+    } catch {
+      // BroadcastChannel can be unavailable or disabled in embedded/private contexts.
+    }
+  }, []);
+
+  const commitAndNotify = useCallback(async (next: WalletLedgerState, syncMetadata = true) => {
     setState(next);
     notifyWalletLedgerChanged(next);
-    if (syncMetadata && ownerId && sharedStatusRef.current === "connected") {
-      const requestOwnerId = ownerId;
-      void enqueueSharedRequest({ action: "sync", ownerId, state: next })
-        .then((response) => {
-          if (activeOwnerIdRef.current !== requestOwnerId) return;
-          const activeRepository = repositoryRef.current;
-          if (!activeRepository) return;
-          const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
-          setState(merged);
-          notifyWalletLedgerChanged(merged);
-        })
-        .catch((caught) => setSharedError(caught instanceof Error ? caught.message : "Shared wallet synchronization failed."));
+    if (!syncMetadata || !ownerId || sharedStatusRef.current !== "connected") return true;
+    const requestOwnerId = ownerId;
+    try {
+      const response = await enqueueSharedRequest({ action: "sync", ownerId, state: next });
+      if (activeOwnerIdRef.current !== requestOwnerId) return false;
+      const activeRepository = repositoryRef.current;
+      if (!activeRepository) return false;
+      if (!response.snapshot) throw new Error("Shared wallet synchronization did not return a snapshot.");
+      const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
+      setState(merged);
+      notifyWalletLedgerChanged(merged);
+      setSharedError("");
+      announceSharedUpdate();
+      return true;
+    } catch (caught) {
+      setSharedError(caught instanceof Error ? caught.message : "Shared wallet synchronization failed.");
+      return false;
     }
-  }, [enqueueSharedRequest, ownerId]);
+  }, [announceSharedUpdate, enqueueSharedRequest, ownerId]);
 
   const patchRemoteAccount = useCallback(async (accountId: string, patch: { name?: string; balances?: Record<string, number> }) => {
     if (!ownerId || sharedStatusRef.current !== "connected") return true;
@@ -454,15 +484,18 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       if (activeOwnerIdRef.current !== requestOwnerId) return false;
       const activeRepository = repositoryRef.current;
       if (!activeRepository) return false;
+      if (!response.snapshot) throw new Error("Shared wallet account update did not return a snapshot.");
       const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
       setState(merged);
       notifyWalletLedgerChanged(merged);
+      setSharedError("");
+      announceSharedUpdate();
       return true;
     } catch (caught) {
       setSharedError(caught instanceof Error ? caught.message : "Could not save the wallet account.");
       return false;
     }
-  }, [enqueueSharedRequest, ownerId]);
+  }, [announceSharedUpdate, enqueueSharedRequest, ownerId]);
 
   useEffect(() => {
     if (authLoading || !identityChecked || identityError || legacyOwnerId || !ownerId) return;
@@ -483,6 +516,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
         sharedStatusRef.current = "connected";
         setSharedStatus("connected");
         setSharedError("");
+        if (!response.snapshot) throw new Error("Shared wallet refresh did not return a snapshot.");
         applySnapshot(nextRepository, response.snapshot);
       } catch (caught) {
         if (cancelled || activeOwnerIdRef.current !== requestOwnerId) return;
@@ -511,6 +545,16 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       const activeRepository = repositoryRef.current;
       if (activeRepository) void pullRemote(activeRepository);
     };
+    let broadcastChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof window.BroadcastChannel === "function") {
+        broadcastChannel = new window.BroadcastChannel(sharedLedgerBroadcastChannel);
+        broadcastChannel.addEventListener("message", refreshIncomingTransfers);
+        sharedBroadcastRef.current = broadcastChannel;
+      }
+    } catch {
+      sharedBroadcastRef.current = null;
+    }
     const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshIncomingTransfers(); };
     window.addEventListener("storage", onStorage);
     window.addEventListener(walletLedgerEvent, refresh);
@@ -526,6 +570,9 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       window.removeEventListener("focus", refreshIncomingTransfers);
       window.removeEventListener("pageshow", refreshIncomingTransfers);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      broadcastChannel?.removeEventListener("message", refreshIncomingTransfers);
+      broadcastChannel?.close();
+      if (sharedBroadcastRef.current === broadcastChannel) sharedBroadcastRef.current = null;
       repositoryRef.current = null;
       pullRemoteRef.current = null;
     };
@@ -552,23 +599,79 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       });
       if (!response.transaction) throw new Error("Shared transfer did not return a transaction.");
       if (activeOwnerIdRef.current !== requestOwnerId) return response.transaction;
+      if (!response.snapshot) throw new Error("Shared transfer did not return a wallet snapshot.");
       const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
       setState(merged);
       notifyWalletLedgerChanged(merged);
+      setSharedError("");
+      announceSharedUpdate();
       return response.transaction;
     }
+    if (sharedStatusRef.current === "local") {
+      const transaction = activeRepository.executeTransfer(input);
+      void commitAndNotify(activeRepository.getState(), false);
+      return transaction;
+    }
     throw new Error("Shared wallet transfers are unavailable on this deployment. Connect it to the shared Neon database and try again.");
-  }, [enqueueSharedRequest, ownerId, sharedError]);
+  }, [announceSharedUpdate, commitAndNotify, enqueueSharedRequest, ownerId, sharedError]);
+
+  const applyBalanceOperation = useCallback(async (input: RuntimeBalanceOperationInput) => {
+    const activeRepository = repositoryRef.current;
+    if (!activeRepository) throw new Error("Wallet ledger is still loading.");
+    if (sharedStatusRef.current === "connecting") throw new Error("Shared wallet network is still connecting. Try again in a moment.");
+    if (sharedStatusRef.current === "error") throw new Error(sharedError || "Shared wallet network is unavailable.");
+    const activeState = activeRepository.getState();
+    const account = selectedAccount(activeState, walletId);
+    const deltas = Object.fromEntries(Object.entries(input.deltas).map(([rawSymbol, rawDelta]) => {
+      const symbol = rawSymbol.toUpperCase();
+      const asset = activeState.assets[symbol];
+      if (!asset || !Number.isFinite(rawDelta)) return [symbol, rawDelta];
+      const decimals = Math.min(Math.max(asset.decimals, 0), 12);
+      return [symbol, Number(rawDelta.toFixed(decimals))];
+    }));
+    const operationInput: BalanceOperationInput = {
+      ...input,
+      deltas,
+      walletId,
+      accountId: account.id,
+    };
+    if (sharedStatusRef.current === "connected") {
+      const requestOwnerId = ownerId;
+      const response = await enqueueSharedRequest({
+        action: "balanceOperation",
+        ownerId,
+        operation: operationInput,
+      });
+      if (!response.operation) throw new Error("Shared balance operation did not return a result.");
+      if (activeOwnerIdRef.current === requestOwnerId) {
+        if (!response.snapshot) throw new Error("Shared balance operation did not return a wallet snapshot.");
+        const merged = activeRepository.applyRemoteSnapshot(response.snapshot);
+        setState(merged);
+        notifyWalletLedgerChanged(merged);
+        setSharedError("");
+        announceSharedUpdate();
+      }
+      return response.operation;
+    }
+    if (sharedStatusRef.current === "local") {
+      const operation = activeRepository.executeBalanceOperation(operationInput);
+      void commitAndNotify(activeRepository.getState(), false);
+      return operation;
+    }
+    throw new Error("Shared wallet balance operations are unavailable on this deployment.");
+  }, [announceSharedUpdate, commitAndNotify, enqueueSharedRequest, ownerId, sharedError, walletId]);
 
   const currentAccount = state ? selectedAccount(state, walletId) : null;
   const value = useMemo<WalletRuntimeValue>(() => ({
     state,
     currentAccount,
-    openTransfer: (symbol) => { setPreferredSymbol(symbol); setPanel("transfer"); },
+    openTransfer: (symbol) => { setScannerRequested(false); setPreferredSymbol(symbol); setPanel("transfer"); },
+    openScanner: () => { setScannerRequested(true); setPreferredSymbol(undefined); setPanel("transfer"); },
     openReceive: (mode = "token") => { setPreferredReceiveMode(mode); setPanel("receive"); },
     openAccounts: () => setPanel("accounts"),
     openHistory: () => setPanel("history"),
     openSecurity: () => setPanel("security"),
+    applyBalanceOperation,
     replaceCurrentBalances: async (balances) => {
       if (!repositoryRef.current || !currentAccount) return false;
       const changedBalances = Object.fromEntries(
@@ -577,21 +680,34 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
           return Number.isFinite(balance) && balance >= 0 && currentAccount.balances[symbol] !== balance;
         }),
       );
-      commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, balances), false);
+      await commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, balances), false);
       if (Object.keys(changedBalances).length > 0) {
         const saved = await patchRemoteAccount(currentAccount.id, { balances: changedBalances });
         if (!saved && repositoryRef.current) {
           const rollback = Object.fromEntries(Object.keys(changedBalances).map((symbol) => [symbol, currentAccount.balances[symbol] ?? 0]));
-          commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, rollback), false);
+          await commitAndNotify(repositoryRef.current.replaceBalances(walletId, currentAccount.id, rollback), false);
           return false;
         }
+      }
+      return true;
+    },
+    saveCurrentAccountName: async (name) => {
+      if (!repositoryRef.current || !currentAccount || !name.trim()) return false;
+      const trimmedName = name.trim();
+      if (trimmedName === currentAccount.name) return true;
+      const previousName = currentAccount.name;
+      await commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, trimmedName), false);
+      const saved = await patchRemoteAccount(currentAccount.id, { name: trimmedName });
+      if (!saved && repositoryRef.current) {
+        await commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, previousName), false);
+        return false;
       }
       return true;
     },
     renameCurrentAccount: (name) => {
       if (!repositoryRef.current || !currentAccount || !name.trim()) return;
       const trimmedName = name.trim();
-      commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, trimmedName), false);
+      void commitAndNotify(repositoryRef.current.renameAccount(walletId, currentAccount.id, trimmedName), false);
       if (trimmedName !== currentAccount.name) void patchRemoteAccount(currentAccount.id, { name: trimmedName });
     },
     updateMarketAssets: (tokens) => {
@@ -599,7 +715,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       setState(repositoryRef.current.updateAssets(tokens));
     },
     refresh,
-  }), [commitAndNotify, currentAccount, patchRemoteAccount, refresh, state, walletId]);
+  }), [applyBalanceOperation, commitAndNotify, currentAccount, patchRemoteAccount, refresh, state, walletId]);
 
   if (!identityChecked) {
     return <WalletIdentityLoading walletId={walletId} />;
@@ -620,7 +736,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   return (
     <WalletRuntimeContext.Provider value={value}>
       {children}
-      {state && panel && repository ? <WalletRuntimeSheet walletId={walletId} initialPanel={panel} preferredSymbol={preferredSymbol} receiveMode={preferredReceiveMode} state={state} repository={repository} security={security} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} onCommit={commitAndNotify} onClose={() => setPanel(null)} /> : null}
+      {state && panel && repository ? <WalletRuntimeSheet walletId={walletId} initialPanel={panel} startWithScanner={scannerRequested} preferredSymbol={preferredSymbol} receiveMode={preferredReceiveMode} state={state} repository={repository} security={security} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} onCommit={commitAndNotify} onClose={() => { setScannerRequested(false); setPanel(null); }} /> : null}
       {security.locked ? <WalletLockScreen walletId={walletId} security={security} /> : null}
     </WalletRuntimeContext.Provider>
   );
@@ -675,7 +791,7 @@ function WalletActivationGate({
         <p className="mt-6 text-xs font-bold uppercase tracking-[.16em] text-[#a99bf7]">{walletLabels[walletId]}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Link this installed wallet</h1>
         <p className="mt-3 leading-relaxed text-white/55">
-          Enter the same activation key in Phantom, Larpz Wallet, and Trust Wallet so every app opens the same shared wallet account.
+          Enter the same activation key in Phantom, Larpz Wallet, and Larpz Trust-style Wallet so every app opens the same shared wallet account.
         </p>
         {isRecovering ? (
           <p className="mt-4 rounded-[1.1rem] border border-amber-300/15 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
@@ -718,9 +834,10 @@ export function useWalletRuntime() {
   return value;
 }
 
-function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMode, state, repository, security, sharedStatus, sharedError, executeTransfer, onCommit, onClose }: {
+function WalletRuntimeSheet({ walletId, initialPanel, startWithScanner, preferredSymbol, receiveMode, state, repository, security, sharedStatus, sharedError, executeTransfer, onCommit, onClose }: {
   walletId: WalletThemeId;
   initialPanel: Exclude<RuntimePanel, null>;
+  startWithScanner: boolean;
   preferredSymbol?: string;
   receiveMode: ReceiveMode;
   state: WalletLedgerState;
@@ -729,11 +846,11 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
   sharedStatus: SharedLedgerStatus;
   sharedError: string;
   executeTransfer: (input: TransferInput) => Promise<SimulatedTransaction>;
-  onCommit: (state: WalletLedgerState) => void;
+  onCommit: (state: WalletLedgerState, syncMetadata?: boolean) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [panel, setPanel] = useState(initialPanel);
-  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(startWithScanner);
   const [scannedAddress, setScannedAddress] = useState("");
   const sheetRef = useRef<HTMLElement>(null);
   const { containerStyle, handleProps } = useSwipeDismiss({ onDismiss: onClose });
@@ -785,6 +902,47 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
     );
   }
 
+  if (walletId === "trust") {
+    const title = panel === "transfer" ? "Send" : panel === "receive" ? "Receive" : panel === "accounts" ? "Accounts" : panel === "history" ? "Activity" : "Security";
+    return (
+      <div className="fixed inset-0 z-[120] flex justify-center bg-[#070812] text-white" role="presentation">
+        {scannerOpen ? <CameraQrScanner onClose={() => setScannerOpen(false)} onScan={(address) => { setScannedAddress(address); setPanel("transfer"); setScannerOpen(false); }} /> : null}
+        <section
+          ref={sheetRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className="relative flex h-[100dvh] w-full max-w-[560px] flex-col overflow-hidden bg-[#090a14] text-white outline-none sm:h-[94dvh] sm:self-center sm:rounded-[2.4rem] sm:border sm:border-white/[0.08]"
+          style={containerStyle}
+        >
+          <div {...handleProps} className={`${handleProps.className} absolute left-1/2 top-[max(.55rem,env(safe-area-inset-top))] z-20 -translate-x-1/2`}>
+            <span className="block h-1.5 w-12 rounded-full bg-white/25" />
+          </div>
+          <header className="shrink-0 border-b border-white/[0.06] bg-[#090a14]/95 px-5 pb-4 pt-[max(2.8rem,calc(env(safe-area-inset-top)+1.7rem))] backdrop-blur-xl">
+            <div className="grid grid-cols-[3rem_1fr_3rem] items-center">
+              <button type="button" onClick={onClose} aria-label="Close" className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#131521]"><ArrowLeft className="h-6 w-6" /></button>
+              <div className="min-w-0 px-3 text-center">
+                <h1 className="truncate text-[23px] font-bold tracking-[-.035em]">{title}</h1>
+                <p className="mt-1 truncate text-[8px] font-bold uppercase tracking-[.16em] text-[#716cff]">Larpz Wallet · Demo only</p>
+              </div>
+              {panel === "transfer" ? (
+                <button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan recipient QR code" className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#131521] text-white"><QrCode className="h-5 w-5" /></button>
+              ) : <span className="h-12 w-12" />}
+            </div>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5 [scrollbar-width:none]">
+            {panel === "transfer" ? <TransferPanel key={scannedAddress || "manual"} walletId={walletId} preferredSymbol={preferredSymbol} initialDestinationAddress={scannedAddress} state={state} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} /> : null}
+            {panel === "receive" ? <TrustReceivePanel state={state} /> : null}
+            {panel === "accounts" ? <AccountsPanel activeWalletId={walletId} state={state} repository={repository} sharedError={sharedError} onCommit={onCommit} trustStyle /> : null}
+            {panel === "history" ? <HistoryPanel walletId={walletId} state={state} trustStyle /> : null}
+            {panel === "security" ? <SecurityPanel security={security} trustStyle /> : null}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   const title = panel === "transfer" ? "Send" : panel === "receive" ? "Receive" : panel === "accounts" ? "Accounts" : panel === "history" ? "Activity" : "Security";
   return (
     <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 backdrop-blur-md sm:items-center" role="presentation">
@@ -808,7 +966,7 @@ function WalletRuntimeSheet({ walletId, initialPanel, preferredSymbol, receiveMo
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-5">
           {panel === "transfer" ? <TransferPanel key={scannedAddress || "manual"} walletId={walletId} preferredSymbol={preferredSymbol} initialDestinationAddress={scannedAddress} state={state} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} /> : null}
           {panel === "receive" ? <ReceivePanel walletId={walletId} state={state} /> : null}
-          {panel === "accounts" ? <AccountsPanel activeWalletId={walletId} state={state} repository={repository} onCommit={onCommit} /> : null}
+          {panel === "accounts" ? <AccountsPanel activeWalletId={walletId} state={state} repository={repository} sharedError={sharedError} onCommit={onCommit} /> : null}
           {panel === "history" ? <HistoryPanel walletId={walletId} state={state} /> : null}
           {panel === "security" ? <SecurityPanel security={security} /> : null}
         </div>
@@ -1082,6 +1240,8 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
   const fee = Number.isFinite(numericAmount) && numericAmount > 0 ? calculateNetworkFee(symbol, numericAmount) : calculateNetworkFee(symbol, 0);
   const balance = sourceAccount.balances[symbol] ?? 0;
   const asset = state.assets[symbol];
+  const localTrustReady = walletId === "trust" && sharedStatus === "local";
+  const transferReady = sharedStatus === "connected" || localTrustReady;
 
   const changeSourceWallet = (nextWalletId: WalletThemeId) => {
     const account = selectedAccount(state, nextWalletId);
@@ -1092,10 +1252,32 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
     setAmountValue("");
   };
 
+  const pasteDestination = async () => {
+    try {
+      const value = (await navigator.clipboard?.readText())?.trim() ?? "";
+      if (!value) return setError("The clipboard does not contain a wallet address.");
+      setDestinationAddress(value);
+      setError("");
+    } catch {
+      setError("Clipboard access was not available. Paste the address into the field.");
+    }
+  };
+
+  const inputAmountKey = (key: string) => {
+    setAmountValue((current) => {
+      if (key === "backspace") return current.length <= 1 ? "" : current.slice(0, -1);
+      if (key === "." && current.includes(".")) return current;
+      const next = current === "0" && key !== "." ? key : `${current}${key}`;
+      return (next.split(".")[1]?.length ?? 0) > 8 ? current : next;
+    });
+    setError("");
+  };
+
   const review = () => {
     setError("");
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) return setError("Enter an amount greater than zero.");
     if (numericAmount + fee > balance + Number.EPSILON) return setError(`Insufficient ${symbol}, including the ${fee} ${symbol} network fee.`);
+    if (useAddress && !walletAccountIdFromDomain(destinationAddress) && !/^sim_(?:ghost|ledger|trust)_[a-z0-9]+$/i.test(destinationAddress.trim())) return setError("Enter a complete Larpz wallet address or internal .larpz domain.");
     if (!useAddress && sourceAccount.id === destinationAccount.id) return setError("Source and destination accounts must be different.");
     setStage("review");
   };
@@ -1104,7 +1286,7 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
     if (stage !== "review") return;
     setStage("processing");
     setError("");
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    if (walletId !== "trust") await new Promise((resolve) => window.setTimeout(resolve, 500));
     try {
       const completed = await executeTransfer({
         clientRequestId: requestId.current,
@@ -1125,23 +1307,49 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
   };
 
   if (stage === "success" && transaction) {
-    return <div className="py-7 text-center" role="status"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[#00e676] text-black"><Check className="h-10 w-10 stroke-[3]" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer complete</h2><p className="mt-3 text-lg text-white/55">{amount(transaction.amount)} {transaction.tokenSymbol} arrived in the receiving account.</p><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-5 text-left text-sm"><Detail label="Status" value="Completed" /><Detail label="Network" value={transaction.network} /><Detail label="Network fee" value={`${transaction.fee} ${transaction.feeSymbol}`} /><Detail label="Transaction ID" value={transaction.id} mono /></div><p className="mt-5 text-[10px] font-bold uppercase tracking-[.16em] text-[#a99bf7]/70">{walletDisclosures[walletId]}</p><button type="button" onClick={() => { requestId.current = randomClientId("transfer"); setAmountValue(""); setTransaction(null); setStage("form"); }} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Send another</button></div>;
+    return <div className="py-7 text-center" role="status"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[#00e676] text-black"><Check className="h-10 w-10 stroke-[3]" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer complete</h2><p className="mt-3 text-lg text-white/55">{amount(transaction.amount)} {transaction.tokenSymbol} arrived in the receiving account.</p><div className={`mt-7 rounded-[1.5rem] p-5 text-left text-sm ${walletId === "trust" ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><Detail label="Status" value="Completed" /><Detail label="Network" value={transaction.network} /><Detail label="Network fee" value={`${transaction.fee} ${transaction.feeSymbol}`} /><Detail label="Transaction ID" value={transaction.id} mono /></div><p className={`mt-5 text-[10px] font-bold uppercase tracking-[.16em] ${walletId === "trust" ? "text-[#8580ff]" : "text-[#a99bf7]/70"}`}>{walletDisclosures[walletId]}</p><button type="button" onClick={() => { requestId.current = randomClientId("transfer"); setAmountValue(""); setTransaction(null); setStage("form"); }} className={`mt-7 min-h-14 w-full rounded-full text-lg font-semibold ${walletId === "trust" ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}>Send another</button></div>;
   }
 
   if (stage === "processing") {
-    return <div className="grid min-h-80 place-items-center py-12 text-center" role="status"><div><span className="mx-auto block h-14 w-14 animate-spin rounded-full border-4 border-white/15 border-t-[#a295f3]" /><h2 className="mt-6 text-2xl font-semibold">Transfer pending…</h2><p className="mt-2 text-white/45">Updating both accounts securely.</p></div></div>;
+    return <div className="grid min-h-80 place-items-center py-12 text-center" role="status"><div><span className={`mx-auto block h-14 w-14 animate-spin rounded-full border-4 border-white/15 ${walletId === "trust" ? "border-t-[#4437ff]" : "border-t-[#a295f3]"}`} /><h2 className="mt-6 text-2xl font-semibold">Transfer pending…</h2><p className="mt-2 text-white/45">Updating both accounts securely.</p></div></div>;
   }
 
   if (stage === "failed") {
-    return <div className="py-8 text-center" role="alert"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-500/15 text-red-300"><X className="h-10 w-10" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer failed</h2><p className="mt-3 text-white/55">{error || "The transfer could not be completed."}</p><p className="mt-4 text-sm text-white/35">No balance changes were saved.</p><button type="button" onClick={() => setStage("review")} className="mt-7 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black">Review and try again</button></div>;
+    return <div className="py-8 text-center" role="alert"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-500/15 text-red-300"><X className="h-10 w-10" /></span><h2 className="mt-6 text-3xl font-semibold">Transfer failed</h2><p className="mt-3 text-white/55">{error || "The transfer could not be completed."}</p><p className="mt-4 text-sm text-white/35">No balance changes were saved.</p><button type="button" onClick={() => setStage("review")} className={`mt-7 min-h-14 w-full rounded-full text-lg font-semibold ${walletId === "trust" ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}>Review and try again</button></div>;
   }
 
   if (stage === "review") {
     const destination = useAddress ? destinationAddress : destinationAccount.address;
-    return <div><button type="button" onClick={() => setStage("form")} className="flex items-center gap-2 text-[#a99bf7]"><ArrowLeft className="h-4 w-4" /> Edit transfer</button><h2 className="mt-6 text-3xl font-semibold tracking-[-.04em]">Review transfer</h2><div className="mt-6 rounded-[1.7rem] bg-[#1d1d1f] p-5"><div className="text-center"><span className="text-5xl font-semibold">{amount(numericAmount)}</span><span className="ml-2 text-2xl text-white/50">{symbol}</span><p className="mt-2 text-white/45">{money(numericAmount * (asset?.price ?? 0))}</p></div><div className="mt-7 border-t border-white/[0.07] pt-4"><Detail label="From" value={`${walletLabels[sourceWalletId]} · ${sourceAccount.name}`} /><Detail label="To" value={destination} mono /><Detail label="Network" value={asset?.network ?? symbol} /><Detail label="Network fee" value={`${fee} ${symbol}`} /><Detail label="Total debit" value={`${amount(numericAmount + fee)} ${symbol}`} /></div></div>{error ? <p className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={() => void confirm()} className="mt-6 w-full rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-50">Confirm transfer</button><p className="mt-4 text-center text-[10px] font-bold uppercase tracking-[.16em] text-white/25">{walletDisclosures[walletId]}</p></div>;
+    return <div><button type="button" onClick={() => setStage("form")} className={`flex min-h-11 items-center gap-2 ${walletId === "trust" ? "text-[#8580ff]" : "text-[#a99bf7]"}`}><ArrowLeft className="h-4 w-4" /> Edit transfer</button><h2 className="mt-6 text-3xl font-semibold tracking-[-.04em]">Review transfer</h2><div className={`mt-6 rounded-[1.7rem] p-5 ${walletId === "trust" ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><div className="text-center"><span className="text-5xl font-semibold">{amount(numericAmount)}</span><span className="ml-2 text-2xl text-white/50">{symbol}</span><p className="mt-2 text-white/45">{money(numericAmount * (asset?.price ?? 0))}</p></div><div className="mt-7 border-t border-white/[0.07] pt-4"><Detail label="From" value={`${walletLabels[sourceWalletId]} · ${sourceAccount.name}`} /><Detail label="To" value={destination} mono /><Detail label="Network" value={asset?.network ?? symbol} /><Detail label="Network fee" value={`${fee} ${symbol}`} /><Detail label="Total debit" value={`${amount(numericAmount + fee)} ${symbol}`} /></div></div>{error ? <p className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={() => void confirm()} className={`mt-6 min-h-14 w-full rounded-full text-lg font-semibold disabled:opacity-50 ${walletId === "trust" ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}>Confirm transfer</button><p className="mt-4 text-center text-[10px] font-bold uppercase tracking-[.16em] text-white/25">{walletDisclosures[walletId]}</p></div>;
   }
 
-  return <div><div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${sharedStatus === "connected" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" || sharedStatus === "local" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}><strong>{sharedStatus === "connected" ? "Shared network connected:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong> {sharedStatus === "connected" ? "send to another user with their complete wallet address." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared Neon database, so transfers are paused." : "please wait before sending."}</div><div className="mt-6 grid grid-cols-2 gap-3"><label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label></div><label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label><div className="mt-5 flex items-center justify-between"><FieldLabel>Destination</FieldLabel><button type="button" onClick={() => setUseAddress((value) => !value)} className="mb-2 flex items-center gap-1.5 text-xs font-bold text-[#a99bf7]"><QrCode className="h-4 w-4" />{useAddress ? "Choose my account" : "Send to another user"}</button></div>{useAddress ? <div><input value={destinationAddress} onChange={(event) => setDestinationAddress(event.target.value.trim())} placeholder="Paste the recipient's complete wallet address" aria-label="Destination wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="h-14 w-full rounded-[1.2rem] bg-[#202022] px-4 font-mono text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><p className="mt-2 text-xs text-white/40">Ask the recipient to copy their address from Receive.</p></div> : <div className="grid grid-cols-2 gap-3"><SelectField value={destinationWalletId} onChange={(event) => { const id = event.target.value as WalletThemeId; setDestinationWalletId(id); setDestinationAccountId(state.wallets[id].selectedAccountId); }}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField><SelectField value={destinationAccount.id} onChange={(event) => setDestinationAccountId(event.target.value)}>{state.wallets[destinationWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></div>}<div className="mt-5"><div className="flex items-center justify-between"><FieldLabel>Amount</FieldLabel><span className="mb-2 text-xs text-white/45">Available {amount(balance)} {symbol}</span></div><div className="flex items-center rounded-[1.2rem] bg-[#202022] px-4 focus-within:ring-2 focus-within:ring-[#a295f3]"><input inputMode="decimal" value={amountValue} onChange={(event) => setAmountValue(event.target.value)} placeholder="0" aria-label="Transfer amount" className="h-16 min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none" /><button type="button" onClick={() => setAmountValue(String(Math.max(0, balance - calculateNetworkFee(symbol, balance))))} className="rounded-full bg-[#343438] px-3 py-2 text-xs font-bold text-[#b8adff]">MAX</button></div><div className="mt-3 flex justify-between text-sm text-white/45"><span>Network fee</span><span>{fee} {symbol}</span></div></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}<button type="button" onClick={review} disabled={available.length === 0 || sharedStatus !== "connected"} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] py-4 text-lg font-semibold text-black disabled:opacity-40">Review transfer <ArrowRight className="h-5 w-5" /></button></div>;
+  return (
+    <div>
+      <div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${transferReady ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" || sharedStatus === "local" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}>
+        <strong>{sharedStatus === "connected" ? "Shared network connected:" : localTrustReady ? "Local demo ready:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong>{" "}
+        {sharedStatus === "connected" ? "send to another user with their complete wallet address." : localTrustReady ? "transfers between the accounts on this device remain atomic and persistent." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared wallet database, so transfers are paused." : "please wait before sending."}
+      </div>
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label>
+        <label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label>
+      </div>
+      <label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label>
+      <div className="mt-5 flex items-center justify-between"><FieldLabel>Destination</FieldLabel><button type="button" onClick={() => setUseAddress((value) => !value)} className={`mb-2 flex min-h-11 items-center gap-1.5 text-xs font-bold ${walletId === "trust" ? "text-[#716cff]" : "text-[#a99bf7]"}`}><QrCode className="h-4 w-4" />{useAddress ? "Choose my account" : "Send to another user"}</button></div>
+      {useAddress ? (
+        <div><div className={`flex min-h-14 items-center rounded-[1.2rem] pr-2 focus-within:ring-2 ${walletId === "trust" ? "bg-[#151725] focus-within:ring-[#4437ff]" : "bg-[#202022] focus-within:ring-[#a295f3]"}`}><input value={destinationAddress} onChange={(event) => { setDestinationAddress(event.target.value.trim()); setError(""); }} placeholder="Address or account.larpz" aria-label="Destination wallet address" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="h-14 min-w-0 flex-1 bg-transparent px-4 font-mono text-base outline-none" /><button type="button" onClick={() => void pasteDestination()} className={`min-h-11 rounded-full px-4 text-sm font-bold ${walletId === "trust" ? "bg-[#282a43] text-[#8b86ff]" : "bg-[#343438] text-[#b8adff]"}`}>Paste</button></div><p className="mt-2 text-xs text-white/40">Use the complete address or internal account domain shown in Receive.</p></div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3"><SelectField aria-label="Destination wallet" value={destinationWalletId} onChange={(event) => { const id = event.target.value as WalletThemeId; setDestinationWalletId(id); setDestinationAccountId(state.wallets[id].selectedAccountId); }}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField><SelectField aria-label="Destination account" value={destinationAccount.id} onChange={(event) => setDestinationAccountId(event.target.value)}>{state.wallets[destinationWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></div>
+      )}
+      <div className="mt-5">
+        <div className="flex items-center justify-between"><FieldLabel>Amount</FieldLabel><span className="mb-2 text-xs text-white/45">Available {amount(balance)} {symbol}</span></div>
+        <div className={`flex items-center rounded-[1.2rem] px-4 focus-within:ring-2 ${walletId === "trust" ? "bg-[#151725] focus-within:ring-[#4437ff]" : "bg-[#202022] focus-within:ring-[#a295f3]"}`}><input inputMode={walletId === "trust" ? "none" : "decimal"} value={amountValue} onChange={(event) => setAmountValue(event.target.value)} placeholder="0" aria-label="Transfer amount" className="h-16 min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none" /><button type="button" onClick={() => setAmountValue(String(Math.max(0, balance - calculateNetworkFee(symbol, balance))))} className={`min-h-11 rounded-full px-3 py-2 text-xs font-bold ${walletId === "trust" ? "bg-[#24263a] text-[#8580ff]" : "bg-[#343438] text-[#b8adff]"}`}>MAX</button></div>
+        {walletId === "trust" ? <div className="mt-3 grid grid-cols-3" aria-label="Transfer numeric keypad">{["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"].map((key) => <button key={key} type="button" aria-label={key === "backspace" ? "Backspace" : key === "." ? "Decimal point" : key} onClick={() => inputAmountKey(key)} className="grid min-h-12 place-items-center rounded-xl text-xl font-bold active:bg-white/[.06]">{key === "backspace" ? "⌫" : key}</button>)}</div> : null}
+        <div className="mt-3 flex justify-between text-sm text-white/45"><span>Network fee</span><span>{fee} {symbol}</span></div>
+      </div>
+      {error ? <p role="alert" className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
+      <button type="button" onClick={review} disabled={available.length === 0 || !transferReady} className={`mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-full text-lg font-semibold text-white disabled:opacity-40 ${walletId === "trust" ? "bg-[#4437ff]" : "bg-[#a295f3] !text-black"}`}>Review transfer <ArrowRight className="h-5 w-5" /></button>
+    </div>
+  );
 }
 
 function Detail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -1236,6 +1444,85 @@ function PhantomReceivePanel({ initialMode, state, onClose }: { initialMode: Rec
   );
 }
 
+function TrustReceivePanel({ state }: { state: WalletLedgerState }) {
+  const account = selectedAccount(state, "trust");
+  const fundedSymbols = new Set(sortedAccountAssets(state, account).filter((entry) => entry.balance > 0).map((entry) => entry.asset.symbol));
+  const receiveAssets = Object.values(state.assets)
+    .filter((asset) => asset.symbol !== "USD")
+    .sort((left, right) => Number(fundedSymbols.has(right.symbol)) - Number(fundedSymbols.has(left.symbol)) || left.name.localeCompare(right.name));
+  const [symbol, setSymbol] = useState(receiveAssets[0]?.symbol ?? "SOL");
+  const [notice, setNotice] = useState("");
+  const [exchangeOpen, setExchangeOpen] = useState(false);
+  const asset = state.assets[symbol] ?? receiveAssets[0];
+
+  const showNotice = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 1800);
+  };
+  const copy = async () => {
+    try {
+      await writeClipboard(account.address);
+      showNotice("Address copied");
+    } catch {
+      showNotice("Could not copy the address");
+    }
+  };
+  const share = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Receive ${asset?.symbol ?? "tokens"} in Larpz Wallet`, text: account.address });
+        showNotice("Address shared");
+      } else {
+        await writeClipboard(account.address);
+        showNotice("Address copied for sharing");
+      }
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      showNotice("Could not share the address");
+    }
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-[440px] pb-4 text-center">
+      <label className="relative mx-auto flex min-h-12 w-fit max-w-full cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-[#151725] px-4 text-[16px] font-bold">
+        {asset ? <RuntimeAssetIcon image={asset.image} name={asset.name} symbol={asset.symbol} className="h-7 w-7" /> : null}
+        <span className="truncate">{asset?.name ?? symbol}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-white/55" />
+        <select value={symbol} onChange={(event) => setSymbol(event.target.value)} aria-label="Receive token" className="absolute inset-0 cursor-pointer text-base opacity-0">
+          {receiveAssets.map((entry) => <option key={entry.symbol} value={entry.symbol}>{entry.name} ({entry.symbol})</option>)}
+        </select>
+      </label>
+
+      <AddressQrCode value={account.address} variant="light" className="mx-auto mt-5 w-full max-w-[340px] rounded-[1.7rem] border-[10px] border-white shadow-[0_24px_80px_rgba(0,0,0,.45)]">
+        {asset ? <RuntimeAssetIcon image={asset.image} name={asset.name} symbol={asset.symbol} className="h-full w-full" /> : null}
+      </AddressQrCode>
+
+      <p className="mx-auto mt-4 max-w-[340px] break-all font-mono text-[13px] leading-relaxed text-white/70">{account.address}</p>
+      <p className="mx-auto mt-2 max-w-[340px] break-all font-mono text-xs text-[#817cff]">Internal domain: {walletAccountDomain(account.id)}</p>
+      <div className="mt-5 rounded-[1.35rem] border border-amber-300/10 bg-amber-300/[0.08] p-4 text-left text-[14px] leading-relaxed text-amber-100/75">
+        Only send assets on the <strong className="text-amber-100">{asset?.network ?? symbol}</strong> network to this address. Assets sent on an unsupported network may not appear.
+      </div>
+
+      {notice ? <p role="status" className="mt-4 text-sm font-semibold text-[#6f68ff]">{notice}</p> : null}
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <button type="button" onClick={() => void copy()} className="flex min-h-14 items-center justify-center gap-2 rounded-[1.25rem] bg-[#181a28] px-4 font-bold"><Copy className="h-5 w-5" />Copy</button>
+        <button type="button" onClick={() => void share()} className="flex min-h-14 items-center justify-center gap-2 rounded-[1.25rem] bg-[#181a28] px-4 font-bold"><Share2 className="h-5 w-5" />Share</button>
+      </div>
+
+      <button type="button" aria-expanded={exchangeOpen} onClick={() => setExchangeOpen((current) => !current)} className="mt-4 flex min-h-14 w-full items-center justify-between rounded-[1.25rem] bg-[#181a28] px-5 text-left font-bold">
+        <span className="flex items-center gap-3"><WalletCards className="h-5 w-5 text-[#716cff]" />Deposit from crypto exchange</span>
+        <ChevronDown className={`h-5 w-5 text-white/50 transition-transform ${exchangeOpen ? "rotate-180" : ""}`} />
+      </button>
+      {exchangeOpen ? (
+        <div className="mt-3 rounded-[1.25rem] border border-[#4a43ff]/20 bg-[#121426] p-4 text-left text-sm leading-relaxed text-white/60">
+          Choose <strong className="text-white">{asset?.symbol ?? symbol}</strong> and the <strong className="text-white">{asset?.network ?? symbol}</strong> network at the exchange, then paste this receiving address. This demo never requests exchange credentials.
+        </div>
+      ) : null}
+      <p className="mt-6 text-[9px] font-bold uppercase tracking-[.16em] text-[#716cff]/75">{walletDisclosures.trust}</p>
+    </div>
+  );
+}
+
 function ReceivePanel({ walletId, state }: { walletId: WalletThemeId; state: WalletLedgerState }) {
   const account = selectedAccount(state, walletId);
   const [copied, setCopied] = useState(false);
@@ -1243,29 +1530,132 @@ function ReceivePanel({ walletId, state }: { walletId: WalletThemeId; state: Wal
   return <div className="py-5 text-center"><AddressQrCode value={account.address} className="mx-auto w-full max-w-[280px] border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><h2 className="mt-6 text-2xl font-semibold">Receive in {account.name}</h2><p className="mt-2 text-white/45">Use this address as the destination in any of the three wallets.</p><button type="button" onClick={() => void copy()} className="mt-6 w-full rounded-[1.4rem] bg-[#202022] p-5 text-left"><span className="block text-xs font-bold uppercase tracking-[.1em] text-white/35">{walletLabels[walletId]} address</span><span className="mt-2 flex items-center justify-between gap-3 font-mono text-sm"><span className="break-all">{account.address}</span><Copy className="h-5 w-5 shrink-0 text-[#a99bf7]" /></span></button><p className="mt-4 text-sm text-[#00e676]">{copied ? "Address copied" : walletDisclosures[walletId]}</p></div>;
 }
 
-function AccountsPanel({ activeWalletId, state, repository, onCommit }: { activeWalletId: WalletThemeId; state: WalletLedgerState; repository: WalletLedgerRepository; onCommit: (state: WalletLedgerState) => void }) {
+function AccountsPanel({
+  activeWalletId,
+  state,
+  repository,
+  sharedError,
+  onCommit,
+  trustStyle = false,
+}: {
+  activeWalletId: WalletThemeId;
+  state: WalletLedgerState;
+  repository: WalletLedgerRepository;
+  sharedError: string;
+  onCommit: (state: WalletLedgerState, syncMetadata?: boolean) => Promise<boolean>;
+  trustStyle?: boolean;
+}) {
+  const [feedback, setFeedback] = useState<{ kind: "idle" | "saving" | "success" | "error"; message: string }>({ kind: "idle", message: "" });
+
+  const handleCommit = (next: WalletLedgerState) => {
+    setFeedback({ kind: "saving", message: "Saving account changes…" });
+    void onCommit(next).then((saved) => {
+      setFeedback(saved
+        ? { kind: "success", message: "Account changes saved." }
+        : { kind: "error", message: "Account changes remain on this device, but shared wallet sync failed. Try again." });
+    }).catch((caught) => {
+      setFeedback({ kind: "error", message: caught instanceof Error ? caught.message : "Could not save account changes." });
+    });
+  };
+
+  const busy = feedback.kind === "saving";
+  const visibleFeedback = feedback.kind === "idle" && sharedError
+    ? { kind: "error" as const, message: sharedError }
+    : feedback;
+
+  return (
+    <div aria-busy={busy}>
+      <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0 disabled:opacity-70">
+        <AccountsPanelControls
+          activeWalletId={activeWalletId}
+          state={state}
+          repository={repository}
+          onCommit={handleCommit}
+          trustStyle={trustStyle}
+        />
+      </fieldset>
+      {visibleFeedback.message ? (
+        <p
+          role={visibleFeedback.kind === "error" ? "alert" : "status"}
+          className={`mt-4 rounded-[1rem] px-4 py-3 text-sm ${visibleFeedback.kind === "error" ? "bg-red-500/10 text-red-200" : visibleFeedback.kind === "success" ? "bg-emerald-400/10 text-emerald-200" : "bg-white/[0.05] text-white/60"}`}
+        >
+          <span>{visibleFeedback.message}</span>
+          {visibleFeedback.kind === "error" ? (
+            <button
+              type="button"
+              onClick={() => handleCommit(repository.getState())}
+              className={`ml-3 min-h-11 rounded-full px-4 font-semibold ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}
+            >
+              Retry sync
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function AccountsPanelControls({ activeWalletId, state, repository, onCommit, trustStyle = false }: { activeWalletId: WalletThemeId; state: WalletLedgerState; repository: WalletLedgerRepository; onCommit: (state: WalletLedgerState) => void; trustStyle?: boolean }) {
   const [walletId, setWalletId] = useState(activeWalletId);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const wallet = state.wallets[walletId];
   const create = () => { if (!newName.trim()) return; repository.createAccount(walletId, newName); setNewName(""); onCommit(repository.getState()); };
-  return <div><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? "border-[#a295f3]/60 bg-[#a295f3]/10" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? "bg-[#a295f3] text-black" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="w-full rounded-lg bg-[#29292b] px-3 py-2 text-base outline-none ring-[#a295f3] focus:ring-2" /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} aria-label={`Save ${account.name} name`} className="grid h-11 w-11 place-items-center rounded-full bg-[#a295f3] text-black"><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className="grid h-11 w-11 place-items-center rounded-full bg-[#29292b]"><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className="mt-4 w-full rounded-full bg-[#29292b] py-3 text-sm font-semibold text-[#b9afff] disabled:text-[#00e676]">{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className="mt-7 rounded-[1.5rem] bg-[#1d1d1f] p-4"><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" aria-label="Add account" onClick={create} disabled={!newName.trim()} className="grid h-13 w-13 place-items-center rounded-full bg-[#a295f3] text-black disabled:opacity-40"><Plus className="h-6 w-6" /></button></div></div></div>;
+  return <div className={trustStyle ? "rounded-[1.6rem] bg-[#0d0f1b] p-1" : undefined}><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? trustStyle ? "border-[#4a43ff]/70 bg-[#4437ff]/15" : "border-[#a295f3]/60 bg-[#a295f3]/10" : trustStyle ? "border-white/[0.06] bg-[#151725]" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black" : trustStyle ? "bg-[#222437]" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className={`w-full rounded-lg px-3 py-2 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} aria-label={`Save ${account.name} name`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#222437]" : "bg-[#29292b]"}`}><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className={`mt-4 min-h-11 w-full rounded-full py-3 text-sm font-semibold disabled:text-[#00e676] ${trustStyle ? "bg-[#222437] text-[#8580ff]" : "bg-[#29292b] text-[#b9afff]"}`}>{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className={`mt-7 rounded-[1.5rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className={`h-13 min-w-0 flex-1 rounded-full px-4 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /><button type="button" aria-label="Add account" onClick={create} disabled={!newName.trim()} className={`grid h-13 w-13 place-items-center rounded-full disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Plus className="h-6 w-6" /></button></div></div></div>;
 }
 
-function HistoryPanel({ walletId, state }: { walletId: WalletThemeId; state: WalletLedgerState }) {
+function HistoryPanel({ walletId, state, trustStyle = false }: { walletId: WalletThemeId; state: WalletLedgerState; trustStyle?: boolean }) {
   const [query, setQuery] = useState("");
   const account = selectedAccount(state, walletId);
-  const transactions = transactionsForAccount(state, account.id).filter((transaction) => `${transaction.id} ${transaction.tokenSymbol} ${transaction.senderAddress} ${transaction.recipientAddress}`.toLowerCase().includes(query.toLowerCase()));
-  return <div><label className="flex h-14 items-center gap-3 rounded-full bg-[#202022] px-4"><Search className="h-5 w-5 text-white/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions" aria-label="Search transaction history" className="min-w-0 flex-1 bg-transparent text-base outline-none" /></label><p className="mt-5 text-sm text-white/45">{walletLabels[walletId]} · {account.name}</p><div className="mt-3 space-y-2">{transactions.map((transaction) => { const outgoing = transaction.sourceAccountId === account.id; return <article key={transaction.id} className="rounded-[1.35rem] bg-[#1d1d1f] p-4"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${outgoing ? "bg-[#30293a] text-[#b9afff]" : "bg-[#113426] text-[#00e676]"}`}>{outgoing ? <Send className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><strong className="block">{outgoing ? "Sent" : "Received"} {transaction.tokenSymbol}</strong><span className="block truncate text-sm text-white/40">{new Date(transaction.timestamp).toLocaleString("en-US")}</span></div><span className={`text-right font-semibold ${outgoing ? "text-white" : "text-[#00e676]"}`}>{outgoing ? "−" : "+"}{amount(transaction.amount)}<small className="ml-1 text-white/45">{transaction.tokenSymbol}</small></span></div><details className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-white/45"><summary className="cursor-pointer text-[#a99bf7]">Transaction details</summary><p className="mt-2 break-all font-mono">{transaction.id}</p><p className="mt-2">Status: {transaction.status} · Fee: {transaction.fee} {transaction.feeSymbol}</p><p className="mt-1 uppercase tracking-[.08em]">{"Transfer"}</p></details></article>; })}{transactions.length === 0 ? <p className="rounded-[1.4rem] bg-[#1d1d1f] px-4 py-10 text-center text-white/45">No matching transactions.</p> : null}</div></div>;
+  type HistoryEntry = { id: string; type: "send" | "receive"; symbol: string; amount: number; date: string; status: string; note: string; detailId: string; detailLabel: string; fee?: string; search: string };
+  const entryMap = new Map<string, HistoryEntry>();
+  for (const transaction of transactionsForAccount(state, account.id)) {
+    const outgoing = transaction.sourceAccountId === account.id;
+    entryMap.set(transaction.id, {
+      id: transaction.id,
+      type: outgoing ? "send" : "receive",
+      symbol: transaction.tokenSymbol,
+      amount: transaction.amount,
+      date: transaction.timestamp,
+      status: transaction.status,
+      note: transaction.note,
+      detailId: transaction.id,
+      detailLabel: "Transfer",
+      fee: `${transaction.fee} ${transaction.feeSymbol}`,
+      search: `${transaction.id} ${transaction.tokenSymbol} ${transaction.senderAddress} ${transaction.recipientAddress}`,
+    });
+  }
+  for (const operation of state.operations) {
+    if (operation.walletId !== walletId || operation.accountId !== account.id) continue;
+    for (const activity of operation.activities) {
+      entryMap.set(activity.id, {
+        id: activity.id,
+        type: activity.type,
+        symbol: activity.tokenSymbol,
+        amount: activity.amount,
+        date: activity.date,
+        status: activity.status,
+        note: activity.note,
+        detailId: operation.id,
+        detailLabel: "Internal demo operation",
+        search: `${operation.id} ${operation.clientRequestId} ${activity.tokenSymbol} ${activity.counterpartyLabel} ${activity.note}`,
+      });
+    }
+  }
+  const normalizedQuery = query.trim().toLowerCase();
+  const entries = [...entryMap.values()]
+    .filter((entry) => !normalizedQuery || entry.search.toLowerCase().includes(normalizedQuery))
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  return <div><label className={`flex h-14 items-center gap-3 rounded-full px-4 ${trustStyle ? "bg-[#151725]" : "bg-[#202022]"}`}><Search className="h-5 w-5 text-white/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions" aria-label="Search transaction history" className="min-w-0 flex-1 bg-transparent text-base outline-none" /></label><p className={`mt-5 text-sm ${trustStyle ? "text-[#8580ff]" : "text-white/45"}`}>{walletLabels[walletId]} · {account.name}</p><div className="mt-3 space-y-2">{entries.map((entry) => { const outgoing = entry.type === "send"; return <article key={entry.id} className={`rounded-[1.35rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${outgoing ? trustStyle ? "bg-[#28234a] text-[#8580ff]" : "bg-[#30293a] text-[#b9afff]" : "bg-[#113426] text-[#00e676]"}`}>{outgoing ? <Send className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><strong className="block">{outgoing ? "Sent" : "Received"} {entry.symbol}</strong><span className="block truncate text-sm text-white/40">{new Date(entry.date).toLocaleString("en-US")}</span></div><span className={`text-right font-semibold ${outgoing ? "text-white" : "text-[#00e676]"}`}>{outgoing ? "−" : "+"}{amount(entry.amount)}<small className="ml-1 text-white/45">{entry.symbol}</small></span></div><details className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-white/45"><summary className={`cursor-pointer ${trustStyle ? "text-[#8580ff]" : "text-[#a99bf7]"}`}>Transaction details</summary><p className="mt-2 break-all font-mono">{entry.detailId}</p><p className="mt-2">Status: {entry.status}{entry.fee ? ` · Fee: ${entry.fee}` : ""}</p><p className="mt-1">{entry.note}</p><p className="mt-1 uppercase tracking-[.08em]">{entry.detailLabel}</p></details></article>; })}{entries.length === 0 ? <p className={`rounded-[1.4rem] px-4 py-10 text-center text-white/45 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}>No matching transactions.</p> : null}</div></div>;
 }
 
-function SecurityPanel({ security }: { security: ReturnType<typeof useWalletSecurity> }) {
+function SecurityPanel({ security, trustStyle = false }: { security: ReturnType<typeof useWalletSecurity>; trustStyle?: boolean }) {
   const [pin, setPinValue] = useState("");
   const [notice, setNotice] = useState("");
   const biometricLabel = /iPhone|iPad|iPod/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent) ? "Face ID" : "device biometrics";
   const run = async (operation: () => Promise<void>, success: string) => { setNotice(""); try { await operation(); setNotice(success); } catch (error) { setNotice(error instanceof Error ? error.message : "Security action failed."); } };
-  return <div><div className="flex items-start gap-4 rounded-[1.5rem] bg-[#1d1d1f] p-5"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#29243a] text-[#b8adff]"><ShieldCheck className="h-6 w-6" /></span><div><h2 className="text-xl font-semibold">Wallet lock</h2><p className="mt-1 text-sm leading-relaxed text-white/45">{biometricLabel} verifies you using this phone&apos;s built-in security. Larpz Wallet never receives or stores your biometric data.</p></div></div>{security.supported === false ? <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-200">This phone does not make Face ID available to the installed wallet. Set a recovery PIN below.</p> : null}<div className="mt-5 space-y-3">{!security.status.enrolled ? <button type="button" disabled={!security.supported || security.busy} onClick={() => void run(security.register, `${biometricLabel} enabled.`)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Enable {biometricLabel}</button> : <><button type="button" disabled={security.busy} onClick={() => void run(security.unlock, "Identity verified.")} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#a295f3] px-4 font-semibold text-black disabled:opacity-40"><Fingerprint className="h-5 w-5" />Verify with {biometricLabel}</button><button type="button" disabled={security.busy} onClick={() => void run(security.disable, `${biometricLabel} disabled.`)} className="min-h-14 w-full rounded-full bg-[#29292b] px-4 font-semibold text-red-300 disabled:opacity-40">Disable {biometricLabel}</button></>}<label className="block rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>Auto-lock timeout</FieldLabel><SelectField value={security.settings.timeoutMinutes} onChange={(event) => security.updateTimeout(Number(event.target.value))}><option value={1}>After 1 minute</option><option value={5}>After 5 minutes</option><option value={15}>After 15 minutes</option><option value={30}>After 30 minutes</option></SelectField></label><div className="rounded-[1.4rem] bg-[#1d1d1f] p-4"><FieldLabel>{security.status.pinEnabled ? "Change recovery PIN" : "Create recovery PIN"}</FieldLabel><div className="flex gap-2"><input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(event) => setPinValue(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6–12 digits" aria-label="Recovery PIN" className="h-13 min-w-0 flex-1 rounded-full bg-[#29292b] px-4 text-base outline-none focus:ring-2 focus:ring-[#a295f3]" /><button type="button" disabled={security.busy || pin.length < 6} onClick={() => void run(() => security.setPin(pin), "Recovery PIN saved.")} className="rounded-full bg-[#a295f3] px-5 font-semibold text-black disabled:opacity-40">Save</button></div></div><button type="button" onClick={() => void security.lock()} disabled={!security.status.enrolled && !security.status.pinEnabled} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full border border-white/15 font-semibold disabled:opacity-35"><Lock className="h-5 w-5" />Lock Wallet</button></div>{notice || security.error ? <p role="status" className="mt-4 rounded-xl bg-[#252527] px-4 py-3 text-sm text-white/70">{notice || security.error}</p> : null}</div>;
+  return <div><div className={`flex items-start gap-4 rounded-[1.5rem] p-5 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><span className={`grid h-12 w-12 place-items-center rounded-full ${trustStyle ? "bg-[#28234a] text-[#8580ff]" : "bg-[#29243a] text-[#b8adff]"}`}><ShieldCheck className="h-6 w-6" /></span><div><h2 className="text-xl font-semibold">Wallet lock</h2><p className="mt-1 text-sm leading-relaxed text-white/45">{biometricLabel} verifies you using this phone&apos;s built-in security. Larpz Wallet never receives or stores your biometric data.</p></div></div>{security.supported === false ? <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-200">This phone does not make Face ID available to the installed wallet. Set a recovery PIN below.</p> : null}<div className="mt-5 space-y-3">{!security.status.enrolled ? <button type="button" disabled={!security.supported || security.busy} onClick={() => void run(security.register, `${biometricLabel} enabled.`)} className={`flex min-h-14 w-full items-center justify-center gap-2 rounded-full px-4 font-semibold disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Fingerprint className="h-5 w-5" />Enable {biometricLabel}</button> : <><button type="button" disabled={security.busy} onClick={() => void run(security.unlock, "Identity verified.")} className={`flex min-h-14 w-full items-center justify-center gap-2 rounded-full px-4 font-semibold disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Fingerprint className="h-5 w-5" />Verify with {biometricLabel}</button><button type="button" disabled={security.busy} onClick={() => void run(security.disable, `${biometricLabel} disabled.`)} className={`min-h-14 w-full rounded-full px-4 font-semibold text-red-300 disabled:opacity-40 ${trustStyle ? "bg-[#222437]" : "bg-[#29292b]"}`}>Disable {biometricLabel}</button></>}<label className={`block rounded-[1.4rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><FieldLabel>Auto-lock timeout</FieldLabel><SelectField value={security.settings.timeoutMinutes} onChange={(event) => security.updateTimeout(Number(event.target.value))}><option value={1}>After 1 minute</option><option value={5}>After 5 minutes</option><option value={15}>After 15 minutes</option><option value={30}>After 30 minutes</option></SelectField></label><div className={`rounded-[1.4rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><FieldLabel>{security.status.pinEnabled ? "Change recovery PIN" : "Create recovery PIN"}</FieldLabel><div className="flex gap-2"><input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(event) => setPinValue(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6–12 digits" aria-label="Recovery PIN" className={`h-13 min-w-0 flex-1 rounded-full px-4 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /><button type="button" disabled={security.busy || pin.length < 6} onClick={() => void run(() => security.setPin(pin), "Recovery PIN saved.")} className={`rounded-full px-5 font-semibold disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}>Save</button></div></div><button type="button" onClick={() => void security.lock()} disabled={!security.status.enrolled && !security.status.pinEnabled} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full border border-white/15 font-semibold disabled:opacity-35"><Lock className="h-5 w-5" />Lock Wallet</button></div>{notice || security.error ? <p role="status" className={`mt-4 rounded-xl px-4 py-3 text-sm text-white/70 ${trustStyle ? "bg-[#222437]" : "bg-[#252527]"}`}>{notice || security.error}</p> : null}</div>;
 }
 
 function WalletLockScreen({ walletId, security }: { walletId: WalletThemeId; security: ReturnType<typeof useWalletSecurity> }) {

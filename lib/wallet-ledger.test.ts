@@ -7,10 +7,16 @@ import {
   mergeRemoteWalletSnapshot,
   selectedAccount,
   sortedAccountAssets,
+  syncLegacyWalletViews,
   tokensForWalletAccount,
   transactionsForAccount,
   WalletLedgerRepository,
+  WalletBalanceOperationError,
   WalletTransferError,
+  normalizeWalletAssetAmount,
+  walletAccountDomain,
+  walletAccountIdFromDomain,
+  walletAssetDecimals,
   walletLedgerStorageKey,
   walletLedgerStorageKeyFor,
   type StorageAdapter,
@@ -107,6 +113,86 @@ describe("shared wallet transfer repository", () => {
     expect(selectedAccount(repository.getState(), "ledger").balances.SOL).toBe(1);
   });
 
+  it("resolves an internal .larpz account domain and replays that transfer idempotently", () => {
+    const created = repository.createAccount("ledger", "Domain recipient");
+    const source = selectedAccount(repository.getState(), "ghost");
+    const destinationDomain = walletAccountDomain(created.id);
+    const input = {
+      clientRequestId: "domain-transfer-replay",
+      sourceWalletId: "ghost" as const,
+      sourceAccountId: source.id,
+      destinationAddress: destinationDomain,
+      tokenSymbol: "SOL",
+      amount: 1,
+    };
+
+    expect(walletAccountIdFromDomain(`  ${destinationDomain.replace(/\.larpz$/, ".LARPZ")}  `)).toBe(created.id);
+    expect(walletAccountIdFromDomain(`${destinationDomain}.example`)).toBeUndefined();
+    const original = repository.executeTransfer(input);
+    const afterOriginal = repository.getState();
+    const replayed = repository.executeTransfer(input);
+
+    expect(original.recipientAddress).toBe(created.address);
+    expect(original.destinationAccountId).toBe(created.id);
+    expect(replayed).toEqual(original);
+    expect(repository.getState()).toEqual(afterOriginal);
+  });
+
+  it("rejects unsupported assets in transfers and balance operations", () => {
+    const current = repository.getState();
+    const source = selectedAccount(current, "ghost");
+    const destination = selectedAccount(current, "ledger");
+    const before = storage.getItem(walletLedgerStorageKey);
+
+    expect(() => repository.executeTransfer({
+      clientRequestId: "unsupported-transfer",
+      sourceWalletId: "ghost",
+      sourceAccountId: source.id,
+      destinationWalletId: "ledger",
+      destinationAccountId: destination.id,
+      tokenSymbol: "NOPE",
+      amount: 1,
+    })).toThrowError(WalletTransferError);
+    expect(() => repository.executeBalanceOperation({
+      clientRequestId: "unsupported-operation",
+      walletId: "ghost",
+      accountId: source.id,
+      deltas: { NOPE: 1 },
+      activities: [{ id: "unsupported-activity", type: "receive", tokenSymbol: "NOPE", amount: 1, counterpartyLabel: "Unsupported", date: "2026-08-29T12:00:00.000Z", status: "completed", note: "Must not persist" }],
+    })).toThrowError(WalletBalanceOperationError);
+    expect(storage.getItem(walletLedgerStorageKey)).toBe(before);
+    expect(walletAssetDecimals("NOPE")).toBeNull();
+    expect(normalizeWalletAssetAmount("NOPE", 1)).toBeNull();
+  });
+
+  it("rejects amounts beyond asset precision without mutating balances", () => {
+    const current = repository.getState();
+    const source = selectedAccount(current, "ghost");
+    const destination = selectedAccount(current, "ledger");
+    const before = storage.getItem(walletLedgerStorageKey);
+
+    expect(() => repository.executeTransfer({
+      clientRequestId: "overprecision-transfer",
+      sourceWalletId: "ghost",
+      sourceAccountId: source.id,
+      destinationWalletId: "ledger",
+      destinationAccountId: destination.id,
+      tokenSymbol: "SOL",
+      amount: 0.0000000001,
+    })).toThrow(/up to 9 decimal places/i);
+    expect(() => repository.executeBalanceOperation({
+      clientRequestId: "overprecision-operation",
+      walletId: "ghost",
+      accountId: source.id,
+      deltas: { SOL: 0.0000000001 },
+      activities: [{ id: "precision-activity", type: "receive", tokenSymbol: "SOL", amount: 1, counterpartyLabel: "Precision check", date: "2026-08-29T12:00:00.000Z", status: "completed", note: "Must not persist" }],
+    })).toThrow(/up to 9 decimal places/i);
+    expect(storage.getItem(walletLedgerStorageKey)).toBe(before);
+    expect(walletAssetDecimals("ETH")).toBe(12);
+    expect(normalizeWalletAssetAmount("ETH", 0.000000000001)).toBe(0.000000000001);
+    expect(normalizeWalletAssetAmount("ETH", 0.0000000000001)).toBe(0);
+  });
+
   it("rejects insufficient balances without changing either account", () => {
     const before = storage.getItem(walletLedgerStorageKey);
     expect(() => {
@@ -164,10 +250,148 @@ describe("shared wallet transfer repository", () => {
     expect(transactionsForAccount(after, destination.id).map((item) => item.id)).toContain(transaction.id);
   });
 
-  it("prevents duplicate submission IDs", () => {
-    transfer("ghost", "ledger", "duplicate");
-    expect(() => transfer("ghost", "ledger", "duplicate")).toThrow(/already submitted/i);
-    expect(repository.getState().transactions).toHaveLength(1);
+  it("returns the original transaction when an identical request ID is replayed", () => {
+    const original = transfer("ghost", "ledger", "duplicate");
+    const afterOriginal = repository.getState();
+    const replayed = transfer("ghost", "ledger", "duplicate");
+    const afterReplay = repository.getState();
+
+    expect(replayed).toEqual(original);
+    expect(afterReplay).toEqual(afterOriginal);
+    expect(afterReplay.transactions).toHaveLength(1);
+  });
+
+  it("applies every signed balance delta and activity in one atomic operation", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const activities = [
+      { id: "swap-send-sol", type: "send" as const, tokenSymbol: "SOL", amount: 2, counterpartyLabel: "Internal swap", date: "2026-08-29T12:00:00.000Z", status: "completed" as const, note: "Demo swap debit" },
+      { id: "swap-receive-eth", type: "receive" as const, tokenSymbol: "ETH", amount: 0.1, counterpartyLabel: "Internal swap", date: "2026-08-29T12:00:00.000Z", status: "completed" as const, note: "Demo swap credit" },
+    ];
+    const operation = repository.executeBalanceOperation({
+      clientRequestId: "trust-swap-atomic",
+      walletId: "trust",
+      accountId: account.id,
+      deltas: { SOL: -2, ETH: 0.1 },
+      activities,
+    });
+    const after = selectedAccount(repository.getState(), "trust");
+
+    expect(after.balances.SOL).toBe(18);
+    expect(after.balances.ETH).toBe(10.1);
+    expect(operation.deltas).toEqual({ SOL: -2, ETH: 0.1 });
+    expect(operation.activities).toEqual(activities);
+    expect(repository.getState().operations).toHaveLength(1);
+  });
+
+  it("replays an identical balance operation without applying its deltas twice", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const input = {
+      clientRequestId: "trust-buy-replay",
+      walletId: "trust" as const,
+      accountId: account.id,
+      deltas: { SOL: 1 },
+      activities: [{ id: "buy-sol-replay", type: "receive" as const, tokenSymbol: "SOL", amount: 1, counterpartyLabel: "Demo buy", date: "2026-08-29T12:00:00.000Z", status: "completed" as const, note: "Internal demo buy" }],
+    };
+    const original = repository.executeBalanceOperation(input);
+    const afterOriginal = repository.getState();
+    const replayed = repository.executeBalanceOperation({
+      ...input,
+      activities: [{ ...input.activities[0], id: "regenerated-buy-activity", date: "2026-08-29T12:01:00.000Z" }],
+    });
+
+    expect(replayed).toEqual(original);
+    expect(replayed.activities).toEqual(original.activities);
+    expect(repository.getState()).toEqual(afterOriginal);
+    expect(selectedAccount(repository.getState(), "trust").balances.SOL).toBe(21);
+  });
+
+  it("rejects a mismatched balance-operation replay without changing balances", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const activity = { id: "sell-sol-once", type: "send" as const, tokenSymbol: "SOL", amount: 1, counterpartyLabel: "Demo sell", date: "2026-08-29T12:00:00.000Z", status: "completed" as const, note: "Internal demo sell" };
+    repository.executeBalanceOperation({ clientRequestId: "trust-sell-once", walletId: "trust", accountId: account.id, deltas: { SOL: -1 }, activities: [activity] });
+    const beforeReplay = repository.getState();
+
+    expect(() => repository.executeBalanceOperation({
+      clientRequestId: "trust-sell-once",
+      walletId: "trust",
+      accountId: account.id,
+      deltas: { SOL: -2 },
+      activities: [{ ...activity, amount: 2 }],
+    })).toThrowError(WalletBalanceOperationError);
+    expect(repository.getState()).toEqual(beforeReplay);
+  });
+
+  it("keeps all operation balances unchanged when any delta would be negative", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const before = storage.getItem(walletLedgerStorageKey);
+    expect(() => repository.executeBalanceOperation({
+      clientRequestId: "trust-swap-insufficient",
+      walletId: "trust",
+      accountId: account.id,
+      deltas: { SOL: -21, ETH: 4 },
+      activities: [{ id: "bad-swap-sol", type: "send", tokenSymbol: "SOL", amount: 21, counterpartyLabel: "Internal swap", date: "2026-08-29T12:00:00.000Z", status: "completed", note: "Must not persist" }],
+    })).toThrow(/insufficient SOL/i);
+    expect(storage.getItem(walletLedgerStorageKey)).toBe(before);
+  });
+
+  it("does not persist a partial operation when storage fails", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const before = storage.getItem(walletLedgerStorageKey);
+    storage.failWrites = true;
+    expect(() => repository.executeBalanceOperation({
+      clientRequestId: "trust-buy-write-failure",
+      walletId: "trust",
+      accountId: account.id,
+      deltas: { SOL: 1, ETH: 1 },
+      activities: [{ id: "failed-buy-write", type: "receive", tokenSymbol: "SOL", amount: 1, counterpartyLabel: "Demo buy", date: "2026-08-29T12:00:00.000Z", status: "completed", note: "Must not persist" }],
+    })).toThrow(/storage failure/i);
+    storage.failWrites = false;
+    expect(storage.getItem(walletLedgerStorageKey)).toBe(before);
+  });
+
+  it("migrates stored ledgers created before operation history was added", () => {
+    const legacyState = repository.getState() as Partial<WalletLedgerState>;
+    delete legacyState.operations;
+    storage.setItem(walletLedgerStorageKey, JSON.stringify(legacyState));
+    expect(new WalletLedgerRepository(storage).getState().operations).toEqual([]);
+  });
+
+  it("persists operation activity across reloads and remote snapshot merges", () => {
+    const account = selectedAccount(repository.getState(), "trust");
+    const activity = { id: "persisted-buy-sol", type: "receive" as const, tokenSymbol: "SOL", amount: 0.5, counterpartyLabel: "Demo buy", date: "2026-08-29T12:00:00.000Z", status: "completed" as const, note: "Internal demo buy" };
+    const operation = repository.executeBalanceOperation({ clientRequestId: "persisted-buy-request", walletId: "trust", accountId: account.id, deltas: { SOL: 0.5 }, activities: [activity] });
+    const reloaded = new WalletLedgerRepository(storage).getState();
+    expect(reloaded.operations[0]).toEqual(operation);
+
+    syncLegacyWalletViews(storage, reloaded);
+    expect(JSON.parse(storage.getItem("larpz_trust_wallet_transactions") ?? "[]")).toContainEqual(activity);
+    expect(JSON.parse(storage.getItem(`larpz_trust_wallet_transactions:${account.id}`) ?? "[]")).toContainEqual(activity);
+
+    const fresh = createInitialWalletLedger({}, "2026-08-30T12:00:00.000Z");
+    const merged = mergeRemoteWalletSnapshot(fresh, {
+      accounts: [{ ...selectedAccount(reloaded, "trust"), ownerId: "lic_remote" }],
+      transactions: [],
+      operations: [operation],
+    });
+    expect(merged.operations).toContainEqual(operation);
+  });
+
+  it("rejects a request ID reused for a different transfer without changing balances", () => {
+    transfer("ghost", "ledger", "mismatched-duplicate");
+    const beforeReplay = repository.getState();
+    const source = selectedAccount(beforeReplay, "ghost");
+    const destination = selectedAccount(beforeReplay, "ledger");
+
+    expect(() => repository.executeTransfer({
+      clientRequestId: "mismatched-duplicate",
+      sourceWalletId: "ghost",
+      sourceAccountId: source.id,
+      destinationWalletId: "ledger",
+      destinationAccountId: destination.id,
+      tokenSymbol: "SOL",
+      amount: 2,
+    })).toThrow(/different transfer/i);
+    expect(repository.getState()).toEqual(beforeReplay);
   });
 
   it("sorts holdings from highest USD value to lowest", () => {
@@ -315,6 +539,7 @@ describe("shared wallet transfer repository", () => {
     const merged = mergeRemoteWalletSnapshot(current, {
       accounts: [{ ...recipient, ownerId: "usr_recipient", balances: { ...recipient.balances, SOL: 23 } }],
       transactions: [incoming],
+      operations: [],
     });
     expect(selectedAccount(merged, "ghost").balances.SOL).toBe(23);
     expect(transactionsForAccount(merged, recipient.id)[0].id).toBe("simtx_remote");
@@ -327,6 +552,7 @@ describe("shared wallet transfer repository", () => {
     const merged = mergeRemoteWalletSnapshot(freshInstallation, {
       accounts: [{ ...registered, ownerId: "lic_same_user" }],
       transactions: [],
+      operations: [],
     });
     expect(merged.wallets.ledger.accounts).toHaveLength(1);
     expect(selectedAccount(merged, "ledger").id).toBe(registered.id);

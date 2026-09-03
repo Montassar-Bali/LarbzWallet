@@ -22,7 +22,7 @@ const legacyTransactionKeys: Record<WalletThemeId, string> = {
 const walletNames: Record<WalletThemeId, string> = {
   ghost: "Phantom",
   ledger: "Larpz Wallet",
-  trust: "Trust Wallet",
+  trust: "Larpz Trust-style Wallet",
 };
 
 export type WalletAsset = {
@@ -76,6 +76,7 @@ export type WalletLedgerState = {
   assets: Record<string, WalletAsset>;
   wallets: Record<WalletThemeId, WalletRecord>;
   transactions: SimulatedTransaction[];
+  operations: WalletBalanceOperation[];
 };
 
 export type RemoteWalletAccount = WalletAccount & { ownerId: string };
@@ -83,6 +84,26 @@ export type RemoteWalletAccount = WalletAccount & { ownerId: string };
 export type RemoteWalletSnapshot = {
   accounts: RemoteWalletAccount[];
   transactions: SimulatedTransaction[];
+  operations: WalletBalanceOperation[];
+};
+
+export type WalletBalanceOperation = {
+  id: string;
+  clientRequestId: string;
+  walletId: WalletThemeId;
+  accountId: string;
+  deltas: Record<string, number>;
+  activities: WalletActivity[];
+  timestamp: string;
+  note: "INTERNAL DEMO BALANCE OPERATION — NO REAL FUNDS";
+};
+
+export type BalanceOperationInput = {
+  clientRequestId: string;
+  walletId: WalletThemeId;
+  accountId: string;
+  deltas: Record<string, number>;
+  activities: WalletActivity[];
 };
 
 export type TransferInput = {
@@ -95,6 +116,44 @@ export type TransferInput = {
   tokenSymbol: string;
   amount: number;
 };
+
+export function isBalanceOperationReplay(operation: WalletBalanceOperation, input: BalanceOperationInput) {
+  if (
+    operation.clientRequestId !== input.clientRequestId
+    || operation.walletId !== input.walletId
+    || operation.accountId !== input.accountId
+  ) {
+    return false;
+  }
+  const normalizeDeltas = (deltas: Record<string, number>) => Object.fromEntries(
+    Object.entries(deltas)
+      .map(([symbol, delta]) => [symbol.toUpperCase(), delta] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return JSON.stringify(normalizeDeltas(operation.deltas)) === JSON.stringify(normalizeDeltas(input.deltas));
+}
+
+export function isTransferReplay(transaction: SimulatedTransaction, input: TransferInput) {
+  if (
+    transaction.clientRequestId !== input.clientRequestId
+    || transaction.sourceWalletId !== input.sourceWalletId
+    || transaction.sourceAccountId !== input.sourceAccountId
+    || transaction.tokenSymbol !== input.tokenSymbol.toUpperCase()
+    || transaction.amount !== input.amount
+  ) {
+    return false;
+  }
+
+  if (input.destinationWalletId && input.destinationAccountId) {
+    return transaction.destinationWalletId === input.destinationWalletId
+      && transaction.destinationAccountId === input.destinationAccountId;
+  }
+
+  const destinationAddress = input.destinationAddress?.trim();
+  const domainAccountId = destinationAddress ? walletAccountIdFromDomain(destinationAddress) : undefined;
+  if (domainAccountId) return transaction.destinationAccountId === domainAccountId;
+  return Boolean(destinationAddress && transaction.recipientAddress === destinationAddress);
+}
 
 export type LegacyWalletSnapshot = {
   tokens?: WalletToken[];
@@ -122,6 +181,21 @@ export class WalletTransferError extends Error {
   ) {
     super(message);
     this.name = "WalletTransferError";
+  }
+}
+
+export class WalletBalanceOperationError extends Error {
+  constructor(
+    public readonly code:
+      | "DUPLICATE"
+      | "INVALID_REQUEST"
+      | "UNSUPPORTED_ASSET"
+      | "INSUFFICIENT_FUNDS"
+      | "ACCOUNT_NOT_FOUND",
+    message: string,
+  ) {
+    super(message);
+    this.name = "WalletBalanceOperationError";
   }
 }
 
@@ -166,6 +240,21 @@ const feesBySymbol: Record<string, number> = {
   DOGE: 0.01,
 };
 
+const supportedAssetSymbols = new Set([...canonicalWalletTokens.map((token) => token.symbol.toUpperCase()), "USD"]);
+const maximumSafeBalanceDecimals = 12;
+
+export function walletAssetDecimals(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  return supportedAssetSymbols.has(normalized)
+    ? Math.min(decimalsBySymbol[normalized] ?? 8, maximumSafeBalanceDecimals)
+    : null;
+}
+
+export function normalizeWalletAssetAmount(symbol: string, value: number) {
+  const decimals = walletAssetDecimals(symbol);
+  return decimals === null ? null : roundAssetAmount(value, decimals);
+}
+
 function makeId(prefix: string) {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (uuid) return `${prefix}_${uuid}`;
@@ -174,7 +263,7 @@ function makeId(prefix: string) {
 
 function roundAssetAmount(value: number, decimals: number) {
   if (!Number.isFinite(value)) return value;
-  const safeDecimals = Math.min(Math.max(decimals, 0), 12);
+  const safeDecimals = Math.min(Math.max(decimals, 0), maximumSafeBalanceDecimals);
   return Number(value.toFixed(safeDecimals));
 }
 
@@ -231,6 +320,10 @@ function baseAssets(snapshots: LegacyWalletSnapshots) {
 
 function withCanonicalAssets(state: WalletLedgerState) {
   let next = state;
+  if (!Array.isArray(state.operations)) {
+    next = cloneState(state);
+    next.operations = [];
+  }
   for (const token of canonicalWalletTokens) {
     const symbol = token.symbol.toUpperCase();
     const existing = next.assets[symbol];
@@ -320,6 +413,7 @@ export function createInitialWalletLedger(
     assets: baseAssets(snapshots),
     wallets,
     transactions: [],
+    operations: [],
   };
   migrateLegacyTransactions(state, snapshots);
   return state;
@@ -415,8 +509,13 @@ export class WalletLedgerRepository {
 
   executeTransfer(input: TransferInput) {
     const current = this.getState();
-    if (!input.clientRequestId.trim() || current.transactions.some((item) => item.clientRequestId === input.clientRequestId)) {
+    if (!input.clientRequestId.trim()) {
       throw new WalletTransferError("DUPLICATE", "This transfer was already submitted.");
+    }
+    const existing = current.transactions.find((item) => item.clientRequestId === input.clientRequestId);
+    if (existing) {
+      if (isTransferReplay(existing, input)) return existing;
+      throw new WalletTransferError("DUPLICATE", "This request ID was already used for a different transfer.");
     }
     const next = cloneState(current);
     const source = next.wallets[input.sourceWalletId]?.accounts.find((account) => account.id === input.sourceAccountId);
@@ -429,17 +528,18 @@ export class WalletLedgerRepository {
     const asset = next.assets[symbol];
     if (!asset) throw new WalletTransferError("UNSUPPORTED_ASSET", `${symbol} is not supported by this wallet.`);
     if (!Number.isFinite(input.amount) || input.amount <= 0) throw new WalletTransferError("INVALID_AMOUNT", "Enter an amount greater than zero.");
-    const amount = roundAssetAmount(input.amount, asset.decimals);
-    if (amount <= 0 || amount !== input.amount) throw new WalletTransferError("INVALID_AMOUNT", `${symbol} supports up to ${asset.decimals} decimal places.`);
+    const decimals = walletAssetDecimals(symbol) ?? Math.min(asset.decimals, maximumSafeBalanceDecimals);
+    const amount = roundAssetAmount(input.amount, decimals);
+    if (amount <= 0 || amount !== input.amount) throw new WalletTransferError("INVALID_AMOUNT", `${symbol} supports up to ${decimals} decimal places.`);
     const fee = calculateNetworkFee(symbol, amount);
     const sourceBalance = source.balances[symbol] ?? 0;
-    const debit = roundAssetAmount(amount + fee, asset.decimals);
+    const debit = roundAssetAmount(amount + fee, decimals);
     if (sourceBalance + Number.EPSILON < debit) {
       throw new WalletTransferError("INSUFFICIENT_FUNDS", `Insufficient ${symbol}. You need ${debit} ${symbol}, including the ${fee} ${symbol} fee.`);
     }
 
-    source.balances[symbol] = roundAssetAmount(sourceBalance - debit, asset.decimals);
-    destination.balances[symbol] = roundAssetAmount((destination.balances[symbol] ?? 0) + amount, asset.decimals);
+    source.balances[symbol] = roundAssetAmount(sourceBalance - debit, decimals);
+    destination.balances[symbol] = roundAssetAmount((destination.balances[symbol] ?? 0) + amount, decimals);
     const transaction: SimulatedTransaction = {
       id: makeId("simtx"),
       clientRequestId: input.clientRequestId,
@@ -462,6 +562,125 @@ export class WalletLedgerRepository {
     this.commit(next);
     return transaction;
   }
+
+  executeBalanceOperation(input: BalanceOperationInput) {
+    const current = this.getState();
+    if (typeof input.clientRequestId !== "string" || !/^[a-zA-Z0-9_-]{8,180}$/.test(input.clientRequestId)) {
+      throw new WalletBalanceOperationError("INVALID_REQUEST", "A valid operation request ID is required.");
+    }
+    const existing = current.operations.find((item) => item.clientRequestId === input.clientRequestId);
+    if (existing) {
+      if (isBalanceOperationReplay(existing, input)) return existing;
+      throw new WalletBalanceOperationError("DUPLICATE", "This request ID was already used for a different balance operation.");
+    }
+
+    const next = cloneState(current);
+    const account = next.wallets[input.walletId]?.accounts.find((item) => item.id === input.accountId);
+    if (!account) throw new WalletBalanceOperationError("ACCOUNT_NOT_FOUND", "Wallet account not found.");
+    if (!input.deltas || typeof input.deltas !== "object" || Array.isArray(input.deltas)) {
+      throw new WalletBalanceOperationError("INVALID_REQUEST", "A valid balance change is required.");
+    }
+    const deltaEntries = Object.entries(input.deltas);
+    if (deltaEntries.length === 0 || deltaEntries.length > 100) {
+      throw new WalletBalanceOperationError("INVALID_REQUEST", "Include between 1 and 100 balance changes.");
+    }
+
+    const deltas: Record<string, number> = {};
+    for (const [rawSymbol, rawDelta] of deltaEntries) {
+      const symbol = rawSymbol.toUpperCase();
+      const asset = next.assets[symbol];
+      if (!/^[A-Z0-9]{2,12}$/.test(symbol) || Object.hasOwn(deltas, symbol) || !asset) {
+        throw new WalletBalanceOperationError("UNSUPPORTED_ASSET", `${symbol || "Asset"} is not supported by this wallet.`);
+      }
+      if (!Number.isFinite(rawDelta) || rawDelta === 0) {
+        throw new WalletBalanceOperationError("INVALID_REQUEST", "Every balance change must be a finite, non-zero amount.");
+      }
+      const decimals = walletAssetDecimals(symbol) ?? Math.min(asset.decimals, maximumSafeBalanceDecimals);
+      const delta = roundAssetAmount(rawDelta, decimals);
+      if (delta === 0 || delta !== rawDelta) {
+        throw new WalletBalanceOperationError("INVALID_REQUEST", `${symbol} supports up to ${decimals} decimal places.`);
+      }
+      const currentBalance = account.balances[symbol] ?? 0;
+      const nextBalance = roundAssetAmount(currentBalance + delta, decimals);
+      if (nextBalance < 0) {
+        throw new WalletBalanceOperationError("INSUFFICIENT_FUNDS", `Insufficient ${symbol} for this operation.`);
+      }
+      deltas[symbol] = delta;
+      account.balances[symbol] = nextBalance;
+    }
+
+    if (!Array.isArray(input.activities) || input.activities.length === 0 || input.activities.length > 20) {
+      throw new WalletBalanceOperationError("INVALID_REQUEST", "Include between 1 and 20 activity records.");
+    }
+    const activities = input.activities.map((activity) => normalizeOperationActivity(activity, next));
+    const operation: WalletBalanceOperation = {
+      id: makeId("simop"),
+      clientRequestId: input.clientRequestId,
+      walletId: input.walletId,
+      accountId: input.accountId,
+      deltas,
+      activities,
+      timestamp: this.now().toISOString(),
+      note: "INTERNAL DEMO BALANCE OPERATION — NO REAL FUNDS",
+    };
+    next.operations.unshift(operation);
+    this.commit(next);
+    return operation;
+  }
+}
+
+function normalizeOperationActivity(activity: WalletActivity, state: WalletLedgerState): WalletActivity {
+  if (!activity || typeof activity !== "object") {
+    throw new WalletBalanceOperationError("INVALID_REQUEST", "A valid activity record is required.");
+  }
+  const symbol = typeof activity.tokenSymbol === "string" ? activity.tokenSymbol.toUpperCase() : "";
+  const asset = state.assets[symbol];
+  const decimals = asset
+    ? (walletAssetDecimals(symbol) ?? Math.min(asset.decimals, maximumSafeBalanceDecimals))
+    : 0;
+  const normalizedAmount = asset && Number.isFinite(activity.amount)
+    ? roundAssetAmount(activity.amount, decimals)
+    : Number.NaN;
+  if (
+    typeof activity.id !== "string"
+    || !/^[a-zA-Z0-9:_-]{3,180}$/.test(activity.id)
+    || (activity.type !== "send" && activity.type !== "receive")
+    || !asset
+    || !Number.isFinite(activity.amount)
+    || activity.amount <= 0
+    || normalizedAmount !== activity.amount
+    || typeof activity.counterpartyLabel !== "string"
+    || !activity.counterpartyLabel.trim()
+    || activity.counterpartyLabel.length > 120
+    || typeof activity.date !== "string"
+    || !Number.isFinite(Date.parse(activity.date))
+    || !["completed", "pending", "failed"].includes(activity.status)
+    || typeof activity.note !== "string"
+    || activity.note.length > 500
+  ) {
+    throw new WalletBalanceOperationError("INVALID_REQUEST", "An activity record contains invalid data.");
+  }
+  const optionalId = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_-]{3,180}$/.test(value) ? value : undefined;
+  return {
+    id: activity.id,
+    type: activity.type,
+    tokenSymbol: symbol,
+    amount: normalizedAmount,
+    counterpartyLabel: activity.counterpartyLabel.trim(),
+    date: new Date(activity.date).toISOString(),
+    status: activity.status,
+    note: activity.note,
+    recipientId: optionalId(activity.recipientId),
+    senderId: optionalId(activity.senderId),
+  };
+}
+
+export function walletAccountDomain(accountId: string) {
+  return `${accountId}.larpz`;
+}
+
+export function walletAccountIdFromDomain(value: string) {
+  return value.trim().match(/^([a-zA-Z0-9_-]{3,180})\.larpz$/i)?.[1];
 }
 
 function resolveDestination(state: WalletLedgerState, input: TransferInput) {
@@ -469,9 +688,10 @@ function resolveDestination(state: WalletLedgerState, input: TransferInput) {
     return state.wallets[input.destinationWalletId]?.accounts.find((account) => account.id === input.destinationAccountId);
   }
   const address = input.destinationAddress?.trim();
-  if (!address || !/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(address)) return undefined;
+  const domainAccountId = address ? walletAccountIdFromDomain(address) : undefined;
+  if (!address || (!domainAccountId && !/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(address))) return undefined;
   for (const wallet of Object.values(state.wallets)) {
-    const account = wallet.accounts.find((item) => item.address === address);
+    const account = wallet.accounts.find((item) => domainAccountId ? item.id === domainAccountId : item.address === address);
     if (account) return account;
   }
   return undefined;
@@ -551,6 +771,10 @@ export function mergeRemoteWalletSnapshot(state: WalletLedgerState, snapshot: Re
   const transactionMap = new Map(next.transactions.map((transaction) => [transaction.id, transaction]));
   for (const transaction of snapshot.transactions) transactionMap.set(transaction.id, transaction);
   next.transactions = [...transactionMap.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+
+  const operationMap = new Map(next.operations.map((operation) => [operation.clientRequestId, operation]));
+  for (const operation of snapshot.operations ?? []) operationMap.set(operation.clientRequestId, operation);
+  next.operations = [...operationMap.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
   return next;
 }
 
@@ -602,16 +826,28 @@ export function syncLegacyWalletViews(storage: StorageAdapter, state: WalletLedg
     const currentTokens = parseJson<WalletToken[]>(storage.getItem(legacyTokenKeys[walletId]), []);
     storage.setItem(legacyTokenKeys[walletId], JSON.stringify(tokensForWalletAccount(currentTokens, state, account)));
 
-    const existingActivities = parseJson<WalletActivity[]>(storage.getItem(legacyTransactionKeys[walletId]), []);
-    const activityMap = new Map(existingActivities.map((activity) => [activity.id, activity]));
-    for (const transaction of transactionsForAccount(state, account.id)) {
-      const activity = walletActivityFromTransfer(transaction, account.id);
-      activityMap.set(activity.id, activity);
+    const writeActivities = (targetAccount: WalletAccount, storageKey: string) => {
+      const existingActivities = parseJson<WalletActivity[]>(storage.getItem(storageKey), []);
+      const activityMap = new Map(existingActivities.map((activity) => [activity.id, activity]));
+      for (const transaction of transactionsForAccount(state, targetAccount.id)) {
+        const activity = walletActivityFromTransfer(transaction, targetAccount.id);
+        activityMap.set(activity.id, activity);
+      }
+      for (const operation of state.operations) {
+        if (operation.walletId !== walletId || operation.accountId !== targetAccount.id) continue;
+        for (const activity of operation.activities) activityMap.set(activity.id, activity);
+      }
+      storage.setItem(
+        storageKey,
+        JSON.stringify([...activityMap.values()].sort((a, b) => Date.parse(b.date) - Date.parse(a.date))),
+      );
+    };
+    writeActivities(account, legacyTransactionKeys[walletId]);
+    if (walletId === "trust") {
+      for (const trustAccount of state.wallets.trust.accounts) {
+        writeActivities(trustAccount, `${legacyTransactionKeys.trust}:${trustAccount.id}`);
+      }
     }
-    storage.setItem(
-      legacyTransactionKeys[walletId],
-      JSON.stringify([...activityMap.values()].sort((a, b) => Date.parse(b.date) - Date.parse(a.date))),
-    );
     if (walletId === "ghost") {
       const profile = parseJson<Record<string, unknown>>(storage.getItem("larpz_download_profile"), {});
       storage.setItem("larpz_download_profile", JSON.stringify({ ...profile, accountName: account.name, cash: account.balances.USD ?? 0 }));

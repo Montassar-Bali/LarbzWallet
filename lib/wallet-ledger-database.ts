@@ -3,11 +3,19 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import type { WalletThemeId } from "@/config/wallets";
+import type { WalletActivity } from "@/lib/types";
 import {
   calculateNetworkFee,
+  isBalanceOperationReplay,
+  isTransferReplay,
+  normalizeWalletAssetAmount,
+  walletAssetDecimals,
+  walletAccountIdFromDomain,
+  type BalanceOperationInput,
   type RemoteWalletAccount,
   type RemoteWalletSnapshot,
   type SimulatedTransaction,
+  type WalletBalanceOperation,
   type WalletLedgerState,
 } from "@/lib/wallet-ledger";
 
@@ -37,6 +45,17 @@ type DatabaseTransferRow = {
   created_at: string | Date;
 };
 
+type DatabaseBalanceOperationRow = {
+  id: string;
+  client_request_id: string;
+  owner_id: string;
+  wallet_id: WalletThemeId;
+  account_id: string;
+  deltas: Record<string, number> | string;
+  activities: WalletActivity[] | string;
+  created_at: string | Date;
+};
+
 export class RemoteWalletError extends Error {
   constructor(
     public readonly code:
@@ -47,7 +66,8 @@ export class RemoteWalletError extends Error {
       | "ACCOUNT_NOT_FOUND"
       | "INVALID_ADDRESS"
       | "SAME_ACCOUNT"
-      | "INSUFFICIENT_FUNDS",
+      | "INSUFFICIENT_FUNDS"
+      | "UNSUPPORTED_ASSET",
     message: string,
   ) {
     super(message);
@@ -83,7 +103,7 @@ function normalizedLegacyOwnerId(value: unknown) {
   return ownerId;
 }
 
-async function licenseOwnerId(value: unknown) {
+export async function walletOwnerIdForLicense(value: unknown) {
   if (typeof value !== "string" || value.length > 100) {
     throw new RemoteWalletError("INVALID_REQUEST", "Enter the complete activation key.");
   }
@@ -110,6 +130,104 @@ function normalizedAccountId(value: unknown) {
     throw new RemoteWalletError("INVALID_REQUEST", "A valid wallet account is required.");
   }
   return value;
+}
+
+function normalizedWalletId(value: unknown): WalletThemeId {
+  if (value !== "ghost" && value !== "ledger" && value !== "trust") {
+    throw new RemoteWalletError("INVALID_REQUEST", "A valid wallet is required.");
+  }
+  return value;
+}
+
+function normalizedClientRequestId(value: unknown, noun: string) {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{8,180}$/.test(value)) {
+    throw new RemoteWalletError("INVALID_REQUEST", `A valid ${noun} request is required.`);
+  }
+  return value;
+}
+
+function normalizedBalanceDeltas(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RemoteWalletError("INVALID_REQUEST", "A valid balance change is required.");
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > 100) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Include between 1 and 100 balance changes.");
+  }
+  const deltas: Record<string, number> = {};
+  for (const [rawSymbol, rawDelta] of entries) {
+    const symbol = rawSymbol.toUpperCase();
+    const decimals = walletAssetDecimals(symbol);
+    if (decimals === null) {
+      throw new RemoteWalletError("UNSUPPORTED_ASSET", `${symbol || "Asset"} is not supported by this wallet.`);
+    }
+    if (
+      !/^[A-Z0-9]{2,12}$/.test(symbol)
+      || Object.hasOwn(deltas, symbol)
+      || typeof rawDelta !== "number"
+      || !Number.isFinite(rawDelta)
+      || rawDelta === 0
+    ) {
+      throw new RemoteWalletError("INVALID_REQUEST", "A balance change contains invalid currency data.");
+    }
+    const normalized = normalizeWalletAssetAmount(symbol, rawDelta);
+    if (normalized === null || normalized === 0 || normalized !== rawDelta) {
+      throw new RemoteWalletError("INVALID_REQUEST", `${symbol} supports up to ${decimals} decimal places.`);
+    }
+    deltas[symbol] = normalized;
+  }
+  return deltas;
+}
+
+function normalizedOperationActivities(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Include between 1 and 20 activity records.");
+  }
+  return value.map((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new RemoteWalletError("INVALID_REQUEST", "A valid activity record is required.");
+    }
+    const activity = candidate as WalletActivity;
+    const tokenSymbol = typeof activity.tokenSymbol === "string" ? activity.tokenSymbol.toUpperCase() : "";
+    const decimals = walletAssetDecimals(tokenSymbol);
+    const normalizedAmount = typeof activity.amount === "number"
+      ? normalizeWalletAssetAmount(tokenSymbol, activity.amount)
+      : null;
+    if (
+      typeof activity.id !== "string"
+      || !/^[a-zA-Z0-9:_-]{3,180}$/.test(activity.id)
+      || (activity.type !== "send" && activity.type !== "receive")
+      || !/^[A-Z0-9]{2,12}$/.test(tokenSymbol)
+      || decimals === null
+      || !Number.isFinite(activity.amount)
+      || activity.amount <= 0
+      || normalizedAmount === null
+      || normalizedAmount !== activity.amount
+      || typeof activity.counterpartyLabel !== "string"
+      || !activity.counterpartyLabel.trim()
+      || activity.counterpartyLabel.length > 120
+      || typeof activity.date !== "string"
+      || !Number.isFinite(Date.parse(activity.date))
+      || !["completed", "pending", "failed"].includes(activity.status)
+      || typeof activity.note !== "string"
+      || activity.note.length > 500
+    ) {
+      throw new RemoteWalletError("INVALID_REQUEST", "An activity record contains invalid data.");
+    }
+    const optionalId = (id: unknown) => typeof id === "string" && /^[a-zA-Z0-9_-]{3,180}$/.test(id) ? id : undefined;
+    return {
+      id: activity.id,
+      type: activity.type,
+      tokenSymbol,
+      amount: normalizedAmount,
+      counterpartyLabel: activity.counterpartyLabel.trim(),
+      date: new Date(activity.date).toISOString(),
+      status: activity.status,
+      note: activity.note,
+      recipientId: optionalId(activity.recipientId),
+      senderId: optionalId(activity.senderId),
+    } satisfies WalletActivity;
+  });
 }
 
 function normalizedAccountName(value: unknown) {
@@ -153,6 +271,7 @@ function normalizedAccount(value: unknown) {
   const account = value as RemoteWalletAccount;
   if (
     typeof account.id !== "string"
+    || !/^[a-zA-Z0-9_-]{3,180}$/.test(account.id)
     || !["ghost", "ledger", "trust"].includes(account.walletId)
     || typeof account.name !== "string"
     || typeof account.address !== "string"
@@ -233,8 +352,21 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `,
+      sql`
+        CREATE TABLE IF NOT EXISTS larpz_wallet_balance_operations (
+          id TEXT PRIMARY KEY,
+          client_request_id TEXT NOT NULL UNIQUE,
+          owner_id TEXT NOT NULL,
+          wallet_id TEXT NOT NULL CHECK (wallet_id IN ('ghost', 'ledger', 'trust')),
+          account_id TEXT NOT NULL,
+          deltas JSONB NOT NULL,
+          activities JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `,
       sql`CREATE INDEX IF NOT EXISTS larpz_wallet_transfers_source_owner_idx ON larpz_wallet_transfers (source_owner_id, created_at DESC)`,
       sql`CREATE INDEX IF NOT EXISTS larpz_wallet_transfers_destination_owner_idx ON larpz_wallet_transfers (destination_owner_id, created_at DESC)`,
+      sql`CREATE INDEX IF NOT EXISTS larpz_wallet_balance_operations_owner_idx ON larpz_wallet_balance_operations (owner_id, created_at DESC)`,
     ]).then(() => undefined).catch((error) => {
       schemaPromise = null;
       throw error;
@@ -287,10 +419,32 @@ function transferFromRow(row: DatabaseTransferRow): SimulatedTransaction {
   };
 }
 
+function parsedJson<T>(value: T | string, fallback: T): T {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function balanceOperationFromRow(row: DatabaseBalanceOperationRow): WalletBalanceOperation {
+  return {
+    id: row.id,
+    clientRequestId: row.client_request_id,
+    walletId: row.wallet_id,
+    accountId: row.account_id,
+    deltas: parsedJson(row.deltas, {}),
+    activities: parsedJson(row.activities, []),
+    timestamp: new Date(row.created_at).toISOString(),
+    note: "INTERNAL DEMO BALANCE OPERATION — NO REAL FUNDS",
+  };
+}
+
 async function loadSnapshot(rawOwnerId: unknown): Promise<RemoteWalletSnapshot> {
   const ownerId = normalizedOwnerId(rawOwnerId);
   const sql = neon(databaseUrl());
-  const [accountRows, transactionRows] = await sql.transaction([
+  const [accountRows, transactionRows, operationRows] = await sql.transaction([
     sql`
       SELECT owner_id, account_id, wallet_id, name, address, balances, created_at
       FROM larpz_wallet_accounts
@@ -306,10 +460,18 @@ async function loadSnapshot(rawOwnerId: unknown): Promise<RemoteWalletSnapshot> 
       ORDER BY created_at DESC
       LIMIT 250
     `,
+    sql`
+      SELECT id, client_request_id, owner_id, wallet_id, account_id, deltas, activities, created_at
+      FROM larpz_wallet_balance_operations
+      WHERE owner_id = ${ownerId}
+      ORDER BY created_at DESC
+      LIMIT 250
+    `,
   ], { readOnly: true });
   return {
     accounts: (accountRows as DatabaseAccountRow[]).map(accountFromRow),
     transactions: (transactionRows as DatabaseTransferRow[]).map(transferFromRow),
+    operations: (operationRows as DatabaseBalanceOperationRow[]).map(balanceOperationFromRow),
   };
 }
 
@@ -417,6 +579,166 @@ export async function patchRemoteWalletAccount({
   return loadSnapshot(ownerId);
 }
 
+export async function executeRemoteBalanceOperation({
+  ownerId: rawOwnerId,
+  clientRequestId: rawClientRequestId,
+  walletId: rawWalletId,
+  accountId: rawAccountId,
+  deltas: rawDeltas,
+  activities: rawActivities,
+}: {
+  ownerId: unknown;
+  clientRequestId: unknown;
+  walletId: unknown;
+  accountId: unknown;
+  deltas: unknown;
+  activities: unknown;
+}) {
+  const ownerId = normalizedOwnerId(rawOwnerId);
+  if (!/^lic_[a-f0-9]{32}$/.test(ownerId)) {
+    throw new RemoteWalletError(
+      "ACTIVATION_REQUIRED",
+      "Activate this installed wallet before changing shared demo balances. No real funds are used.",
+    );
+  }
+  const clientRequestId = normalizedClientRequestId(rawClientRequestId, "balance operation");
+  const walletId = normalizedWalletId(rawWalletId);
+  const accountId = normalizedAccountId(rawAccountId);
+  const deltas = normalizedBalanceDeltas(rawDeltas);
+  const activities = normalizedOperationActivities(rawActivities);
+  const operationId = `simop_${crypto.randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  const input: BalanceOperationInput = { clientRequestId, walletId, accountId, deltas, activities };
+
+  await ensureSchema();
+  const sql = neon(databaseUrl());
+  const replayExistingOperation = async () => {
+    const rows = await sql.query(
+      `
+        SELECT id, client_request_id, owner_id, wallet_id, account_id, deltas, activities, created_at
+        FROM larpz_wallet_balance_operations
+        WHERE client_request_id = $1
+        LIMIT 1
+      `,
+      [clientRequestId],
+    ) as DatabaseBalanceOperationRow[];
+    if (!rows[0]) return null;
+    if (rows[0].owner_id !== ownerId) {
+      throw new RemoteWalletError("DUPLICATE", "This request ID was already used for another balance operation.");
+    }
+    const operation = balanceOperationFromRow(rows[0]);
+    if (!isBalanceOperationReplay(operation, input)) {
+      throw new RemoteWalletError("DUPLICATE", "This request ID was already used for a different balance operation.");
+    }
+    return { operation, snapshot: await loadSnapshot(ownerId) };
+  };
+
+  const existing = await replayExistingOperation();
+  if (existing) return existing;
+
+  let rows: DatabaseBalanceOperationRow[];
+  try {
+    rows = await sql.query(
+      `
+        WITH locked_account AS MATERIALIZED (
+          SELECT owner_id, account_id, wallet_id, balances
+          FROM larpz_wallet_accounts
+          WHERE owner_id = $1 AND account_id = $2 AND wallet_id = $3
+          FOR UPDATE
+        ),
+        eligible AS MATERIALIZED (
+          SELECT *
+          FROM locked_account
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM jsonb_each_text($4::jsonb) AS delta(symbol, amount)
+            WHERE COALESCE((locked_account.balances ->> delta.symbol)::numeric, 0)
+              + delta.amount::numeric < 0
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM larpz_wallet_balance_operations WHERE client_request_id = $5
+          )
+        ),
+        account_update AS (
+          UPDATE larpz_wallet_accounts AS account
+          SET balances = account.balances || COALESCE((
+            SELECT jsonb_object_agg(
+              delta.symbol,
+              to_jsonb(
+                COALESCE((account.balances ->> delta.symbol)::numeric, 0)
+                  + delta.amount::numeric
+              )
+            )
+            FROM jsonb_each_text($4::jsonb) AS delta(symbol, amount)
+          ), '{}'::jsonb),
+          updated_at = NOW()
+          FROM eligible
+          WHERE account.owner_id = eligible.owner_id
+            AND account.account_id = eligible.account_id
+          RETURNING account.owner_id
+        ),
+        inserted AS (
+          INSERT INTO larpz_wallet_balance_operations (
+            id, client_request_id, owner_id, wallet_id, account_id,
+            deltas, activities, created_at
+          )
+          SELECT $6, $5, eligible.owner_id, eligible.wallet_id, eligible.account_id,
+            $4::jsonb, $7::jsonb, $8::timestamptz
+          FROM eligible
+          WHERE EXISTS (SELECT 1 FROM account_update)
+          RETURNING id, client_request_id, owner_id, wallet_id, account_id, deltas, activities, created_at
+        )
+        SELECT id, client_request_id, owner_id, wallet_id, account_id, deltas, activities, created_at
+        FROM inserted
+      `,
+      [ownerId, accountId, walletId, JSON.stringify(deltas), clientRequestId, operationId, JSON.stringify(activities), createdAt],
+    ) as DatabaseBalanceOperationRow[];
+  } catch (error) {
+    const replayed = await replayExistingOperation();
+    if (replayed) return replayed;
+    throw error;
+  }
+
+  if (rows.length === 0) {
+    const replayed = await replayExistingOperation();
+    if (replayed) return replayed;
+    const diagnostics = await sql.query(
+      `
+        SELECT
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_accounts WHERE owner_id = $1 AND account_id = $2
+          ) AS account_exists,
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_accounts
+            WHERE owner_id = $1 AND account_id = $2 AND wallet_id = $3
+          ) AS wallet_matches,
+          EXISTS (
+            SELECT 1
+            FROM larpz_wallet_accounts AS account,
+              jsonb_each_text($4::jsonb) AS delta(symbol, amount)
+            WHERE account.owner_id = $1 AND account.account_id = $2
+              AND COALESCE((account.balances ->> delta.symbol)::numeric, 0)
+                + delta.amount::numeric < 0
+          ) AS insufficient
+      `,
+      [ownerId, accountId, walletId, JSON.stringify(deltas)],
+    ) as { account_exists: boolean; wallet_matches: boolean; insufficient: boolean }[];
+    const result = diagnostics[0];
+    if (!result?.account_exists || !result.wallet_matches) {
+      throw new RemoteWalletError("ACCOUNT_NOT_FOUND", "Wallet account not found.");
+    }
+    if (result.insufficient) {
+      throw new RemoteWalletError("INSUFFICIENT_FUNDS", "This operation would make a demo balance negative.");
+    }
+    throw new RemoteWalletError("INVALID_REQUEST", "The shared balance operation could not be completed.");
+  }
+
+  return {
+    operation: balanceOperationFromRow(rows[0]),
+    snapshot: await loadSnapshot(ownerId),
+  };
+}
+
 export async function linkRemoteWalletOwner({
   licenseKey,
   legacyOwnerId: rawLegacyOwnerId,
@@ -424,7 +746,7 @@ export async function linkRemoteWalletOwner({
   licenseKey: unknown;
   legacyOwnerId: unknown;
 }) {
-  const ownerId = await licenseOwnerId(licenseKey);
+  const ownerId = await walletOwnerIdForLicense(licenseKey);
   await ensureSchema();
   if (rawLegacyOwnerId === undefined || rawLegacyOwnerId === null || rawLegacyOwnerId === "") {
     return {
@@ -454,19 +776,26 @@ export async function linkRemoteWalletOwner({
             WHERE source_owner_id = $1 OR destination_owner_id = $1
           ) AS source_has_transfers,
           EXISTS (
+            SELECT 1 FROM larpz_wallet_balance_operations WHERE owner_id = $1
+          ) AS source_has_operations,
+          EXISTS (
             SELECT 1 FROM larpz_wallet_accounts WHERE owner_id = $2
           ) AS target_has_accounts,
           EXISTS (
             SELECT 1 FROM larpz_wallet_transfers
             WHERE source_owner_id = $2 OR destination_owner_id = $2
-          ) AS target_has_transfers
+          ) AS target_has_transfers,
+          EXISTS (
+            SELECT 1 FROM larpz_wallet_balance_operations WHERE owner_id = $2
+          ) AS target_has_operations
         FROM owner_lock
       ),
       decision AS MATERIALIZED (
         SELECT CASE
           WHEN NOT source_has_accounts THEN 'retained'
-          WHEN NOT target_has_accounts AND NOT target_has_transfers THEN 'moved'
-          WHEN target_has_accounts AND NOT target_has_transfers AND source_has_transfers THEN 'replaced'
+          WHEN NOT target_has_accounts AND NOT target_has_transfers AND NOT target_has_operations THEN 'moved'
+          WHEN target_has_accounts AND NOT target_has_transfers AND NOT target_has_operations
+            AND (source_has_transfers OR source_has_operations) THEN 'replaced'
           ELSE 'retained'
         END AS action
         FROM facts
@@ -500,12 +829,22 @@ export async function linkRemoteWalletOwner({
           AND EXISTS (SELECT 1 FROM moved_accounts)
           AND (transfer.source_owner_id = $1 OR transfer.destination_owner_id = $1)
         RETURNING transfer.id
+      ),
+      moved_operations AS (
+        UPDATE larpz_wallet_balance_operations AS operation
+        SET owner_id = $2
+        FROM decision
+        WHERE decision.action IN ('moved', 'replaced')
+          AND EXISTS (SELECT 1 FROM moved_accounts)
+          AND operation.owner_id = $1
+        RETURNING operation.id
       )
       SELECT
         decision.action,
         (SELECT COUNT(*)::integer FROM archived_accounts) AS archived_accounts,
         (SELECT COUNT(*)::integer FROM moved_accounts) AS moved_accounts,
-        (SELECT COUNT(*)::integer FROM moved_transfers) AS moved_transfers
+        (SELECT COUNT(*)::integer FROM moved_transfers) AS moved_transfers,
+        (SELECT COUNT(*)::integer FROM moved_operations) AS moved_operations
       FROM decision
     `,
     [legacyOwnerId, ownerId, archiveOwnerId],
@@ -514,6 +853,7 @@ export async function linkRemoteWalletOwner({
     archived_accounts: number;
     moved_accounts: number;
     moved_transfers: number;
+    moved_operations: number;
   }[];
 
   return {
@@ -566,25 +906,95 @@ export async function executeRemoteTransfer({
   }
   if (typeof clientRequestId !== "string" || !/^[a-zA-Z0-9_-]{8,180}$/.test(clientRequestId)) throw new RemoteWalletError("INVALID_REQUEST", "A valid transfer request is required.");
   if (typeof sourceAccountId !== "string" || sourceAccountId.length > 180) throw new RemoteWalletError("ACCOUNT_NOT_FOUND", "Source account not found.");
-  const destinationId = typeof destinationAccountId === "string" ? destinationAccountId.slice(0, 180) : null;
-  const address = typeof destinationAddress === "string" ? destinationAddress.trim() : "";
-  if (!destinationId && !/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(address)) {
-    throw new RemoteWalletError("INVALID_ADDRESS", "Enter the receiving user's complete wallet address.");
+  const destinationId = typeof destinationAccountId === "string" ? normalizedAccountId(destinationAccountId) : null;
+  const requestedAddress = destinationId ? "" : typeof destinationAddress === "string" ? destinationAddress.trim() : "";
+  const domainAccountId = walletAccountIdFromDomain(requestedAddress);
+  if (!destinationId && !domainAccountId && !/^sim_(ghost|ledger|trust)_[a-z0-9]+$/i.test(requestedAddress)) {
+    throw new RemoteWalletError("INVALID_ADDRESS", "Enter the receiving user's complete wallet address or internal .larpz domain.");
   }
   const symbol = typeof tokenSymbol === "string" ? tokenSymbol.toUpperCase() : "";
-  const numericAmount = Number(amount);
-  if (!/^[A-Z0-9]{2,12}$/.test(symbol) || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+  const requestedAmount = typeof amount === "number" ? amount : Number.NaN;
+  const decimals = walletAssetDecimals(symbol);
+  const numericAmount = normalizeWalletAssetAmount(symbol, requestedAmount);
+  if (!/^[A-Z0-9]{2,12}$/.test(symbol) || decimals === null || numericAmount === null) {
+    throw new RemoteWalletError("UNSUPPORTED_ASSET", `${symbol || "Asset"} is not supported by this wallet.`);
+  }
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0 || numericAmount <= 0 || numericAmount !== requestedAmount) {
     throw new RemoteWalletError("INVALID_REQUEST", "Enter a valid currency and amount.");
   }
   const fee = calculateNetworkFee(symbol, numericAmount);
-  const debit = numericAmount + fee;
+  const debit = normalizeWalletAssetAmount(symbol, numericAmount + fee);
+  if (debit === null || debit <= 0) {
+    throw new RemoteWalletError("INVALID_REQUEST", "Enter a valid currency and amount.");
+  }
   const transactionId = `simtx_${crypto.randomUUID()}`;
   const createdAt = new Date().toISOString();
   const network = networkBySymbol[symbol] ?? symbol;
 
   await ensureSchema();
   const sql = neon(databaseUrl());
-  const rows = await sql.query(
+  let address = requestedAddress;
+  if (domainAccountId) {
+    const domainRows = await sql.query(
+      `SELECT address FROM larpz_wallet_accounts WHERE account_id = $1 ORDER BY owner_id LIMIT 2`,
+      [domainAccountId],
+    ) as { address: string }[];
+    if (domainRows.length !== 1 || !domainRows[0]?.address) {
+      throw new RemoteWalletError("INVALID_ADDRESS", "This internal .larpz account domain was not found or is ambiguous.");
+    }
+    address = domainRows[0].address;
+  }
+  const replayExistingTransfer = async () => {
+    const replayRows = await sql.query(
+      `
+        SELECT id, client_request_id, source_wallet_id, source_account_id,
+          destination_wallet_id, destination_account_id, sender_address,
+          recipient_address, token_symbol, amount, fee, network, created_at
+        FROM larpz_wallet_transfers
+        WHERE client_request_id = $1 AND source_owner_id = $2
+        LIMIT 1
+      `,
+      [clientRequestId, ownerId],
+    ) as DatabaseTransferRow[];
+    if (!replayRows[0]) return null;
+
+    const transaction = transferFromRow(replayRows[0]);
+    const matchesOriginalRequest = isTransferReplay(transaction, {
+      clientRequestId,
+      sourceWalletId: transaction.sourceWalletId,
+      sourceAccountId,
+      destinationWalletId: address ? undefined : transaction.destinationWalletId,
+      destinationAccountId: address ? undefined : destinationId ?? undefined,
+      destinationAddress: address || undefined,
+      tokenSymbol: symbol,
+      amount: numericAmount,
+    });
+    if (!matchesOriginalRequest) {
+      throw new RemoteWalletError("DUPLICATE", "This request ID was already used for a different transfer.");
+    }
+
+    return {
+      transaction,
+      snapshot: await loadSnapshot(ownerId),
+    };
+  };
+
+  const duplicateRequestExists = async () => {
+    const duplicateRows = await sql.query(
+      `SELECT EXISTS (
+        SELECT 1 FROM larpz_wallet_transfers WHERE client_request_id = $1
+      ) AS duplicate`,
+      [clientRequestId],
+    ) as { duplicate: boolean }[];
+    return Boolean(duplicateRows[0]?.duplicate);
+  };
+
+  const existingTransfer = await replayExistingTransfer();
+  if (existingTransfer) return existingTransfer;
+
+  let rows: DatabaseTransferRow[];
+  try {
+    rows = await sql.query(
     `
       WITH source_account AS MATERIALIZED (
         SELECT * FROM larpz_wallet_accounts
@@ -612,7 +1022,7 @@ export async function executeRemoteTransfer({
           destination_account.address AS recipient_address
         FROM source_account, destination_account
         WHERE (source_account.owner_id, source_account.account_id) <> (destination_account.owner_id, destination_account.account_id)
-          AND COALESCE((source_account.balances ->> $5)::double precision, 0) + 1e-12 >= $6
+          AND COALESCE((source_account.balances ->> $5)::numeric, 0) >= $6::numeric
           AND NOT EXISTS (
             SELECT 1 FROM larpz_wallet_transfers WHERE client_request_id = $7
           )
@@ -622,7 +1032,7 @@ export async function executeRemoteTransfer({
         SET balances = jsonb_set(
           account.balances,
           ARRAY[$5]::text[],
-          to_jsonb(COALESCE((account.balances ->> $5)::double precision, 0) - $6),
+          to_jsonb(GREATEST(0::numeric, COALESCE((account.balances ->> $5)::numeric, 0) - $6::numeric)),
           true
         ), updated_at = NOW()
         FROM eligible
@@ -635,7 +1045,7 @@ export async function executeRemoteTransfer({
         SET balances = jsonb_set(
           account.balances,
           ARRAY[$5]::text[],
-          to_jsonb(COALESCE((account.balances ->> $5)::double precision, 0) + $8),
+          to_jsonb(COALESCE((account.balances ->> $5)::numeric, 0) + $8::numeric),
           true
         ), updated_at = NOW()
         FROM eligible
@@ -668,9 +1078,27 @@ export async function executeRemoteTransfer({
       FROM inserted
     `,
     [ownerId, sourceAccountId, address, destinationId, symbol, debit, clientRequestId, numericAmount, transactionId, fee, network, createdAt],
-  ) as DatabaseTransferRow[];
+    ) as DatabaseTransferRow[];
+  } catch (error) {
+    try {
+      const replayedTransfer = await replayExistingTransfer();
+      if (replayedTransfer) return replayedTransfer;
+    } catch (replayError) {
+      if (replayError instanceof RemoteWalletError) throw replayError;
+    }
+    try {
+      if (await duplicateRequestExists()) {
+        throw new RemoteWalletError("DUPLICATE", "This transfer was already submitted.");
+      }
+    } catch (duplicateError) {
+      if (duplicateError instanceof RemoteWalletError) throw duplicateError;
+    }
+    throw error;
+  }
 
   if (rows.length === 0) {
+    const replayedTransfer = await replayExistingTransfer();
+    if (replayedTransfer) return replayedTransfer;
     const diagnostic = await sql.query(
       `
         SELECT

@@ -1,15 +1,17 @@
 import {
+  executeRemoteBalanceOperation,
   executeRemoteTransfer,
   linkRemoteWalletOwner,
   patchRemoteWalletAccount,
   RemoteWalletError,
   syncRemoteWallet,
+  walletOwnerIdForLicense,
 } from "@/lib/wallet-ledger-database";
 
 export const runtime = "nodejs";
 
 type WalletLedgerRequest = {
-  action?: "bootstrap" | "sync" | "patchAccount" | "linkOwner" | "transfer";
+  action?: "bootstrap" | "sync" | "patchAccount" | "linkOwner" | "transfer" | "balanceOperation";
   ownerId?: unknown;
   licenseKey?: unknown;
   legacyOwnerId?: unknown;
@@ -25,11 +27,40 @@ type WalletLedgerRequest = {
     tokenSymbol?: unknown;
     amount?: unknown;
   };
+  operation?: {
+    clientRequestId?: unknown;
+    walletId?: unknown;
+    accountId?: unknown;
+    deltas?: unknown;
+    activities?: unknown;
+  };
 };
 
+function requestOwnerId(request: Request) {
+  const header = request.headers.get("cookie") ?? "";
+  for (const part of header.split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    if (rawName !== "larpz_wallet_owner_id") continue;
+    try {
+      return decodeURIComponent(rawValue.join("="));
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function assertAuthorizedOwner(request: Request, ownerId: unknown) {
+  if (typeof ownerId !== "string" || !/^lic_[a-f0-9]{32}$/.test(ownerId) || requestOwnerId(request) !== ownerId) {
+    throw new RemoteWalletError("ACTIVATION_REQUIRED", "Activate this installed wallet before accessing its shared demo ledger.");
+  }
+}
+
 export async function POST(request: Request) {
+  let body: WalletLedgerRequest = {};
   try {
-    const body = await request.json() as WalletLedgerRequest;
+    body = await request.json() as WalletLedgerRequest;
+    if (body.action && body.action !== "linkOwner") assertAuthorizedOwner(request, body.ownerId);
     if (body.action === "bootstrap" || body.action === "sync") {
       const snapshot = await syncRemoteWallet({
         ownerId: body.ownerId,
@@ -66,15 +97,34 @@ export async function POST(request: Request) {
       });
       return Response.json({ connected: true, ...result }, { headers: { "Cache-Control": "no-store" } });
     }
+    if (body.action === "balanceOperation" && body.operation) {
+      const result = await executeRemoteBalanceOperation({
+        ownerId: body.ownerId,
+        clientRequestId: body.operation.clientRequestId,
+        walletId: body.operation.walletId,
+        accountId: body.operation.accountId,
+        deltas: body.operation.deltas,
+        activities: body.operation.activities,
+      });
+      return Response.json({ connected: true, ...result }, { headers: { "Cache-Control": "no-store" } });
+    }
     throw new RemoteWalletError("INVALID_REQUEST", "Unknown shared wallet action.");
   } catch (error) {
     const code = error instanceof RemoteWalletError ? error.code : "DATABASE_ERROR";
-    const status = code === "DATABASE_NOT_CONFIGURED" ? 503
-      : code === "ACTIVATION_REQUIRED" ? 401
+    const message = error instanceof Error ? error.message : "Shared wallet request failed.";
+    if (code === "DATABASE_NOT_CONFIGURED") {
+      const ownerId = body.action === "linkOwner"
+        ? await walletOwnerIdForLicense(body.licenseKey)
+        : undefined;
+      return Response.json(
+        { connected: false, error: message, code, ownerId, linkStatus: ownerId ? "local" : undefined },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const status = code === "ACTIVATION_REQUIRED" ? 401
       : code === "ACCOUNT_NOT_FOUND" || code === "INVALID_ADDRESS" ? 404
         : code === "DUPLICATE" ? 409
           : 400;
-    const message = error instanceof Error ? error.message : "Shared wallet request failed.";
     return Response.json({ error: message, code }, { status });
   }
 }

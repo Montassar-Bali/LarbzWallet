@@ -37,13 +37,13 @@ export const walletThemes: WalletTheme[] = [
   },
   {
     id: "trust",
-    name: "Trust Style",
-    description: "Clear blue interface for familiar mobile-first wallet interactions.",
+    name: "Larpz Trust Style",
+    description: "Larpz Wallet's dark mobile-first Trust-style demo interface.",
     palette: {
-      background: "#06162b",
-      card: "#0b233f",
-      accent: "#4ea6ff",
-      text: "#e6f2ff",
+      background: "#05060f",
+      card: "#171824",
+      accent: "#4437ff",
+      text: "#f7f7fb",
     },
   },
 ];

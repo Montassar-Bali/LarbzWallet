@@ -3,14 +3,14 @@ import type { Metadata } from "next";
 import { WalletLaunchPage } from "@/components/dashboard/wallet-launch-page";
 
 export const metadata: Metadata = {
-  title: "Trust Wallet",
+  title: "Larpz Wallet · Trust Style",
   manifest: "/manifests/trust.webmanifest",
   icons: {
-    apple: [{ url: "/icons/wallets/trust.png", sizes: "280x280", type: "image/png" }],
+    apple: [{ url: "/assets/logo_m.png", type: "image/png" }],
   },
   appleWebApp: {
     capable: true,
-    title: "Trust Wallet",
+    title: "Larpz Wallet",
     statusBarStyle: "black-translucent",
   },
 };

@@ -49,7 +49,7 @@ export function WalletAppRoute({ initialTheme }: { initialTheme?: WalletThemeId 
   }
 
   if (themeId === "trust") {
-    return <WalletRuntimeProvider walletId="trust"><TrustWallet /></WalletRuntimeProvider>;
+    return <div className="trust-wallet-font"><WalletRuntimeProvider walletId="trust"><TrustWallet /></WalletRuntimeProvider></div>;
   }
 
   if (themeId === "ledger") {

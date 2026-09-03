@@ -7,12 +7,13 @@ import { cn } from "@/lib/utils";
 
 const QUIET_ZONE = 4;
 const MODULE_RADIUS = 0.39;
-const BACKGROUND = "#19191b";
+const DARK_BACKGROUND = "#19191b";
 
 type AddressQrCodeProps = {
   value: string;
   className?: string;
   children?: ReactNode;
+  variant?: "dark" | "light";
 };
 
 function isFinderModule(row: number, column: number, size: number) {
@@ -24,18 +25,19 @@ function isFinderModule(row: number, column: number, size: number) {
   return (top && left) || (top && right) || (bottom && left);
 }
 
-function FinderMark({ x, y }: { x: number; y: number }) {
+function FinderMark({ x, y, background }: { x: number; y: number; background: string }) {
   return (
     <g>
       <rect x={x} y={y} width="7" height="7" rx="1.05" fill="currentColor" />
-      <rect x={x + 1} y={y + 1} width="5" height="5" rx="0.7" fill={BACKGROUND} />
+      <rect x={x + 1} y={y + 1} width="5" height="5" rx="0.7" fill={background} />
       <rect x={x + 2} y={y + 2} width="3" height="3" rx="0.55" fill="currentColor" />
     </g>
   );
 }
 
-export function AddressQrCode({ value, className, children }: AddressQrCodeProps) {
+export function AddressQrCode({ value, className, children, variant = "dark" }: AddressQrCodeProps) {
   const source = value.trim();
+  const background = variant === "light" ? "#ffffff" : DARK_BACKGROUND;
   const qrCode = source
     ? create(source, { errorCorrectionLevel: "H" })
     : null;
@@ -64,7 +66,8 @@ export function AddressQrCode({ value, className, children }: AddressQrCodeProps
   return (
     <div
       className={cn(
-        "relative aspect-square w-full overflow-hidden rounded-[1.25rem] bg-[#19191b] text-white",
+        "relative aspect-square w-full overflow-hidden rounded-[1.25rem]",
+        variant === "light" ? "bg-white text-[#080912]" : "bg-[#19191b] text-white",
         className,
       )}
     >
@@ -75,20 +78,23 @@ export function AddressQrCode({ value, className, children }: AddressQrCodeProps
         className="block h-full w-full"
         shapeRendering="geometricPrecision"
       >
-        <rect width={viewBoxSize} height={viewBoxSize} rx="1.8" fill={BACKGROUND} />
+        <rect width={viewBoxSize} height={viewBoxSize} rx="1.8" fill={background} />
         {qrCode ? (
           <>
             {dots}
-            <FinderMark x={QUIET_ZONE} y={QUIET_ZONE} />
-            <FinderMark x={QUIET_ZONE + moduleCount - 7} y={QUIET_ZONE} />
-            <FinderMark x={QUIET_ZONE} y={QUIET_ZONE + moduleCount - 7} />
+            <FinderMark x={QUIET_ZONE} y={QUIET_ZONE} background={background} />
+            <FinderMark x={QUIET_ZONE + moduleCount - 7} y={QUIET_ZONE} background={background} />
+            <FinderMark x={QUIET_ZONE} y={QUIET_ZONE + moduleCount - 7} background={background} />
           </>
         ) : null}
       </svg>
       {children ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute left-1/2 top-1/2 grid h-[19%] w-[19%] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-[28%] bg-[#19191b] p-[2.5%] [&>*]:max-h-full [&>*]:max-w-full"
+          className={cn(
+            "pointer-events-none absolute left-1/2 top-1/2 grid h-[19%] w-[19%] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-[28%] p-[2.5%] [&>*]:max-h-full [&>*]:max-w-full",
+            variant === "light" ? "bg-white" : "bg-[#19191b]",
+          )}
         >
           {children}
         </span>

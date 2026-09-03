@@ -86,6 +86,16 @@ body {
   font-weight: 500;
 }
 
+.trust-wallet-font,
+.trust-wallet-font .font-sans {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+.trust-wallet-font {
+  font-weight: 500;
+  color-scheme: dark;
+}
+
 [data-ledger-color-scheme="light"] {
   color-scheme: light;
   background: #f4f2f7 !important;

@@ -137,6 +137,23 @@ async function assertWritingFieldsAvoidIosZoom(targetPage, screen) {
   }
 }
 
+async function enterWalletKeypadAmount(targetPage, inputLabel, value) {
+  const input = targetPage.getByLabel(inputLabel);
+  const initialValue = await input.inputValue();
+  if (initialValue !== "0") {
+    throw new Error(`${inputLabel} did not start from a clean zero value: ${initialValue}`);
+  }
+  const keypad = targetPage.locator('[aria-label="Numeric keypad"]');
+  for (const character of value.replace(/^0(?=\.)/, "")) {
+    const buttonName = character === "." ? "Decimal point" : character;
+    await keypad.getByRole("button", { name: buttonName, exact: true }).click();
+  }
+  const enteredValue = await input.inputValue();
+  if (enteredValue !== value) {
+    throw new Error(`${inputLabel} keypad entered ${enteredValue} instead of ${value}.`);
+  }
+}
+
 async function assertViewportContentFits(targetPage, screen, expectedWidth) {
   const layout = await targetPage.evaluate(() => {
     const nav = document.querySelector('[data-testid="ledger-bottom-nav"]');
@@ -161,6 +178,38 @@ async function assertViewportContentFits(targetPage, screen, expectedWidth) {
   const balanceOverflows = !layout.balanceFits || !layout.balanceBounds || layout.balanceBounds.left < -tolerance || layout.balanceBounds.right > expectedWidth + tolerance;
   const undersizedTargets = layout.navTargets.filter((bounds) => bounds.width < 44 || bounds.height < 44);
   if (layout.innerWidth !== expectedWidth || contentOverflows || navOverflows || balanceOverflows || undersizedTargets.length > 0) {
+    throw new Error(`${screen} does not fit the ${expectedWidth}px viewport: ${JSON.stringify({ ...layout, undersizedTargets })}`);
+  }
+}
+
+async function assertTrustViewportContentFits(targetPage, screen, expectedWidth) {
+  const layout = await targetPage.evaluate(() => {
+    const root = document.querySelector('[data-testid="trust-home"]');
+    const nav = document.querySelector('[data-testid="trust-bottom-nav"]');
+    const balance = document.querySelector('[data-testid="trust-portfolio-balance"]');
+    const rootBounds = root?.getBoundingClientRect();
+    const navBounds = nav?.getBoundingClientRect();
+    const balanceBounds = balance?.getBoundingClientRect();
+    const balanceStyle = balance ? getComputedStyle(balance) : null;
+    const navTargets = nav ? [...nav.querySelectorAll("button")].map((button) => button.getBoundingClientRect()) : [];
+    return {
+      innerWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+      rootBounds: rootBounds ? { left: rootBounds.left, right: rootBounds.right, width: rootBounds.width } : null,
+      navBounds: navBounds ? { left: navBounds.left, right: navBounds.right, width: navBounds.width } : null,
+      balanceFits: balance ? balance.scrollWidth <= balance.clientWidth + 1 || balanceStyle?.overflowX === "hidden" : false,
+      balanceBounds: balanceBounds ? { left: balanceBounds.left, right: balanceBounds.right } : null,
+      navTargets: navTargets.map((bounds) => ({ width: bounds.width, height: bounds.height })),
+    };
+  });
+  const tolerance = 1;
+  const contentOverflows = layout.documentWidth > expectedWidth + tolerance || layout.bodyWidth > expectedWidth + tolerance;
+  const rootOverflows = !layout.rootBounds || layout.rootBounds.left < -tolerance || layout.rootBounds.right > expectedWidth + tolerance;
+  const navOverflows = !layout.navBounds || layout.navBounds.left < -tolerance || layout.navBounds.right > expectedWidth + tolerance;
+  const balanceOverflows = !layout.balanceFits || !layout.balanceBounds || layout.balanceBounds.left < -tolerance || layout.balanceBounds.right > expectedWidth + tolerance;
+  const undersizedTargets = layout.navTargets.filter((bounds) => bounds.width < 44 || bounds.height < 44);
+  if (layout.innerWidth !== expectedWidth || contentOverflows || rootOverflows || navOverflows || balanceOverflows || undersizedTargets.length > 0) {
     throw new Error(`${screen} does not fit the ${expectedWidth}px viewport: ${JSON.stringify({ ...layout, undersizedTargets })}`);
   }
 }
@@ -623,36 +672,406 @@ await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
 await ledgerBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 await page.locator('[data-testid="ledger-home"]').waitFor();
 
-await assertMobileLayout("/trust-wallet", "Home");
-await assertWritingFieldsAvoidIosZoom(page, "Trust home");
-await page.getByRole("button", { name: "Send" }).click();
-await page.getByRole("heading", { name: "Send" }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Trust transfer");
-const sheetBounds = await page.locator("section[aria-label='Send']").boundingBox();
-if (!sheetBounds || sheetBounds.x < 0 || sheetBounds.x + sheetBounds.width > 390 || sheetBounds.y < 0 || sheetBounds.y + sheetBounds.height > 844.5) {
-  throw new Error(`Transfer sheet exceeds the mobile viewport: ${JSON.stringify(sheetBounds)}`);
+await assertMobileLayout("/trust-wallet", "Explore perpetual markets", 20_000);
+await page.locator('[data-testid="trust-wallet"]').waitFor();
+await page.locator('[data-testid="trust-home"]').waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style home");
+const trustHomeText = await page.locator('[data-testid="trust-wallet"]').innerText();
+if (/TikTok|@northlarp|recording indicator|\b(?:Kaufen|Verkaufen|Tausch|Senden|Empfangen|Suchen|Weiter|Anpassen|Haupt-Wallet)\b/i.test(trustHomeText)) {
+  throw new Error("The Larpz Trust-style wallet still contains source-video, watermark, or German interface text.");
 }
-await page.getByRole("button", { name: "Close", exact: true }).click();
-await page.getByRole("button", { name: "Swap", exact: true }).click();
-await page.getByRole("heading", { name: "Trade tokens", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Trust swap");
-await page.getByRole("button", { name: "Discover", exact: true }).click();
-await page.getByRole("heading", { name: "Explore crypto", exact: true }).waitFor();
-await page.getByRole("button", { name: /Learn crypto/ }).click();
-await page.getByText(/Verify recipient addresses/).waitFor();
-await page.getByRole("button", { name: "Browser", exact: true }).click();
-await page.getByRole("heading", { name: "Web3 browser", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Trust browser");
-await page.getByRole("button", { name: /Wallet help center/ }).click();
-await page.getByText(/Use Receive to view an account address/).waitFor();
+
+const trustBottomNav = page.locator('[data-testid="trust-bottom-nav"]');
+await trustBottomNav.waitFor();
+for (const tab of ["Home", "Market", "Earn", "Discover", "Search"]) {
+  await trustBottomNav.getByRole("button", { name: tab, exact: true }).waitFor();
+}
+for (const action of ["Send", "Receive", "Swap", "Buy"]) {
+  await page.locator('[data-testid="trust-home"]').getByRole("button", { name: action, exact: true }).waitFor();
+}
+
+const originalTrustBalance = await page.locator('[data-testid="trust-portfolio-balance"]').textContent();
+await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((element) => { element.textContent = "$98,765,432,109,876.54"; });
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 393, height: 852 },
+  { width: 430, height: 932 },
+]) {
+  await page.setViewportSize(viewport);
+  await assertTrustViewportContentFits(page, "Larpz Trust-style home", viewport.width);
+}
+await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((element, original) => { element.textContent = original; }, originalTrustBalance);
+await page.setViewportSize({ width: 390, height: 844 });
+
+// Exercise the actual pull gesture, rather than only the refresh icon.
+await page.locator('[data-testid="trust-home"]').evaluate((home) => {
+  const target = home.parentElement;
+  if (!target) throw new Error("Trust home has no scroll container.");
+  target.scrollTop = 0;
+  const start = new Event("touchstart", { bubbles: true, cancelable: true });
+  Object.defineProperty(start, "touches", { value: [{ clientY: 20 }] });
+  target.dispatchEvent(start);
+  const move = new Event("touchmove", { bubbles: true, cancelable: true });
+  Object.defineProperty(move, "touches", { value: [{ clientY: 108 }] });
+  target.dispatchEvent(move);
+});
+await page.getByText("Release to refresh", { exact: true }).waitFor();
+await page.locator('[data-testid="trust-home"]').evaluate((home) => {
+  const target = home.parentElement;
+  if (!target) throw new Error("Trust home has no scroll container.");
+  const end = new Event("touchend", { bubbles: true, cancelable: true });
+  Object.defineProperty(end, "touches", { value: [] });
+  target.dispatchEvent(end);
+});
+const trustRefreshStatus = page.locator('[data-testid="trust-refresh-status"]');
+await trustRefreshStatus.waitFor();
+await trustRefreshStatus.waitFor({ state: "hidden", timeout: 10_000 });
+
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Receive", exact: true }).click();
+const trustReceiveSheet = page.locator("section[aria-label='Receive']");
+await trustReceiveSheet.getByRole("heading", { name: "Receive", exact: true }).waitFor();
+const trustReceiveQr = trustReceiveSheet.getByRole("img", { name: "Wallet address QR code" });
+await trustReceiveQr.waitFor();
+if (await trustReceiveQr.locator("circle").count() < 20) throw new Error("Trust Receive did not render a generated wallet-address QR matrix.");
+await trustReceiveSheet.getByRole("button", { name: "Copy", exact: true }).click();
+await trustReceiveSheet.getByRole("status").filter({ hasText: "Address copied" }).waitFor();
+await trustReceiveSheet.getByRole("button", { name: "Deposit from crypto exchange", exact: true }).click();
+await trustReceiveSheet.getByText("This demo never requests exchange credentials.", { exact: false }).waitFor();
+await trustReceiveSheet.getByRole("button", { name: "Close", exact: true }).click();
+await trustReceiveSheet.waitFor({ state: "hidden" });
+
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Send", exact: true }).click();
+const trustSendSheet = page.locator("section[aria-label='Send']");
+await trustSendSheet.getByRole("heading", { name: "Send", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style send");
+const trustSheetBounds = await trustSendSheet.boundingBox();
+if (!trustSheetBounds || trustSheetBounds.x < 0 || trustSheetBounds.x + trustSheetBounds.width > 390 || trustSheetBounds.y < 0 || trustSheetBounds.y + trustSheetBounds.height > 844.5) {
+  throw new Error(`Trust Send exceeds the mobile viewport: ${JSON.stringify(trustSheetBounds)}`);
+}
+await trustSendSheet.getByRole("button", { name: "Scan recipient QR code" }).click();
+const trustCameraScanner = page.getByRole("dialog", { name: "QR code scanner" });
+await trustCameraScanner.waitFor();
+await trustCameraScanner.getByLabel("Live camera preview").waitFor();
+await trustCameraScanner.waitFor({ state: "hidden", timeout: 8_000 });
+if (await trustSendSheet.getByLabel("Destination wallet address").inputValue() !== "sim_ledger_cameraqr123") {
+  throw new Error("Trust rear-camera QR scan did not populate the real destination field.");
+}
+await page.waitForFunction(() => window.__walletQrCamera?.tracksStopped > 0);
+const trustCameraState = await page.evaluate(() => window.__walletQrCamera);
+if (!trustCameraState?.requested || !JSON.stringify(trustCameraState.constraints).includes("environment") || trustCameraState.tracksStopped < 1) {
+  throw new Error(`Trust QR scanner did not request and release the rear camera: ${JSON.stringify(trustCameraState)}`);
+}
+await trustSendSheet.getByRole("button", { name: "Close", exact: true }).click();
+await trustSendSheet.waitFor({ state: "hidden" });
+
+const trustBalanceBeforeTrades = await page.locator('[data-testid="trust-portfolio-balance"]').getAttribute("aria-label");
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Buy", exact: true }).click();
+await page.getByRole("heading", { name: "Buy and sell", exact: true }).waitFor();
+await page.locator('[data-testid="trust-buy-screen"]').waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Buy");
+await page.getByRole("button", { name: "Select purchase token" }).click();
+const trustBuyPicker = page.locator('[data-testid="trust-token-picker"]');
+await trustBuyPicker.getByLabel("Search tokens").fill("Solana");
+await trustBuyPicker.getByRole("button").filter({ hasText: "Solana" }).first().click();
+const trustBuyKeypad = page.locator('[aria-label="Numeric keypad"]');
+await page.getByLabel("Fiat amount").fill("0");
+await trustBuyKeypad.getByRole("button", { name: "2", exact: true }).click();
+await trustBuyKeypad.getByRole("button", { name: "5", exact: true }).click();
+if (await page.getByLabel("Fiat amount").inputValue() !== "25") throw new Error("Trust Buy keypad did not enter 25.");
+await page.getByRole("button", { name: "Review purchase", exact: true }).click();
+await page.locator('[data-testid="trust-buy-review"]').waitFor();
+await page.getByRole("heading", { name: "Review buy", exact: true }).waitFor();
+await page.getByText("Internal demo only.", { exact: false }).waitFor();
+await page.getByRole("button", { name: "Confirm buy", exact: true }).click();
+await page.locator('[data-testid="trust-buy-success"]').waitFor({ timeout: 10_000 });
+await page.getByRole("heading", { name: "Purchase complete", exact: true }).waitFor();
+await page.getByRole("heading", { name: "Balance updated", exact: true }).waitFor();
+await page.getByRole("button", { name: "Done", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Buy", exact: true }).click();
+await page.getByRole("heading", { name: "Buy and sell", exact: true }).waitFor();
+await page.getByRole("button", { name: /^sell$/i }).click();
+await page.getByLabel("Fiat amount").fill("1");
+await page.getByRole("button", { name: "Review sale", exact: true }).click();
+await page.locator('[data-testid="trust-buy-review"]').waitFor();
+await page.getByRole("heading", { name: "Review sell", exact: true }).waitFor();
+await page.getByRole("button", { name: "Confirm sell", exact: true }).click();
+await page.locator('[data-testid="trust-buy-success"]').waitFor({ timeout: 10_000 });
+await page.getByRole("heading", { name: "Sale complete", exact: true }).waitFor();
+await page.getByRole("button", { name: "Done", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+const trustBalanceAfterTrades = await page.locator('[data-testid="trust-portfolio-balance"]').getAttribute("aria-label");
+if (!trustBalanceBeforeTrades || trustBalanceBeforeTrades === trustBalanceAfterTrades) throw new Error("Trust Buy/Sell did not update the portfolio balance.");
+await page.getByText("Received SOL", { exact: true }).first().waitFor();
+await page.getByText("Sent SOL", { exact: true }).first().waitFor();
+
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Swap", exact: true }).click();
+await page.getByRole("heading", { name: "Swap", exact: true }).waitFor();
+await page.locator('[data-testid="trust-swap-screen"]').waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Swap");
+await page.getByRole("button", { name: "Select destination token" }).click();
+const trustSwapPicker = page.locator('[data-testid="trust-token-picker"]');
+await trustSwapPicker.getByLabel("Search tokens").fill("Ethereum");
+await trustSwapPicker.getByRole("button").filter({ hasText: "Ethereum" }).first().click();
+await page.getByLabel("Swap amount").fill("0.01");
+if (Number(await page.getByLabel("Swap percentage").inputValue()) <= 0) throw new Error("Trust Swap percentage did not follow its amount.");
+const trustSwipe = page.locator('[data-testid="trust-swipe-confirm"]');
+await trustSwipe.scrollIntoViewIfNeeded();
+const trustSwipeBounds = await trustSwipe.boundingBox();
+if (!trustSwipeBounds) throw new Error("Trust Swipe-to-swap control has no visible bounds.");
+await page.mouse.move(trustSwipeBounds.x + 12, trustSwipeBounds.y + trustSwipeBounds.height / 2);
+await page.mouse.down();
+await page.mouse.move(trustSwipeBounds.x + trustSwipeBounds.width - 12, trustSwipeBounds.y + trustSwipeBounds.height / 2, { steps: 12 });
+await page.mouse.up();
+await page.locator('[data-testid="trust-swap-success"]').waitFor({ timeout: 10_000 });
+await page.getByRole("heading", { name: "Swap complete", exact: true }).waitFor();
+await page.getByRole("heading", { name: "Assets swapped", exact: true }).waitFor();
+await page.getByRole("button", { name: "Done", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+
+// Complete a real same-wallet Account 1 -> Account 2 transfer and verify Activity.
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Send", exact: true }).click();
+await trustSendSheet.getByText("Shared network connected:", { exact: false }).waitFor({ timeout: 10_000 });
+await trustSendSheet.getByLabel("Source wallet").selectOption("trust");
+await trustSendSheet.getByLabel("Currency").selectOption("SOL");
+const trustTransferSelects = trustSendSheet.locator("select");
+if (await trustTransferSelects.count() !== 5) throw new Error("Trust same-wallet transfer did not expose all wallet/account selectors.");
+await trustTransferSelects.nth(3).selectOption("trust");
+await trustTransferSelects.nth(4).selectOption({ label: "Account 2" });
+await trustSendSheet.getByLabel("Transfer amount").fill("0.0001");
+await trustSendSheet.getByRole("button", { name: /Review transfer/ }).click();
+await trustSendSheet.getByRole("heading", { name: "Review transfer" }).waitFor();
+await trustSendSheet.getByRole("button", { name: "Confirm transfer" }).click();
+await trustSendSheet.getByRole("heading", { name: "Transfer complete" }).waitFor({ timeout: 10_000 });
+await trustSendSheet.getByRole("button", { name: "Close", exact: true }).click();
+await page.getByRole("button", { name: "Open transaction history" }).click();
+const trustActivitySheet = page.locator("section[aria-label='Activity']");
+await trustActivitySheet.locator("article").filter({ hasText: "Sent SOL" }).filter({ hasText: "0.0001" }).first().waitFor();
+await trustActivitySheet.getByRole("button", { name: "Close", exact: true }).click();
+
+await trustBottomNav.getByRole("button", { name: "Market", exact: true }).click();
+await page.getByRole("heading", { name: "Market", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Market");
+await page.getByLabel("Search tokens").fill("Bitcoin");
+await page.getByRole("button").filter({ hasText: "Bitcoin" }).first().click();
+await page.getByRole("heading", { name: "Bitcoin", exact: true }).waitFor();
+await page.getByRole("img", { name: "BTC 1D market price chart" }).waitFor({ timeout: 10_000 });
+for (const period of ["1W", "1M", "1Y", "ALL"]) {
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/market-chart" && url.searchParams.get("symbol") === "BTC" && url.searchParams.get("period") === period;
+  });
+  await page.getByRole("button", { name: period, exact: true }).click();
+  await responsePromise;
+  await page.getByRole("img", { name: `BTC ${period} market price chart` }).waitFor();
+}
+await page.getByRole("button", { name: "Remove from watchlist" }).click();
+const trustRemoveWatchNotice = page.getByRole("status").filter({ hasText: "BTC removed from your watchlist" });
+await trustRemoveWatchNotice.waitFor();
+await trustRemoveWatchNotice.waitFor({ state: "hidden", timeout: 5_000 });
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.getByLabel("Search tokens").fill("BNB");
+await page.getByRole("button").filter({ hasText: "BNB" }).first().click();
+await page.getByRole("button", { name: "Add to watchlist" }).click();
+const trustAddWatchNotice = page.getByRole("status").filter({ hasText: "BNB added to your watchlist" });
+await trustAddWatchNotice.waitFor();
+await trustAddWatchNotice.waitFor({ state: "hidden", timeout: 5_000 });
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Perpetuals/ }).first().click();
+const trustPerpetuals = page.locator('[data-testid="trust-perpetuals"]');
+await trustPerpetuals.getByRole("heading", { name: "Perpetuals", exact: true }).waitFor();
+await trustPerpetuals.getByText("Practice markets", { exact: true }).waitFor();
+await trustPerpetuals.getByRole("button", { name: "Open BTC perpetual market", exact: true }).click();
+const trustPerpetualOrder = page.locator('[data-testid="trust-perpetual-order"]');
+await trustPerpetualOrder.getByRole("heading", { name: "BTC perpetual", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style perpetual order");
+await trustPerpetualOrder.getByRole("button", { name: "short", exact: true }).click();
+await trustPerpetualOrder.getByRole("button", { name: "5x", exact: true }).click();
+await enterWalletKeypadAmount(trustPerpetualOrder, "Perpetual collateral", "0.00001");
+await trustPerpetualOrder.getByRole("button", { name: "Review practice order", exact: true }).click();
+const trustPerpetualReview = page.locator('[data-testid="trust-perpetual-review"]');
+await trustPerpetualReview.getByRole("heading", { name: "Review practice order", exact: true }).waitFor();
+await trustPerpetualReview.getByText(/short BTC · 5x/i).waitFor();
+await trustPerpetualReview.getByText("0.00001 BTC", { exact: true }).first().waitFor();
+await trustPerpetualReview.getByRole("button", { name: "Open practice position", exact: true }).click();
+const trustPerpetualSuccess = page.locator('[data-testid="trust-perpetual-success"]');
+await trustPerpetualSuccess.getByRole("heading", { name: "Practice position updated", exact: true }).waitFor({ timeout: 10_000 });
+await trustPerpetualSuccess.getByRole("heading", { name: "Position updated", exact: true }).waitFor();
+await trustPerpetualSuccess.getByRole("button", { name: "View practice markets", exact: true }).click();
+await trustPerpetuals.getByRole("heading", { name: "Open positions", exact: true }).waitFor();
+await trustPerpetuals.getByText(/short BTC · 5x/i).waitFor();
+await trustPerpetuals.getByText("0.00001 BTC collateral", { exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+
+await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
+const trustEarn = page.locator('[data-testid="trust-earn"]');
+await trustEarn.getByRole("heading", { name: "Earn", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Earn");
+await trustEarn.getByRole("button", { name: "Allocate SOL to Earn", exact: true }).click();
+const trustEarnAmount = page.locator('[data-testid="trust-earn-amount"]');
+await trustEarnAmount.getByRole("heading", { name: "Earn SOL", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Earn allocation");
+await enterWalletKeypadAmount(trustEarnAmount, "Earn amount", "0.001");
+await trustEarnAmount.getByRole("button", { name: "Review allocation", exact: true }).click();
+const trustEarnReview = page.locator('[data-testid="trust-earn-review"]');
+await trustEarnReview.getByRole("heading", { name: "Review allocation", exact: true }).waitFor();
+await trustEarnReview.getByText("0.001 SOL", { exact: true }).waitFor();
+await trustEarnReview.getByRole("button", { name: "Confirm allocation", exact: true }).click();
+const trustEarnSuccess = page.locator('[data-testid="trust-earn-success"]');
+await trustEarnSuccess.getByRole("heading", { name: "Earn updated", exact: true }).waitFor({ timeout: 10_000 });
+await trustEarnSuccess.getByRole("heading", { name: "Position updated", exact: true }).waitFor();
+await trustEarnSuccess.getByRole("button", { name: "View positions", exact: true }).click();
+await trustEarn.getByRole("heading", { name: "Your positions", exact: true }).waitFor();
+await trustEarn.getByText("0.001 SOL", { exact: true }).waitFor();
+await trustEarn.getByText("7.18% APY · Active", { exact: true }).waitFor();
+await trustEarn.getByRole("button", { name: "Redeem", exact: true }).waitFor();
+
+await trustBottomNav.getByRole("button", { name: "Search", exact: true }).click();
+await page.getByRole("heading", { name: "Search", exact: true }).waitFor();
+await page.getByLabel("Search wallet").fill("Solana");
+await page.getByRole("button").filter({ hasText: "Solana" }).first().waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+
+await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Watchlist/ }).click();
+await page.getByRole("heading", { name: "Watchlist", exact: true }).waitFor();
+await page.getByRole("button", { name: "Add BTC to watchlist", exact: true }).waitFor();
+await page.getByRole("button", { name: "Remove BNB from watchlist", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+
+await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
+await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
+await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
+await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Settings");
+await page.getByLabel("Wallet name").fill("Smoke Trust Account");
+await page.getByLabel("Currency").selectOption("EUR");
+await page.getByRole("button", { name: "Toggle portfolio notifications" }).click();
+await page.getByRole("button", { name: "Save settings", exact: true }).click();
+await page.getByRole("status").filter({ hasText: "Wallet settings saved" }).waitFor();
+await page.locator('[data-testid="trust-home"]').waitFor();
+await page.getByRole("button", { name: "Open wallet accounts" }).filter({ hasText: "Smoke Trust Account" }).waitFor();
+
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator('[data-testid="trust-home"]').waitFor({ timeout: 20_000 });
+await page.getByRole("button", { name: "Open wallet accounts" }).filter({ hasText: "Smoke Trust Account" }).waitFor();
+await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
+await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
+if (await page.getByLabel("Wallet name").inputValue() !== "Smoke Trust Account" || await page.getByLabel("Currency").inputValue() !== "EUR") {
+  throw new Error("Trust wallet name and currency settings did not persist after reload.");
+}
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
+await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
+// Both staged positions must survive a full reload before they are closed.
+await trustEarn.getByRole("heading", { name: "Your positions", exact: true }).waitFor();
+await trustEarn.getByText("0.001 SOL", { exact: true }).waitFor();
+await trustEarn.getByRole("button", { name: "Redeem", exact: true }).waitFor();
+await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Perpetuals/ }).first().click();
+await trustPerpetuals.getByRole("heading", { name: "Open positions", exact: true }).waitFor();
+await trustPerpetuals.getByText(/short BTC · 5x/i).waitFor();
+await trustPerpetuals.getByRole("button", { name: "Close", exact: true }).click();
+await trustPerpetualReview.getByRole("heading", { name: "Review close", exact: true }).waitFor();
+await trustPerpetualReview.getByText("0.00001 BTC", { exact: true }).first().waitFor();
+await trustPerpetualReview.getByRole("button", { name: "Close position", exact: true }).click();
+await trustPerpetualSuccess.getByRole("heading", { name: "Practice position updated", exact: true }).waitFor({ timeout: 10_000 });
+await trustPerpetualSuccess.getByRole("button", { name: "View practice markets", exact: true }).click();
+if (await trustPerpetuals.getByRole("heading", { name: "Open positions", exact: true }).count() !== 0) {
+  throw new Error("Trust practice position remained open after its confirmed close.");
+}
+await trustPerpetuals.getByRole("button", { name: "Go back", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
+await trustEarn.getByRole("button", { name: "Redeem", exact: true }).click();
+await trustEarnReview.getByRole("heading", { name: "Review redemption", exact: true }).waitFor();
+await trustEarnReview.getByText("0.001 SOL", { exact: true }).waitFor();
+await trustEarnReview.getByRole("button", { name: "Confirm redemption", exact: true }).click();
+await trustEarnSuccess.getByRole("heading", { name: "Earn updated", exact: true }).waitFor({ timeout: 10_000 });
+await trustEarnSuccess.getByRole("button", { name: "View positions", exact: true }).click();
+if (await trustEarn.getByRole("heading", { name: "Your positions", exact: true }).count() !== 0) {
+  throw new Error("Trust Earn allocation remained active after its confirmed redemption.");
+}
+await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
+await page.getByRole("button", { name: "Open transaction history", exact: true }).click();
+const trustHistorySearch = trustActivitySheet.getByLabel("Search transaction history");
+await trustHistorySearch.fill("INTERNAL PERPETUAL");
+await trustActivitySheet.getByText("Sent BTC", { exact: true }).waitFor();
+await trustActivitySheet.getByText("Received BTC", { exact: true }).waitFor();
+if (await trustActivitySheet.locator("article").count() !== 2) {
+  throw new Error("Trust practice-position open and close did not produce exactly two ledger activities.");
+}
+await trustHistorySearch.fill("INTERNAL EARN");
+await trustActivitySheet.getByText("Sent SOL", { exact: true }).waitFor();
+await trustActivitySheet.getByText("Received SOL", { exact: true }).waitFor();
+if (await trustActivitySheet.locator("article").count() !== 2) {
+  throw new Error("Trust Earn allocation and redemption did not produce exactly two ledger activities.");
+}
+await trustActivitySheet.getByRole("button", { name: "Close", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Watchlist/ }).click();
+await page.getByRole("button", { name: "Add BTC to watchlist", exact: true }).waitFor();
+await page.getByRole("button", { name: "Remove BNB from watchlist", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+
+await page.getByRole("button", { name: "Open wallet accounts" }).click();
+const trustAccountsSheet = page.locator("section[aria-label='Accounts']");
+await trustAccountsSheet.getByRole("heading", { name: "Accounts", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Accounts");
+await trustAccountsSheet.getByLabel("New account name").fill("Trust Smoke Savings");
+await trustAccountsSheet.getByRole("button", { name: "Add account", exact: true }).click();
+const trustSavingsAccount = trustAccountsSheet.locator("article").filter({ hasText: "Trust Smoke Savings" });
+await trustSavingsAccount.getByText("Trust Smoke Savings", { exact: true }).waitFor();
+const trustSavingsSwitch = trustSavingsAccount.getByRole("button", { name: "Switch to account", exact: true });
+if (await trustSavingsSwitch.isVisible().catch(() => false)) await trustSavingsSwitch.click();
+await trustSavingsAccount.getByRole("button", { name: "Current account", exact: true }).waitFor();
+await trustAccountsSheet.getByRole("button", { name: "Close", exact: true }).click();
+await page.locator('[data-testid="trust-home"]').waitFor();
+const trustZeroBalance = await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((balance) => {
+  const bounds = balance.getBoundingClientRect();
+  const style = getComputedStyle(balance);
+  const decimal = [...balance.querySelectorAll("span")].find((span) => span.textContent?.includes(".00"));
+  const decimalStyle = decimal ? getComputedStyle(decimal) : null;
+  const decimalBounds = decimal?.getBoundingClientRect();
+  return {
+    text: balance.textContent?.trim(),
+    ariaLabel: balance.getAttribute("aria-label"),
+    color: style.color,
+    visible: style.visibility !== "hidden" && Number(style.opacity) > 0 && bounds.width > 0 && bounds.height > 0,
+    fullyFits: balance.scrollWidth <= balance.clientWidth + 1 && bounds.left >= -1 && bounds.right <= window.innerWidth + 1,
+    decimal: decimal ? {
+      fontRatio: Number.parseFloat(decimalStyle.fontSize) / Number.parseFloat(style.fontSize),
+      color: decimalStyle.color,
+      fullyVisible: decimalBounds.left >= bounds.left - 1 && decimalBounds.right <= bounds.right + 1,
+    } : null,
+  };
+});
+if (!trustZeroBalance.visible || !trustZeroBalance.fullyFits || !/0\.00$/.test(trustZeroBalance.text ?? "") || !/0\.00$/.test(trustZeroBalance.ariaLabel ?? "") || (trustZeroBalance.decimal && (trustZeroBalance.decimal.fontRatio < 0.9 || trustZeroBalance.decimal.color !== trustZeroBalance.color || !trustZeroBalance.decimal.fullyVisible))) {
+  throw new Error(`Trust zero balance is clipped, low-contrast, or uses mismatched decimal typography: ${JSON.stringify(trustZeroBalance)}`);
+}
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator('[data-testid="trust-home"]').waitFor({ timeout: 20_000 });
+await page.getByRole("button", { name: "Open wallet accounts" }).filter({ hasText: "Trust Smoke Savings" }).waitFor();
+if (!/0\.00$/.test(await page.locator('[data-testid="trust-portfolio-balance"]').textContent() ?? "")) {
+  throw new Error("Trust zero balance did not persist after reload.");
+}
+await page.getByRole("button", { name: "Open wallet accounts" }).click();
+await page.locator("section[aria-label='Accounts']").getByText("Trust Smoke Savings", { exact: true }).waitFor();
+await page.locator("section[aria-label='Accounts']").getByRole("button", { name: "Close", exact: true }).click();
 
 function createInMemoryWalletLedger(ownerId) {
   let snapshot = null;
+  let lastTransferRequest = null;
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const accountsFromState = (state) => Object.values(state.wallets).flatMap((wallet) =>
     wallet.accounts.map((account) => ({ ...clone(account), ownerId })));
-  const responseSnapshot = () => clone(snapshot ?? { accounts: [], transactions: [] });
+  const responseSnapshot = () => clone(snapshot ?? { accounts: [], transactions: [], operations: [] });
   const fulfill = (route, payload, status = 200) => route.fulfill({
     status,
     contentType: "application/json",
@@ -660,7 +1079,7 @@ function createInMemoryWalletLedger(ownerId) {
     body: JSON.stringify(payload),
   });
 
-  return async (route) => {
+  const handler = async (route) => {
     let body;
     try {
       body = route.request().postDataJSON();
@@ -678,6 +1097,7 @@ function createInMemoryWalletLedger(ownerId) {
         snapshot = {
           accounts: accountsFromState(body.state),
           transactions: clone(body.state.transactions ?? []),
+          operations: clone(body.state.operations ?? []),
         };
       } else if (body.action === "sync") {
         for (const incoming of accountsFromState(body.state)) {
@@ -707,19 +1127,75 @@ function createInMemoryWalletLedger(ownerId) {
       return;
     }
 
+    if (body.action === "balanceOperation" && body.operation) {
+      const existing = snapshot?.operations.find((operation) => operation.clientRequestId === body.operation.clientRequestId);
+      if (existing) {
+        const sameAccount = existing.walletId === body.operation.walletId && existing.accountId === body.operation.accountId;
+        const normalizeDeltas = (deltas) => JSON.stringify(Object.fromEntries(Object.entries(deltas ?? {}).sort(([left], [right]) => left.localeCompare(right))));
+        if (!sameAccount || normalizeDeltas(existing.deltas) !== normalizeDeltas(body.operation.deltas)) {
+          await fulfill(route, { code: "DUPLICATE", error: "Request ID already used for a different operation." }, 409);
+          return;
+        }
+        await fulfill(route, { connected: true, snapshot: responseSnapshot(), operation: clone(existing) });
+        return;
+      }
+      const account = snapshot?.accounts.find((candidate) => candidate.id === body.operation.accountId && candidate.walletId === body.operation.walletId);
+      const deltas = body.operation.deltas && typeof body.operation.deltas === "object" ? Object.entries(body.operation.deltas) : [];
+      if (!account || !body.operation.clientRequestId || deltas.length === 0 || !Array.isArray(body.operation.activities) || body.operation.activities.length === 0) {
+        await fulfill(route, { code: "INVALID_REQUEST", error: "Invalid balance operation." }, 400);
+        return;
+      }
+      const nextBalances = { ...account.balances };
+      for (const [rawSymbol, rawDelta] of deltas) {
+        const symbol = rawSymbol.toUpperCase();
+        const delta = Number(rawDelta);
+        const next = Number(nextBalances[symbol] ?? 0) + delta;
+        if (!Number.isFinite(delta) || delta === 0 || next < -1e-12) {
+          await fulfill(route, { code: next < 0 ? "INSUFFICIENT_FUNDS" : "INVALID_REQUEST", error: "Invalid balance operation." }, 400);
+          return;
+        }
+        nextBalances[symbol] = Number(Math.max(0, next).toFixed(12));
+      }
+      account.balances = nextBalances;
+      const operation = {
+        id: `simop_smoke_${Date.now()}`,
+        clientRequestId: body.operation.clientRequestId,
+        walletId: body.operation.walletId,
+        accountId: body.operation.accountId,
+        deltas: clone(body.operation.deltas),
+        activities: clone(body.operation.activities),
+        timestamp: new Date().toISOString(),
+        note: "INTERNAL DEMO BALANCE OPERATION — NO REAL FUNDS",
+      };
+      snapshot.operations.unshift(operation);
+      await fulfill(route, { connected: true, snapshot: responseSnapshot(), operation: clone(operation) });
+      return;
+    }
+
     if (body.action === "transfer" && body.transfer) {
+      lastTransferRequest = clone(body.transfer);
+      const destinationInput = typeof body.transfer.destinationAddress === "string" ? body.transfer.destinationAddress.trim() : "";
+      const domainAccountId = destinationInput.match(/^([a-zA-Z0-9_-]{3,180})\.larpz$/i)?.[1];
+      const destination = snapshot?.accounts.find((account) =>
+        destinationInput
+          ? domainAccountId ? account.id === domainAccountId : account.address === destinationInput
+          : account.id === body.transfer.destinationAccountId);
+      const symbol = String(body.transfer.tokenSymbol ?? "").toUpperCase();
+      const transferAmount = Number(body.transfer.amount);
       const existing = snapshot?.transactions.find((transaction) => transaction.clientRequestId === body.transfer.clientRequestId);
       if (existing) {
+        const replayMatches = existing.sourceAccountId === body.transfer.sourceAccountId
+          && existing.destinationAccountId === destination?.id
+          && existing.tokenSymbol === symbol
+          && existing.amount === transferAmount;
+        if (!replayMatches) {
+          await fulfill(route, { code: "DUPLICATE", error: "Request ID already used for a different transfer." }, 409);
+          return;
+        }
         await fulfill(route, { connected: true, snapshot: responseSnapshot(), transaction: clone(existing) });
         return;
       }
       const source = snapshot?.accounts.find((account) => account.id === body.transfer.sourceAccountId);
-      const destination = snapshot?.accounts.find((account) =>
-        body.transfer.destinationAddress
-          ? account.address === body.transfer.destinationAddress
-          : account.id === body.transfer.destinationAccountId);
-      const symbol = String(body.transfer.tokenSymbol ?? "").toUpperCase();
-      const transferAmount = Number(body.transfer.amount);
       const fee = symbol === "BNB" ? 0.0001 : 0;
       if (!source || !destination || source.id === destination.id || !Number.isFinite(transferAmount) || transferAmount <= 0) {
         await fulfill(route, { code: "INVALID_REQUEST", error: "Invalid transfer." }, 400);
@@ -756,6 +1232,9 @@ function createInMemoryWalletLedger(ownerId) {
 
     await fulfill(route, { code: "INVALID_REQUEST", error: "Unknown shared wallet action." }, 400);
   };
+  handler.getSnapshot = responseSnapshot;
+  handler.getLastTransferRequest = () => clone(lastTransferRequest);
+  return handler;
 }
 
 // Regression: installed PWAs can have isolated browser storage. They must still
@@ -789,16 +1268,55 @@ await trustPage.getByRole("button", { name: "Send", exact: true }).waitFor({ tim
 await trustPage.getByRole("button", { name: "Send", exact: true }).click();
 const crossWalletTransfer = trustPage.locator("section[aria-label='Send']");
 await crossWalletTransfer.getByText("Shared network connected:", { exact: false }).waitFor({ timeout: 20_000 });
+const sharedSnapshotBeforeTransfer = sharedWalletLedger.getSnapshot();
+const phantomDestinationAccount = sharedSnapshotBeforeTransfer.accounts.find((account) => account.walletId === "ghost" && account.name === "Account 1");
+if (!phantomDestinationAccount) throw new Error("Cross-PWA Phantom destination account was not synchronized.");
+const phantomDestinationDomain = `${phantomDestinationAccount.id}.larpz`;
+const phantomBnbBeforeTransfer = Number(phantomDestinationAccount.balances.BNB ?? 0);
 await crossWalletTransfer.getByLabel("Source wallet").selectOption("trust");
 await crossWalletTransfer.getByLabel("Currency").selectOption("BNB");
 const transferSelects = crossWalletTransfer.locator("select");
 if (await transferSelects.count() !== 5) throw new Error("Cross-PWA transfer form did not expose the expected wallet and account selectors.");
-await transferSelects.nth(3).selectOption("ghost");
+await crossWalletTransfer.getByRole("button", { name: "Send to another user", exact: true }).click();
+await crossWalletTransfer.getByLabel("Destination wallet address").fill(phantomDestinationDomain);
 await crossWalletTransfer.getByLabel("Transfer amount").fill("0.2999");
 await crossWalletTransfer.getByRole("button", { name: /Review transfer/ }).click();
 await crossWalletTransfer.getByRole("heading", { name: "Review transfer" }).waitFor();
+await crossWalletTransfer.getByText(phantomDestinationDomain, { exact: true }).waitFor();
 await crossWalletTransfer.getByRole("button", { name: "Confirm transfer" }).click();
 await crossWalletTransfer.getByRole("heading", { name: "Transfer complete" }).waitFor({ timeout: 10_000 });
+
+// Replaying the exact request must return the original transaction without a
+// second debit or credit. Reusing its ID with changed input must be rejected.
+const completedTransferRequest = sharedWalletLedger.getLastTransferRequest();
+const snapshotBeforeReplay = sharedWalletLedger.getSnapshot();
+const completedCrossTransfer = snapshotBeforeReplay.transactions.find((transaction) => transaction.clientRequestId === completedTransferRequest?.clientRequestId);
+if (!completedTransferRequest || !completedCrossTransfer) throw new Error("Cross-PWA transfer request was not captured for replay coverage.");
+const postWalletRequest = async (transfer) => trustPage.evaluate(async ({ ownerId, transferInput }) => {
+  const response = await fetch("/api/wallet-ledger", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "transfer", ownerId, transfer: transferInput }),
+  });
+  return { status: response.status, body: await response.json() };
+}, { ownerId: sharedOwnerId, transferInput: transfer });
+const replayResult = await postWalletRequest(completedTransferRequest);
+const snapshotAfterReplay = sharedWalletLedger.getSnapshot();
+if (replayResult.status !== 200 || replayResult.body.transaction?.id !== completedCrossTransfer.id) {
+  throw new Error(`Exact transfer replay was not idempotent: ${JSON.stringify(replayResult)}`);
+}
+if (snapshotAfterReplay.transactions.length !== snapshotBeforeReplay.transactions.length
+  || JSON.stringify(snapshotAfterReplay.accounts) !== JSON.stringify(snapshotBeforeReplay.accounts)) {
+  throw new Error("Exact transfer replay changed balances or created a duplicate transaction.");
+}
+const conflictingReplay = await postWalletRequest({ ...completedTransferRequest, amount: 0.1 });
+const snapshotAfterConflict = sharedWalletLedger.getSnapshot();
+if (conflictingReplay.status !== 409 || conflictingReplay.body.code !== "DUPLICATE") {
+  throw new Error(`Conflicting transfer replay was not rejected: ${JSON.stringify(conflictingReplay)}`);
+}
+if (JSON.stringify(snapshotAfterConflict) !== JSON.stringify(snapshotAfterReplay)) {
+  throw new Error("Rejected duplicate transfer mutated the shared ledger.");
+}
 
 await phantomPage.bringToFront();
 await phantomPage.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow")));
@@ -808,6 +1326,10 @@ const receivedBnbHolding = phantomPage.getByRole("button")
   .first();
 await receivedBnbHolding.waitFor({ state: "visible", timeout: 6_000 });
 await receivedBnbHolding.locator('img[alt="BNB logo"]').waitFor({ state: "attached" });
+const refreshedPhantomAccount = sharedWalletLedger.getSnapshot().accounts.find((account) => account.id === phantomDestinationAccount.id);
+if (!refreshedPhantomAccount || Math.abs(Number(refreshedPhantomAccount.balances.BNB ?? 0) - (phantomBnbBeforeTransfer + 0.2999)) > 1e-8) {
+  throw new Error("Cross-PWA .larpz transfer did not immediately credit the receiving Phantom account.");
+}
 
 await phantomPage.getByRole("button", { name: "Open wallet menu" }).click();
 await phantomPage.getByRole("button", { name: "Activity", exact: true }).click();
@@ -822,4 +1344,4 @@ const actionableErrors = errors.filter((message) => !message.includes("Failed to
 await browser.close();
 if (actionableErrors.length) throw new Error(`Browser errors: ${actionableErrors.join(" | ")}`);
 
-console.log("Mobile wallet smoke test passed: Phantom recipient focus, rear-camera QR scan, swipe dismissal, recipient-first send and Token/Cash receive, shared transfer/persistence, isolated-PWA BNB receipt/activity, plus Ledger and Trust functional flows.");
+console.log("Mobile wallet smoke test passed: Phantom focus/QR/swipe/transfers, Larpz Wallet charts/settings/actions, and Larpz Trust-style responsive home, Buy/Sell, swipe Swap, receive/send QR, same- and cross-wallet .larpz transfers, idempotent replay protection, immediate receiving-PWA refresh, token charts/search/watchlist, Earn, Perpetuals, settings, refresh, accounts, history, and reload persistence.");

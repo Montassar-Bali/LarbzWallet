@@ -11,13 +11,13 @@ import { walletInstallPaths, type WalletThemeId } from "@/config/wallets";
 const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featured?: boolean }[] = [
   { id: "ghost", label: "Download Now", icon: Download, featured: true },
   { id: "ledger", label: "Get Larpz Wallet", icon: RefreshCw },
-  { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
+  { id: "trust", label: "Get Larpz Trust Style", icon: ShieldCheck },
 ];
 
 const homeScreenNames: Record<WalletThemeId, string> = {
   ghost: "Phantom",
   ledger: "Larpz Wallet",
-  trust: "Trust Wallet",
+  trust: "Larpz Wallet",
 };
 
 export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
@@ -37,7 +37,11 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
     }
 
     const selectedLabel = homeScreenNames[activeWallet];
-    document.title = activeWallet === "ghost" ? selectedLabel : `${selectedLabel} · Larpz Wallet`;
+    document.title = activeWallet === "ghost"
+      ? selectedLabel
+      : activeWallet === "trust"
+        ? "Larpz Wallet · Trust Style"
+        : selectedLabel;
     const appleTitle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"]');
     if (appleTitle) {
       appleTitle.content = selectedLabel;
@@ -49,7 +53,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
         ? "/icons/phantom-pwa-180.png"
         : activeWallet === "ledger"
           ? "/assets/logo_m.png"
-          : "/icons/wallets/trust.png";
+          : "/assets/logo_m.png";
     }
   }, [activeWallet]);
 
