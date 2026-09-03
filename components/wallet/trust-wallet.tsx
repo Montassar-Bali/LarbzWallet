@@ -59,8 +59,9 @@ import {
 
 type Screen = "home" | "market" | "earn" | "discover" | "search" | "buy" | "swap" | "tokens" | "perpetuals" | "watchlist" | "ai" | "settings" | "token" | "asset-receive";
 type Currency = "USD" | "EUR" | "GBP" | "CAD" | "AUD";
+type ColorScheme = "dark" | "light";
 type Picker = "buy" | "swap-from" | "swap-to" | null;
-type Profile = { walletName: string; currency: Currency; notifications: boolean };
+type Profile = { walletName: string; currency: Currency; notifications: boolean; colorScheme: ColorScheme };
 type EarnPosition = { id: string; symbol: string; amount: number; apy: number; startedAt: string };
 type PerpetualPosition = { id: string; symbol: string; amount: number; leverage: number; side: "long" | "short"; entryPrice: number; openedAt: string };
 type PositionLifecycle =
@@ -86,7 +87,7 @@ const PREFERENCES_MIGRATION_KEY = "larpz_trust_wallet_preferences_migrated_accou
 const POSITION_NOTE_MARKER = " · LARPZ_POSITION:";
 const rates: Record<Currency, number> = { USD: 1, EUR: 0.92, GBP: 0.79, CAD: 1.36, AUD: 1.52 };
 const flags: Record<Currency, string> = { USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", CAD: "🇨🇦", AUD: "🇦🇺" };
-const defaultProfile: Profile = { walletName: "Main Wallet", currency: "USD", notifications: true };
+const defaultProfile: Profile = { walletName: "Main Wallet", currency: "USD", notifications: true, colorScheme: "dark" };
 const earnOffers = [
   { symbol: "SOL", apy: 7.18, network: "Solana" },
   { symbol: "ETH", apy: 4.34, network: "Ethereum" },
@@ -97,6 +98,17 @@ const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"
 
 function accountKey(base: string, accountId?: string) {
   return accountId ? `${base}:${accountId}` : base;
+}
+
+function normalizeProfile(value: unknown, fallback: Profile): Profile {
+  if (!value || typeof value !== "object") return fallback;
+  const candidate = value as Partial<Profile>;
+  return {
+    walletName: typeof candidate.walletName === "string" && candidate.walletName.trim() ? candidate.walletName : fallback.walletName,
+    currency: typeof candidate.currency === "string" && candidate.currency in rates ? candidate.currency as Currency : fallback.currency,
+    notifications: typeof candidate.notifications === "boolean" ? candidate.notifications : fallback.notifications,
+    colorScheme: candidate.colorScheme === "light" || candidate.colorScheme === "dark" ? candidate.colorScheme : fallback.colorScheme,
+  };
 }
 
 function cash(value: number, currency: Currency) {
@@ -408,15 +420,22 @@ export function TrustWallet() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.dataset.trustColorScheme = profile.colorScheme;
+    return () => {
+      delete document.documentElement.dataset.trustColorScheme;
+    };
+  }, [profile.colorScheme]);
+
+  useEffect(() => {
     if (!accountId) return;
     const timeoutId = window.setTimeout(() => {
       const accountDefaults = { ...defaultProfile, walletName: accountName };
       const defaultWatchlist = ["BTC", "ETH", "SOL"];
       const migrationAccountId = readStorage<string>(PREFERENCES_MIGRATION_KEY, "");
       const shouldMigrateLegacy = !migrationAccountId;
-      const profileFallback = shouldMigrateLegacy ? readStorage<Profile>(PROFILE_KEY, accountDefaults) : accountDefaults;
+      const profileFallback = shouldMigrateLegacy ? normalizeProfile(readStorage<unknown>(PROFILE_KEY, accountDefaults), accountDefaults) : accountDefaults;
       const watchlistFallback = shouldMigrateLegacy ? readStorage<string[]>(WATCHLIST_KEY, defaultWatchlist) : defaultWatchlist;
-      const scopedProfile = { ...accountDefaults, ...readStorage<Profile>(profileKey, profileFallback) };
+      const scopedProfile = normalizeProfile(readStorage<unknown>(profileKey, profileFallback), profileFallback);
       const scopedWatchlist = readStorage<string[]>(watchlistKey, watchlistFallback);
       setProfile(scopedProfile);
       setWatchlist(scopedWatchlist);
@@ -1023,7 +1042,52 @@ export function TrustWallet() {
   }
 
   function renderSettings() {
-    return <div className="pb-8"><Header title="Wallet settings" onBack={back} /><div className="mt-6 space-y-5"><label className="block"><span className="mb-2 block text-sm font-bold text-white/45">Wallet name</span><input aria-label="Wallet name" value={profile.walletName} onChange={(event) => setProfile((current) => ({ ...current, walletName: event.target.value }))} className="min-h-14 w-full rounded-[1.15rem] border border-white/[.08] bg-[#191a28] px-4 text-base font-bold outline-none focus:border-[#665cff]" /></label><label className="block"><span className="mb-2 block text-sm font-bold text-white/45">Currency</span><select aria-label="Currency" value={profile.currency} onChange={(event) => setProfile((current) => ({ ...current, currency: event.target.value as Currency }))} className="min-h-14 w-full rounded-[1.15rem] border border-white/[.08] bg-[#191a28] px-4 text-base font-bold outline-none">{Object.keys(rates).map((currency) => <option key={currency} value={currency}>{flags[currency as Currency]} {currency}</option>)}</select></label><button type="button" aria-label="Toggle portfolio notifications" onClick={() => setProfile((current) => ({ ...current, notifications: !current.notifications }))} className="flex min-h-16 w-full items-center justify-between rounded-[1.15rem] bg-[#191a28] px-4 text-left"><span><strong className="block">Portfolio notifications</strong><span className="text-sm text-white/40">Internal activity reminders</span></span><span className={`h-7 w-12 rounded-full p-1 ${profile.notifications ? "bg-[#4437ff]" : "bg-white/10"}`}><span className={`block size-5 rounded-full bg-white transition ${profile.notifications ? "translate-x-5" : ""}`} /></span></button><div className="grid grid-cols-2 gap-3"><button type="button" onClick={runtime.openAccounts} className="min-h-16 rounded-[1.15rem] bg-[#191a28] font-bold"><WalletCards className="mr-2 inline size-5" />Accounts</button><button type="button" onClick={runtime.openSecurity} className="min-h-16 rounded-[1.15rem] bg-[#191a28] font-bold"><ShieldCheck className="mr-2 inline size-5" />Security</button></div><div className="rounded-[1.15rem] border border-[#4437ff]/25 bg-[#191a28] p-4 text-sm leading-6 text-white/45">Larpz Wallet is an internal no-real-funds experience. It never asks for seed phrases or private keys.</div><button type="button" aria-label="Save settings" aria-busy={busy} disabled={!profile.walletName.trim() || busy} onClick={() => void saveSettings()} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:opacity-40">{busy ? "Saving settings…" : "Save settings"}</button></div></div>;
+    return (
+      <div className="pb-8">
+        <Header title="Wallet settings" onBack={back} />
+        <div className="mt-6 space-y-5">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-white/45">Wallet name</span>
+            <input aria-label="Wallet name" value={profile.walletName} onChange={(event) => setProfile((current) => ({ ...current, walletName: event.target.value }))} className="min-h-14 w-full rounded-[1.15rem] border border-white/[.08] bg-[#191a28] px-4 text-base font-bold outline-none focus:border-[#665cff]" />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-white/45">Currency</span>
+            <select aria-label="Currency" value={profile.currency} onChange={(event) => setProfile((current) => ({ ...current, currency: event.target.value as Currency }))} className="min-h-14 w-full rounded-[1.15rem] border border-white/[.08] bg-[#191a28] px-4 text-base font-bold outline-none">
+              {Object.keys(rates).map((currency) => <option key={currency} value={currency}>{flags[currency as Currency]} {currency}</option>)}
+            </select>
+          </label>
+          <section className="rounded-[1.15rem] bg-[#191a28] p-4" aria-labelledby="trust-appearance-heading">
+            <h2 id="trust-appearance-heading" className="font-bold">Appearance</h2>
+            <p className="mt-1 text-sm text-white/40">Choose how this Trust-style wallet looks on this device.</p>
+            <div className="mt-4 grid grid-cols-2 rounded-[1rem] bg-[#202130] p-1" role="radiogroup" aria-label="Appearance theme">
+              {(["dark", "light"] as const).map((scheme) => (
+                <button
+                  key={scheme}
+                  type="button"
+                  role="radio"
+                  aria-label={`${scheme === "dark" ? "Dark" : "Light"} theme`}
+                  aria-checked={profile.colorScheme === scheme}
+                  onClick={() => setProfile((current) => ({ ...current, colorScheme: scheme }))}
+                  className={`min-h-12 rounded-[.8rem] font-extrabold capitalize transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#665cff] ${profile.colorScheme === scheme ? "bg-[#4437ff] text-white" : "text-white/55"}`}
+                >
+                  {scheme}
+                </button>
+              ))}
+            </div>
+          </section>
+          <button type="button" aria-label="Toggle portfolio notifications" onClick={() => setProfile((current) => ({ ...current, notifications: !current.notifications }))} className="flex min-h-16 w-full items-center justify-between rounded-[1.15rem] bg-[#191a28] px-4 text-left">
+            <span><strong className="block">Portfolio notifications</strong><span className="text-sm text-white/40">Internal activity reminders</span></span>
+            <span className={`h-7 w-12 rounded-full p-1 ${profile.notifications ? "bg-[#4437ff]" : "bg-white/10"}`}><span className={`block size-5 rounded-full bg-white transition ${profile.notifications ? "translate-x-5" : ""}`} /></span>
+          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={runtime.openAccounts} className="min-h-16 rounded-[1.15rem] bg-[#191a28] font-bold"><WalletCards className="mr-2 inline size-5" />Accounts</button>
+            <button type="button" onClick={runtime.openSecurity} className="min-h-16 rounded-[1.15rem] bg-[#191a28] font-bold"><ShieldCheck className="mr-2 inline size-5" />Security</button>
+          </div>
+          <div className="rounded-[1.15rem] border border-[#4437ff]/25 bg-[#191a28] p-4 text-sm leading-6 text-white/45">Larpz Wallet is an internal no-real-funds experience. It never asks for seed phrases or private keys.</div>
+          <button type="button" aria-label="Save settings" aria-busy={busy} disabled={!profile.walletName.trim() || busy} onClick={() => void saveSettings()} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold text-white disabled:opacity-40">{busy ? "Saving settings…" : "Save settings"}</button>
+        </div>
+      </div>
+    );
   }
 
   let content: ReactNode;
@@ -1046,7 +1110,7 @@ export function TrustWallet() {
   const showBottomNav = ["home", "market", "discover", "search"].includes(screen) || (screen === "earn" && earnStage === "list");
 
   return (
-    <main data-testid="trust-wallet" className="min-h-[100dvh] overflow-hidden bg-[#070811] text-white [font-family:-apple-system,BlinkMacSystemFont,'SF_Pro_Display','Inter',sans-serif]">
+    <main data-testid="trust-wallet" data-trust-color-scheme={profile.colorScheme} className="min-h-[100dvh] overflow-hidden bg-[#070811] text-white [font-family:-apple-system,BlinkMacSystemFont,'SF_Pro_Display','Inter',sans-serif]">
       <div className="relative mx-auto h-[100dvh] w-full max-w-[36rem] overflow-hidden bg-[#10101b] shadow-2xl">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(68,55,255,.09),transparent_34%)]" />
         <div

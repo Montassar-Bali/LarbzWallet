@@ -948,6 +948,35 @@ await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).clic
 await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
 await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
 await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
+const darkThemeOption = page.getByRole("radio", { name: "Dark theme", exact: true });
+const lightThemeOption = page.getByRole("radio", { name: "Light theme", exact: true });
+if (await darkThemeOption.getAttribute("aria-checked") !== "true") {
+  throw new Error("Trust wallet did not start with its saved dark appearance.");
+}
+await lightThemeOption.click();
+await page.locator('html[data-trust-color-scheme="light"]').waitFor();
+if (await lightThemeOption.getAttribute("aria-checked") !== "true") {
+  throw new Error("Trust wallet Light appearance control did not become selected.");
+}
+const trustLightPalette = await page.locator('[data-testid="trust-wallet"]').evaluate((wallet) => {
+  const style = window.getComputedStyle(wallet);
+  return { background: style.backgroundColor, foreground: style.color, colorScheme: style.colorScheme };
+});
+if (trustLightPalette.background !== "rgb(245, 247, 251)" || trustLightPalette.foreground !== "rgb(18, 19, 29)" || trustLightPalette.colorScheme !== "light") {
+  throw new Error(`Trust wallet Light appearance was selected but not rendered: ${JSON.stringify(trustLightPalette)}`);
+}
+await page.getByRole("button", { name: "Accounts", exact: true }).click();
+const trustLightAccountsSheet = page.getByRole("dialog", { name: "Accounts", exact: true });
+await trustLightAccountsSheet.waitFor();
+const trustLightSheetPalette = await trustLightAccountsSheet.evaluate((sheet) => {
+  const style = window.getComputedStyle(sheet);
+  return { background: style.backgroundColor, foreground: style.color, colorScheme: style.colorScheme };
+});
+if (trustLightSheetPalette.background !== "rgb(245, 247, 251)" || trustLightSheetPalette.foreground !== "rgb(18, 19, 29)" || trustLightSheetPalette.colorScheme !== "light") {
+  throw new Error(`Trust runtime sheets did not inherit Light appearance: ${JSON.stringify(trustLightSheetPalette)}`);
+}
+await trustLightAccountsSheet.getByRole("button", { name: "Close", exact: true }).click();
+await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Settings");
 await page.getByLabel("Wallet name").fill("Smoke Trust Account");
 await page.getByLabel("Currency").selectOption("EUR");
@@ -964,6 +993,9 @@ await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).clic
 await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
 if (await page.getByLabel("Wallet name").inputValue() !== "Smoke Trust Account" || await page.getByLabel("Currency").inputValue() !== "EUR") {
   throw new Error("Trust wallet name and currency settings did not persist after reload.");
+}
+if (await page.getByRole("radio", { name: "Light theme", exact: true }).getAttribute("aria-checked") !== "true" || await page.locator("html").getAttribute("data-trust-color-scheme") !== "light") {
+  throw new Error("Trust wallet Light appearance did not persist after reload.");
 }
 await page.getByRole("button", { name: "Go back", exact: true }).click();
 await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
