@@ -18,7 +18,7 @@ function TrustWalletSplash({ onComplete }: { onComplete: () => void }) {
       data-testid="trust-splash"
       role="status"
       aria-live="polite"
-      aria-label="Opening Larpz Wallet"
+      aria-label="Opening Trust Wallet"
       aria-busy="true"
       onAnimationEnd={finishAnimation}
       className="trust-wallet-splash absolute inset-0 z-[300] grid min-h-[100dvh] place-items-center overflow-hidden bg-black"
@@ -43,10 +43,9 @@ function TrustWalletSplash({ onComplete }: { onComplete: () => void }) {
             <span className="trust-splash-glint absolute -inset-y-[12%] left-0 w-[48%] bg-[linear-gradient(105deg,transparent_12%,rgba(255,255,255,.9)_50%,transparent_88%)] mix-blend-screen" />
           </span>
         </div>
-        <p className="trust-splash-brand mt-8 text-[1rem] font-black tracking-[0.34em] text-[#f5f7ff]">LARPZ WALLET</p>
-        <p className="trust-splash-caption mt-3 text-[.62rem] font-bold tracking-[0.2em] text-[#8f94a7]">TRUST STYLE · DEMO ONLY</p>
+        <p className="trust-splash-brand mt-8 text-[1rem] font-black tracking-[0.34em] text-[#f5f7ff]">TRUST WALLET</p>
       </div>
-      <span className="sr-only">Preparing your Larpz Wallet.</span>
+      <span className="sr-only">Preparing your Trust Wallet.</span>
 
       <style>{`
         .trust-wallet-splash {
@@ -88,15 +87,10 @@ function TrustWalletSplash({ onComplete }: { onComplete: () => void }) {
           animation: larpz-trust-glint 900ms 720ms ease-in-out both;
         }
 
-        .trust-splash-brand,
-        .trust-splash-caption {
+        .trust-splash-brand {
           opacity: 0;
           transform: translateY(8px);
           animation: larpz-trust-copy 1050ms 620ms cubic-bezier(.16, 1, .3, 1) both;
-        }
-
-        .trust-splash-caption {
-          animation-delay: 760ms;
         }
 
         @keyframes larpz-trust-splash-exit {

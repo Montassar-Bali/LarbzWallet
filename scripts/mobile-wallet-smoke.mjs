@@ -675,6 +675,10 @@ await page.locator('[data-testid="ledger-home"]').waitFor();
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 const trustSplash = page.locator('[data-testid="trust-splash"]');
 await trustSplash.waitFor({ state: "visible", timeout: 10_000 });
+await trustSplash.getByText("TRUST WALLET", { exact: true }).waitFor();
+if (await trustSplash.getByText(/TRUST STYLE|DEMO ONLY/i).count() !== 0) {
+  throw new Error("Trust wallet splash still shows the removed style/demo subtitle.");
+}
 const trustSplashState = await trustSplash.evaluate((splash) => {
   const style = window.getComputedStyle(splash);
   const bounds = splash.getBoundingClientRect();
