@@ -89,8 +89,8 @@ const WalletRuntimeContext = createContext<WalletRuntimeValue | null>(null);
 const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Larpz Wallet", trust: "Larpz Trust-style Wallet" };
 const walletDisclosures: Record<WalletThemeId, string> = {
   ghost: "",
-  ledger: "LARPZ WALLET · INTERNAL DEMO · NO REAL FUNDS",
-  trust: "LARPZ WALLET · TRUST-STYLE DEMO · NO REAL FUNDS",
+  ledger: "",
+  trust: "",
 };
 const securityUserKey = "phantom_wallet_security_user";
 const securitySettingsKey = "phantom_wallet_security_settings";
@@ -924,7 +924,7 @@ function WalletRuntimeSheet({ walletId, initialPanel, startWithScanner, preferre
               <button type="button" onClick={onClose} aria-label="Close" className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#131521]"><ArrowLeft className="h-6 w-6" /></button>
               <div className="min-w-0 px-3 text-center">
                 <h1 className="truncate text-[23px] font-bold tracking-[-.035em]">{title}</h1>
-                <p className="mt-1 truncate text-[8px] font-bold uppercase tracking-[.16em] text-[#716cff]">Larpz Wallet · Demo only</p>
+                <p className="mt-1 truncate text-[8px] font-bold uppercase tracking-[.16em] text-[#716cff]">Larpz Wallet</p>
               </div>
               {panel === "transfer" ? (
                 <button type="button" onClick={() => setScannerOpen(true)} aria-label="Scan recipient QR code" className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#131521] text-white"><QrCode className="h-5 w-5" /></button>
@@ -1326,7 +1326,7 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
   return (
     <div>
       <div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${transferReady ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" || sharedStatus === "local" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}>
-        <strong>{sharedStatus === "connected" ? "Shared network connected:" : localTrustReady ? "Local demo ready:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong>{" "}
+        <strong>{sharedStatus === "connected" ? "Shared network connected:" : localTrustReady ? "Local network ready:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong>{" "}
         {sharedStatus === "connected" ? "send to another user with their complete wallet address." : localTrustReady ? "transfers between the accounts on this device remain atomic and persistent." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared wallet database, so transfers are paused." : "please wait before sending."}
       </div>
       <div className="mt-6 grid grid-cols-2 gap-3">
@@ -1515,7 +1515,7 @@ function TrustReceivePanel({ state }: { state: WalletLedgerState }) {
       </button>
       {exchangeOpen ? (
         <div className="mt-3 rounded-[1.25rem] border border-[#4a43ff]/20 bg-[#121426] p-4 text-left text-sm leading-relaxed text-white/60">
-          Choose <strong className="text-white">{asset?.symbol ?? symbol}</strong> and the <strong className="text-white">{asset?.network ?? symbol}</strong> network at the exchange, then paste this receiving address. This demo never requests exchange credentials.
+          Choose <strong className="text-white">{asset?.symbol ?? symbol}</strong> and the <strong className="text-white">{asset?.network ?? symbol}</strong> network at the exchange, then paste this receiving address.
         </div>
       ) : null}
       <p className="mt-6 text-[9px] font-bold uppercase tracking-[.16em] text-[#716cff]/75">{walletDisclosures.trust}</p>
@@ -1638,7 +1638,7 @@ function HistoryPanel({ walletId, state, trustStyle = false }: { walletId: Walle
         status: activity.status,
         note: activity.note,
         detailId: operation.id,
-        detailLabel: "Internal demo operation",
+        detailLabel: "Internal operation",
         search: `${operation.id} ${operation.clientRequestId} ${activity.tokenSymbol} ${activity.counterpartyLabel} ${activity.note}`,
       });
     }

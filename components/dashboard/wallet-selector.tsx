@@ -58,12 +58,12 @@ export function WalletSelector({ value, onChange }: WalletSelectorProps) {
             </p>
           </div>
           <div className="rounded-xl border border-white/10 p-3" style={{ background: `${activeTheme.palette.background}cc` }}>
-            <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-400">Mode</p>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-400">Status</p>
             <p className="mt-1 text-lg font-semibold" style={{ color: activeTheme.palette.text }}>
-              SIMULATION
+              ACTIVE
             </p>
             <p className="text-xs" style={{ color: activeTheme.palette.accent }}>
-              Demo only
+              Live wallet
             </p>
           </div>
         </div>

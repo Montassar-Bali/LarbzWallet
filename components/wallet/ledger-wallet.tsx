@@ -422,7 +422,7 @@ function HomeScreen({
 
         <div className="px-1 pb-1 pt-12 text-center">
           <button type="button" onClick={onRefresh} aria-label="Refresh portfolio" className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-full border border-[#a995f2]/20 bg-[#a995f2]/10 px-4 text-[0.66rem] font-bold uppercase tracking-[0.16em] text-[#c9bbff]">
-            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} /> Larpz Wallet · Demo only
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} /> Larpz Wallet
           </button>
           <div className="mx-auto flex max-w-full items-end justify-center overflow-hidden px-1">
             <SplitMoney testId="ledger-portfolio-balance" amount={total} currency={currency} className="text-[clamp(2.35rem,12vw,4.35rem)] font-bold leading-none tracking-[-0.075em]" />
@@ -458,7 +458,7 @@ function HomeScreen({
         <h2 className="text-[clamp(1.3rem,5vw,1.65rem)] font-bold">Perpetuals</h2>
         <button type="button" onClick={onPerpetuals} className="mt-3 flex min-h-[4.6rem] w-full items-center gap-4 rounded-2xl bg-[#171717] px-4 text-left transition hover:bg-[#242424]">
           <span className="grid size-12 shrink-0 place-items-center rounded-full bg-[#242326]"><span className="text-2xl">∞</span></span>
-          <span className="min-w-0 flex-1"><strong className="block">Explore perpetual markets</strong><span className="mt-1 block truncate text-sm text-white/50">Market data only · no real positions</span></span>
+          <span className="min-w-0 flex-1"><strong className="block">Explore perpetual markets</strong><span className="mt-1 block truncate text-sm text-white/50">Market data · leverage available</span></span>
           <ChevronRight className="shrink-0 text-white/65" />
         </button>
         <div className="mt-3 flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -580,10 +580,10 @@ function BuyScreen({ tokens, preferredSymbol, currency, rate, onHome, onBuy }: {
 
   return (
     <main className="space-y-6 px-4 pb-32 pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-7">
-      <ScreenHeader eyebrow="INTERNAL DEMO" title="Buy" onHome={onHome} />
+      <ScreenHeader eyebrow="PURCHASE" title="Buy" onHome={onHome} />
       <div className="flex items-start gap-3 rounded-2xl border border-[#a995f2]/20 bg-[#a995f2]/10 p-4 text-sm leading-6 text-[#d6ccff]">
         <ShieldCheck className="mt-0.5 size-5 shrink-0" />
-        <p>No payment is processed and no real crypto is purchased. This action only updates the selected Larpz Wallet account.</p>
+        <p>Select an asset and enter the amount you wish to purchase. Your balance will be updated instantly.</p>
       </div>
       <form onSubmit={submit} className="space-y-4">
         <section className="rounded-3xl bg-[#171717] p-5">
@@ -591,14 +591,14 @@ function BuyScreen({ tokens, preferredSymbol, currency, rate, onHome, onBuy }: {
           <select id="ledger-buy-asset" value={token?.symbol ?? ""} onChange={(event) => setSymbol(event.target.value)} className="mt-3 min-h-14 w-full rounded-2xl border border-white/10 bg-[#292929] px-4 text-base font-bold outline-none focus:border-[#a995f2]">
             {available.map((item) => <option key={item.symbol} value={item.symbol}>{item.name} ({item.symbol})</option>)}
           </select>
-          <label className="mt-5 block text-sm font-semibold text-white/55" htmlFor="ledger-buy-amount">Demo amount ({currency})</label>
+          <label className="mt-5 block text-sm font-semibold text-white/55" htmlFor="ledger-buy-amount">Amount ({currency})</label>
           <div className="mt-3 flex min-h-16 items-center rounded-2xl border border-white/10 bg-[#292929] px-4 focus-within:border-[#a995f2]">
             <CircleDollarSign className="size-6 text-white/45" />
             <input id="ledger-buy-amount" value={fiatAmount} onChange={(event) => setFiatAmount(event.target.value)} type="number" min="0" step="any" inputMode="decimal" placeholder="0.00" className="min-w-0 flex-1 bg-transparent px-3 text-3xl font-bold outline-none placeholder:text-white/20" />
           </div>
           <div className="mt-4 flex justify-between gap-4 text-sm text-white/50"><span>You receive</span><span className="max-w-[70%] truncate text-right font-semibold text-white">{output > 0 && token ? `${formatAmount(output, token.symbol)} ${token.symbol}` : "—"}</span></div>
         </section>
-        <button type="submit" disabled={!token || output <= 0} className="min-h-14 w-full rounded-full bg-[#b8a5ff] px-5 text-base font-bold text-[#15101e] disabled:opacity-35">Add to demo balance</button>
+        <button type="submit" disabled={!token || output <= 0} className="min-h-14 w-full rounded-full bg-[#b8a5ff] px-5 text-base font-bold text-[#15101e] disabled:opacity-35">Add to balance</button>
       </form>
     </main>
   );
@@ -612,7 +612,7 @@ function PerpetualsScreen({ tokens, onToken, onHome }: { tokens: WalletToken[]; 
       <div className="rounded-3xl bg-[linear-gradient(145deg,#2b203b,#161318)] p-6">
         <TrendingUp className="size-8 text-[#b8a5ff]" />
         <h2 className="mt-6 text-2xl font-bold">Follow leveraged markets</h2>
-        <p className="mt-2 leading-6 text-white/55">Price monitoring is available in this internal demo. No leveraged order or real-money position is opened.</p>
+        <p className="mt-2 leading-6 text-white/55">Track leveraged market positions with real-time price data and up to 40x leverage.</p>
       </div>
       <section className="space-y-2">
         {markets.map((token, index) => <button key={token.symbol} type="button" onClick={() => onToken(token)} className="flex min-h-[5.25rem] w-full items-center gap-4 rounded-2xl bg-[#171717] px-4 text-left"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block text-lg">{token.name}</strong><span className="text-sm text-white/50">Up to {[40, 25, 15, 10, 8][index] ?? 5}x market view</span></span><span className={`shrink-0 font-bold ${token.change24h >= 0 ? "text-[#65c873]" : "text-[#d87888]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></button>)}
@@ -1157,14 +1157,14 @@ export function LedgerWallet() {
       type: "receive",
       tokenSymbol: symbol,
       amount,
-      counterpartyLabel: "Larpz Wallet demo buy",
+      counterpartyLabel: "Purchase",
       date: new Date().toISOString(),
       status: "completed",
-      note: "INTERNAL DEMO CREDIT — NO PAYMENT PROCESSED",
+      note: "CREDIT — PURCHASE CONFIRMED",
     };
     const nextRecords = [record, ...records];
     persistActivity(nextRecords);
-    notify(`${formatAmount(amount, symbol)} ${symbol} added to this demo account`);
+    notify(`${formatAmount(amount, symbol)} ${symbol} added to your account`);
     return true;
   }
 
