@@ -75,7 +75,7 @@ const portfolioSymbols = walletMarketSymbols;
 
 type CurrencyCode = LedgerCurrencyCode;
 type LedgerView = "home" | "assets" | "allocation" | "history" | "market" | "swap" | "earn" | "card" | "search" | "buy" | "perpetuals" | "notifications";
-type BottomTab = "Wallet" | "Earn" | "Discover" | "My Larpz";
+type BottomTab = "Wallet" | "Earn" | "Discover" | "My Ledger";
 type LedgerFeatures = {
   earnPositions: Record<string, number>;
   cardFrozen: boolean;
@@ -249,21 +249,58 @@ function HistoryRow({ record, currency, rate, tokens }: { record: WalletActivity
   );
 }
 
+function LedgerWalletNavIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" className={styles.navIcon}>
+      <path d="M6.25 8.25h19.5a2 2 0 0 1 2 2v14.25H8.5a3.25 3.25 0 0 1-3.25-3.25V7.5A2.5 2.5 0 0 1 7.75 5h16" />
+      <path d="M19.25 13h8.5v7h-8.5a2 2 0 0 1 0-7Z" />
+      <circle cx="21.5" cy="16.5" r=".75" className={styles.navIconFill} />
+    </svg>
+  );
+}
+
+function LedgerEarnNavIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" className={styles.navIcon}>
+      <path d="M5 26.25h22" />
+      <path d="M7.5 26v-5.5M12.75 26v-9M18 26v-12.5M23.25 26v-16" />
+      <path d="m6.75 14.25 6-5.25 4.5 2.5L25.5 4" />
+      <path d="M20.25 4h5.25v5.25" />
+    </svg>
+  );
+}
+
+function LedgerDiscoverNavIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" className={styles.navIcon}>
+      <circle cx="16" cy="16" r="6.75" />
+      <path d="M26.75 11.25c1.4 1.2.4 4.2-2.25 7.15-3.8 4.2-10.4 7.15-14.75 6.55-1.55-.2-2.55-.85-2.85-1.75" />
+      <path d="M5.35 20.2c-1.05-1.4.15-4.15 2.65-6.9 3.75-4.15 9.95-6.95 14.2-6.55 1.7.15 2.8.8 3.15 1.8" />
+      <path d="m7.25 20.25-2.2.25.2-2.2M24.75 11.25l2.2-.25-.2 2.2" />
+    </svg>
+  );
+}
+
+function LedgerDeviceNavIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" className={styles.navIcon}>
+      <path d="M5.5 22.25h21v4.5h-21z" />
+      <path d="m9 22.25 7.4-14.6a2 2 0 0 1 2.85-.82l5.05 3.25-6.2 12.17" />
+      <path d="m17 9 5.55 3.55M13 18.2h6.65" />
+    </svg>
+  );
+}
+
 function BottomNav({ active, onChange, onTransfer }: { active: BottomTab; onChange: (tab: BottomTab) => void; onTransfer: () => void }) {
-  const tabs: { label: BottomTab; icon: LucideIcon }[] = [
-    { label: "Wallet", icon: Wallet },
-    { label: "Earn", icon: LineChart },
-    { label: "Discover", icon: Compass },
-    { label: "My Larpz", icon: UserRound },
-  ];
+  const tabs: BottomTab[] = ["Wallet", "Earn", "Discover", "My Ledger"];
 
   return (
-    <nav aria-label="Larpz Wallet navigation" data-testid="ledger-bottom-nav" className={styles.bottomNav}>
-      <button type="button" onClick={() => onChange(tabs[0].label)} className={`${styles.navItem} ${active === tabs[0].label ? styles.navItemActive : ""}`}><Wallet size={23} strokeWidth={1.8} /><span>Wallet</span></button>
-      <button type="button" onClick={() => onChange(tabs[1].label)} className={`${styles.navItem} ${active === tabs[1].label ? styles.navItemActive : ""}`}><LineChart size={23} strokeWidth={1.8} /><span>Earn</span></button>
+    <nav aria-label="Ledger Wallet navigation" data-testid="ledger-bottom-nav" className={styles.bottomNav}>
+      <button type="button" aria-current={active === tabs[0] ? "page" : undefined} onClick={() => onChange(tabs[0])} className={`${styles.navItem} ${active === tabs[0] ? styles.navItemActive : ""}`}><LedgerWalletNavIcon /><span>Wallet</span></button>
+      <button type="button" aria-current={active === tabs[1] ? "page" : undefined} onClick={() => onChange(tabs[1])} className={`${styles.navItem} ${active === tabs[1] ? styles.navItemActive : ""}`}><LedgerEarnNavIcon /><span>Earn</span></button>
       <button type="button" aria-label="Transfer" onClick={onTransfer} className={styles.centerNav}><span><ArrowLeftRight size={28} strokeWidth={1.8} /></span></button>
-      <button type="button" onClick={() => onChange(tabs[2].label)} className={`${styles.navItem} ${active === tabs[2].label ? styles.navItemActive : ""}`}><Compass size={23} strokeWidth={1.8} /><span>Discover</span></button>
-      <button type="button" onClick={() => onChange(tabs[3].label)} className={`${styles.navItem} ${active === tabs[3].label ? styles.navItemActive : ""}`}><UserRound size={23} strokeWidth={1.8} /><span>My Larpz</span></button>
+      <button type="button" aria-current={active === tabs[2] ? "page" : undefined} onClick={() => onChange(tabs[2])} className={`${styles.navItem} ${active === tabs[2] ? styles.navItemActive : ""}`}><LedgerDiscoverNavIcon /><span>Discover</span></button>
+      <button type="button" aria-current={active === tabs[3] ? "page" : undefined} onClick={() => onChange(tabs[3])} className={`${styles.navItem} ${active === tabs[3] ? styles.navItemActive : ""}`}><LedgerDeviceNavIcon /><span>My Ledger</span></button>
     </nav>
   );
 }
@@ -1592,7 +1629,7 @@ export function LedgerWallet() {
       goHome();
       return;
     }
-    if (tab === "My Larpz") {
+    if (tab === "My Ledger") {
       setSettingsOpen(true);
       return;
     }

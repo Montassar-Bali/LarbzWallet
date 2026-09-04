@@ -264,6 +264,26 @@ if (phantomWatchlistCloseLayout.buttonWidth < 44 || phantomWatchlistCloseLayout.
 }
 await phantomWatchlistClose.click();
 await phantomWatchlistCard.waitFor({ state: "detached" });
+await page.getByRole("button", { name: "Open wallet menu" }).click();
+await page.getByRole("complementary").getByRole("button", { name: "Watchlist", exact: true }).click();
+const phantomWatchlistHeading = page.getByRole("heading", { name: "Watchlist", exact: true });
+await phantomWatchlistHeading.waitFor();
+const phantomWatchlistHeader = phantomWatchlistHeading.locator("xpath=parent::header");
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-watchlist-layout.png` });
+const phantomWatchlistLayout = await phantomWatchlistHeader.evaluate((header) => {
+  const scrollArea = header.parentElement;
+  const bounds = scrollArea?.getBoundingClientRect();
+  return {
+    viewportHeight: window.innerHeight,
+    scrollAreaBottom: bounds?.bottom ?? null,
+  };
+});
+if (phantomWatchlistLayout.scrollAreaBottom === null
+  || Math.abs(phantomWatchlistLayout.viewportHeight - phantomWatchlistLayout.scrollAreaBottom) > 1) {
+  throw new Error(`Phantom watchlist does not extend through the bottom safe area: ${JSON.stringify(phantomWatchlistLayout)}`);
+}
+await phantomWatchlistHeader.getByRole("button", { name: "Go back" }).click();
+await page.getByPlaceholder("Search Phantom").waitFor();
 const responsiveHomeLayout = await page.evaluate(() => {
   const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
   const total = document.querySelector('[data-testid="phantom-total-balance"]');
@@ -521,8 +541,24 @@ if (/TikTok|@northlarp|recording indicator/i.test(ledgerHomeText)) {
 
 const ledgerBottomNav = page.locator('[data-testid="ledger-bottom-nav"]');
 await ledgerBottomNav.waitFor();
-for (const tab of ["Wallet", "Earn", "Transfer", "Discover", "My Larpz"]) {
+for (const tab of ["Wallet", "Earn", "Transfer", "Discover", "My Ledger"]) {
   await ledgerBottomNav.getByRole("button", { name: tab, exact: true }).waitFor();
+}
+if (ledgerScreenshotDir) await ledgerBottomNav.screenshot({ path: `${ledgerScreenshotDir}/ledger-bottom-nav.png` });
+const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
+  const bounds = nav.getBoundingClientRect();
+  const buttons = [...nav.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+  const center = nav.querySelector('button[aria-label="Transfer"] span')?.getBoundingClientRect();
+  return {
+    bottomGap: window.innerHeight - bounds.bottom,
+    centerOffset: center ? Math.abs(center.left + center.width / 2 - window.innerWidth / 2) : Number.POSITIVE_INFINITY,
+    centerIsRound: center ? Math.abs(center.width - center.height) < 1 : false,
+    centerProtrudes: center ? center.top < bounds.top && center.bottom > bounds.top : false,
+    equalColumns: buttons.length === 5 && Math.max(...buttons.map(({ width }) => width)) - Math.min(...buttons.map(({ width }) => width)) < 1,
+  };
+});
+if (Math.abs(ledgerNavGeometry.bottomGap) > 1 || ledgerNavGeometry.centerOffset > 1 || !ledgerNavGeometry.centerIsRound || !ledgerNavGeometry.centerProtrudes || !ledgerNavGeometry.equalColumns) {
+  throw new Error(`Ledger bottom navigation geometry does not match the reference: ${JSON.stringify(ledgerNavGeometry)}`);
 }
 
 for (const viewport of [
@@ -655,7 +691,7 @@ await page.getByRole("heading", { name: "Explore", exact: true }).waitFor();
 await ledgerBottomNav.getByRole("button", { name: "Wallet", exact: true }).click();
 await ledgerHome.waitFor();
 
-await ledgerBottomNav.getByRole("button", { name: "My Larpz", exact: true }).click();
+await ledgerBottomNav.getByRole("button", { name: "My Ledger", exact: true }).click();
 await ledgerEditPortfolio.waitFor();
 if (await ledgerEditPortfolio.getByLabel("Currency").inputValue() !== "EUR"
   || await ledgerEditPortfolio.getByLabel("Optional CoinGecko API key").inputValue() !== "smoke-market-key-2026"

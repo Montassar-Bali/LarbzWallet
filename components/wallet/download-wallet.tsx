@@ -483,9 +483,9 @@ function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; a
   );
 }
 
-function ScreenHeader({ title, onBack, action, actionLabel }: { title: string; onBack: () => void; action?: () => void; actionLabel?: string }) {
+function ScreenHeader({ title, onBack, action, actionLabel, safeAreaHandled = false }: { title: string; onBack: () => void; action?: () => void; actionLabel?: string; safeAreaHandled?: boolean }) {
   return (
-    <header className="sticky top-0 z-50 flex items-center justify-between bg-black px-4 pb-5 pt-[calc(env(safe-area-inset-top)+18px)]">
+    <header className={`sticky top-0 z-50 flex items-center justify-between bg-black px-4 pb-5 ${safeAreaHandled ? "pt-[18px]" : "pt-[calc(env(safe-area-inset-top)+18px)]"}`}>
       <button type="button" onClick={onBack} aria-label="Go back" className="grid h-12 w-12 place-items-center rounded-full bg-[#242426] text-white transition hover:bg-[#303033]"><ArrowLeft className="h-6 w-6" /></button>
       <h1 className="text-[23px] font-semibold tracking-[-0.04em]">{title}</h1>
       {actionLabel ? <button type={action ? "button" : "submit"} onClick={action} className="px-1 text-[20px] font-medium text-[#a295f3]">{actionLabel}</button> : <span className="w-12" />}
@@ -796,9 +796,9 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
   const watchedCount = watchlistSymbols.filter((symbol) => tokens.some((token) => token.symbol === symbol)).length;
 
   return (
-    <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+32px)]">
-      <ScreenHeader title="Watchlist" onBack={onBack} />
-      <div className="px-4 pb-12">
+    <SwipePanel onDismiss={onBack} scrollable>
+      <ScreenHeader title="Watchlist" onBack={onBack} safeAreaHandled />
+      <div className="flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+32px)]">
         <div className="mt-4 rounded-[1.7rem] border border-white/[0.04] bg-[linear-gradient(145deg,#211d2c,#151517)] p-5">
           <div className="flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#a295f3] text-black"><Heart className="h-7 w-7 fill-current" /></span><div><h1 className="text-2xl font-semibold tracking-[-.04em]">Your currencies</h1><p className="mt-1 text-base text-white/50">{watchedCount} {watchedCount === 1 ? "currency" : "currencies"} followed</p></div></div>
         </div>
