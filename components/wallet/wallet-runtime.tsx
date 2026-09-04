@@ -581,6 +581,15 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
   const executeTransfer = useCallback(async (input: TransferInput) => {
     const activeRepository = repositoryRef.current;
     if (!activeRepository) throw new Error("Wallet ledger is still loading.");
+    if (
+      walletId === "ledger"
+      && (
+        input.sourceWalletId !== "ledger"
+        || !activeRepository.getState().wallets.ledger.accounts.some((account) => account.id === input.sourceAccountId)
+      )
+    ) {
+      throw new Error("Larpz Wallet transfers must use a Larpz Wallet source account.");
+    }
     if (sharedStatusRef.current === "connecting") throw new Error("Shared wallet network is still connecting. Try again in a moment.");
     if (sharedStatusRef.current === "error") throw new Error(sharedError || "Shared wallet network is unavailable.");
     if (sharedStatusRef.current === "connected") {
@@ -613,7 +622,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
       return transaction;
     }
     throw new Error("Shared wallet transfers are unavailable on this deployment. Connect it to the shared Neon database and try again.");
-  }, [announceSharedUpdate, commitAndNotify, enqueueSharedRequest, ownerId, sharedError]);
+  }, [announceSharedUpdate, commitAndNotify, enqueueSharedRequest, ownerId, sharedError, walletId]);
 
   const applyBalanceOperation = useCallback(async (input: RuntimeBalanceOperationInput) => {
     const activeRepository = repositoryRef.current;
@@ -1240,10 +1249,12 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
   const fee = Number.isFinite(numericAmount) && numericAmount > 0 ? calculateNetworkFee(symbol, numericAmount) : calculateNetworkFee(symbol, 0);
   const balance = sourceAccount.balances[symbol] ?? 0;
   const asset = state.assets[symbol];
-  const localTrustReady = walletId === "trust" && sharedStatus === "local";
-  const transferReady = sharedStatus === "connected" || localTrustReady;
+  const sourceWalletIds = (walletId === "ledger" ? ["ledger"] : Object.keys(walletLabels)) as WalletThemeId[];
+  const localWalletReady = (walletId === "trust" || walletId === "ledger") && sharedStatus === "local";
+  const transferReady = sharedStatus === "connected" || localWalletReady;
 
   const changeSourceWallet = (nextWalletId: WalletThemeId) => {
+    if (walletId === "ledger" && nextWalletId !== "ledger") return;
     const account = selectedAccount(state, nextWalletId);
     setSourceWalletId(nextWalletId);
     setSourceAccountId(account.id);
@@ -1286,7 +1297,7 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
     if (stage !== "review") return;
     setStage("processing");
     setError("");
-    if (walletId !== "trust") await new Promise((resolve) => window.setTimeout(resolve, 500));
+    if (walletId === "ghost") await new Promise((resolve) => window.setTimeout(resolve, 500));
     try {
       const completed = await executeTransfer({
         clientRequestId: requestId.current,
@@ -1326,11 +1337,11 @@ function TransferPanel({ walletId, preferredSymbol, initialDestinationAddress, s
   return (
     <div>
       <div className={`rounded-[1.4rem] border px-4 py-3 text-sm ${transferReady ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : sharedStatus === "error" || sharedStatus === "local" ? "border-red-400/20 bg-red-400/10 text-red-200" : "border-[#a295f3]/20 bg-[#a295f3]/10 text-[#d9d2ff]"}`}>
-        <strong>{sharedStatus === "connected" ? "Shared network connected:" : localTrustReady ? "Local network ready:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong>{" "}
-        {sharedStatus === "connected" ? "send to another user with their complete wallet address." : localTrustReady ? "transfers between the accounts on this device remain atomic and persistent." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared wallet database, so transfers are paused." : "please wait before sending."}
+        <strong>{sharedStatus === "connected" ? "Shared network connected:" : localWalletReady ? "Local network ready:" : sharedStatus === "connecting" ? "Connecting shared network…" : "Shared network unavailable:"}</strong>{" "}
+        {sharedStatus === "connected" ? "send to another user with their complete wallet address." : localWalletReady ? "transfers between the accounts on this device remain atomic and persistent." : sharedStatus === "error" ? sharedError : sharedStatus === "local" ? "this deployment is not connected to the shared wallet database, so transfers are paused." : "please wait before sending."}
       </div>
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label>
+        <label><FieldLabel>Source wallet</FieldLabel><SelectField value={sourceWalletId} disabled={walletId === "ledger"} onChange={(event) => changeSourceWallet(event.target.value as WalletThemeId)}>{sourceWalletIds.map((id) => <option key={id} value={id}>{walletLabels[id]}</option>)}</SelectField></label>
         <label><FieldLabel>Source account</FieldLabel><SelectField value={sourceAccount.id} onChange={(event) => { setSourceAccountId(event.target.value); setAmountValue(""); }}>{state.wallets[sourceWalletId].accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></label>
       </div>
       <label className="mt-4 block"><FieldLabel>Currency</FieldLabel><SelectField value={symbol} onChange={(event) => { setSymbol(event.target.value); setAmountValue(""); }}>{available.map((entry) => <option key={entry.asset.symbol} value={entry.asset.symbol}>{entry.asset.name} ({entry.asset.symbol}) · {amount(entry.balance)}</option>)}</SelectField></label>
@@ -1601,8 +1612,9 @@ function AccountsPanelControls({ activeWalletId, state, repository, onCommit, tr
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const wallet = state.wallets[walletId];
+  const accountWalletIds = (activeWalletId === "ledger" ? ["ledger"] : Object.keys(walletLabels)) as WalletThemeId[];
   const create = () => { if (!newName.trim()) return; repository.createAccount(walletId, newName); setNewName(""); onCommit(repository.getState()); };
-  return <div className={trustStyle ? "rounded-[1.6rem] bg-[#0d0f1b] p-1" : undefined}><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{Object.keys(walletLabels).map((id) => <option key={id} value={id}>{walletLabels[id as WalletThemeId]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? trustStyle ? "border-[#4a43ff]/70 bg-[#4437ff]/15" : "border-[#a295f3]/60 bg-[#a295f3]/10" : trustStyle ? "border-white/[0.06] bg-[#151725]" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black" : trustStyle ? "bg-[#222437]" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className={`w-full rounded-lg px-3 py-2 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} aria-label={`Save ${account.name} name`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#222437]" : "bg-[#29292b]"}`}><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className={`mt-4 min-h-11 w-full rounded-full py-3 text-sm font-semibold disabled:text-[#00e676] ${trustStyle ? "bg-[#222437] text-[#8580ff]" : "bg-[#29292b] text-[#b9afff]"}`}>{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className={`mt-7 rounded-[1.5rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className={`h-13 min-w-0 flex-1 rounded-full px-4 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /><button type="button" aria-label="Add account" onClick={create} disabled={!newName.trim()} className={`grid h-13 w-13 place-items-center rounded-full disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Plus className="h-6 w-6" /></button></div></div></div>;
+  return <div className={trustStyle ? "rounded-[1.6rem] bg-[#0d0f1b] p-1" : undefined}><label><FieldLabel>Wallet</FieldLabel><SelectField value={walletId} disabled={activeWalletId === "ledger"} onChange={(event) => setWalletId(event.target.value as WalletThemeId)}>{accountWalletIds.map((id) => <option key={id} value={id}>{walletLabels[id]}</option>)}</SelectField></label><div className="mt-6 space-y-3">{wallet.accounts.map((account) => { const active = wallet.selectedAccountId === account.id; const total = sortedAccountAssets(state, account).reduce((sum, entry) => sum + entry.value, 0); return <article key={account.id} className={`rounded-[1.5rem] border p-4 ${active ? trustStyle ? "border-[#4a43ff]/70 bg-[#4437ff]/15" : "border-[#a295f3]/60 bg-[#a295f3]/10" : trustStyle ? "border-white/[0.06] bg-[#151725]" : "border-white/[0.06] bg-[#1d1d1f]"}`}><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-full ${active ? trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black" : trustStyle ? "bg-[#222437]" : "bg-[#2a2a2d]"}`}><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1">{editing === account.id ? <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className={`w-full rounded-lg px-3 py-2 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /> : <><strong className="block truncate text-lg">{account.name}</strong><span className="text-sm text-white/45">{money(total)} · {account.address.slice(0, 13)}…</span></>} </div>{editing === account.id ? <button type="button" onClick={() => { repository.renameAccount(walletId, account.id, editName); setEditing(null); onCommit(repository.getState()); }} aria-label={`Save ${account.name} name`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Check className="h-5 w-5" /></button> : <button type="button" onClick={() => { setEditing(account.id); setEditName(account.name); }} aria-label={`Rename ${account.name}`} className={`grid h-11 w-11 place-items-center rounded-full ${trustStyle ? "bg-[#222437]" : "bg-[#29292b]"}`}><Pencil className="h-4 w-4" /></button>}</div><button type="button" onClick={() => { onCommit(repository.selectAccount(walletId, account.id)); }} disabled={active} className={`mt-4 min-h-11 w-full rounded-full py-3 text-sm font-semibold disabled:text-[#00e676] ${trustStyle ? "bg-[#222437] text-[#8580ff]" : "bg-[#29292b] text-[#b9afff]"}`}>{active ? "Current account" : "Switch to account"}</button></article>; })}</div><div className={`mt-7 rounded-[1.5rem] p-4 ${trustStyle ? "bg-[#151725]" : "bg-[#1d1d1f]"}`}><FieldLabel>Create account</FieldLabel><div className="flex gap-2"><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={`Account ${wallet.accounts.length + 1}`} aria-label="New account name" className={`h-13 min-w-0 flex-1 rounded-full px-4 text-base outline-none focus:ring-2 ${trustStyle ? "bg-[#222437] focus:ring-[#4437ff]" : "bg-[#29292b] focus:ring-[#a295f3]"}`} /><button type="button" aria-label="Add account" onClick={create} disabled={!newName.trim()} className={`grid h-13 w-13 place-items-center rounded-full disabled:opacity-40 ${trustStyle ? "bg-[#4437ff] text-white" : "bg-[#a295f3] text-black"}`}><Plus className="h-6 w-6" /></button></div></div></div>;
 }
 
 function HistoryPanel({ walletId, state, trustStyle = false }: { walletId: WalletThemeId; state: WalletLedgerState; trustStyle?: boolean }) {

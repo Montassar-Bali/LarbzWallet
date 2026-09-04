@@ -1,6 +1,7 @@
 import { chromium } from "playwright-core";
 
 const baseUrl = process.env.WALLET_TEST_URL || "http://localhost:3000";
+const ledgerScreenshotDir = process.env.LEDGER_SCREENSHOT_DIR || "";
 const executablePath = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
 const mobileContextOptions = {
@@ -169,6 +170,7 @@ async function assertViewportContentFits(targetPage, screen, expectedWidth) {
       navBounds: navBounds ? { left: navBounds.left, right: navBounds.right, width: navBounds.width } : null,
       balanceFits: balance ? balance.scrollWidth <= balance.clientWidth + 1 || (balanceStyle?.overflowX === "hidden" && balanceStyle.textOverflow === "ellipsis") : false,
       balanceBounds: balanceBounds ? { left: balanceBounds.left, right: balanceBounds.right } : null,
+      balanceMetrics: balance ? { text: balance.textContent, clientWidth: balance.clientWidth, scrollWidth: balance.scrollWidth, fontSize: balanceStyle?.fontSize } : null,
       navTargets: navTargets.map((bounds) => ({ width: bounds.width, height: bounds.height })),
     };
   });
@@ -450,12 +452,10 @@ if (Math.abs(cashAfterAdd - cashBeforeAdd - 50) > 1e-9) {
 const expectedCashLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(cashAfterAdd);
 await page.getByRole("button").filter({ hasText: "Cash" }).filter({ hasText: expectedCashLabel }).first().waitFor();
 
-const requestedLedgerCharts = [];
 await context.route("**/api/market-chart**", async (route) => {
   const requestUrl = new URL(route.request().url());
   const symbol = (requestUrl.searchParams.get("symbol") || "SOL").toUpperCase();
   const period = (requestUrl.searchParams.get("period") || "1D").toUpperCase();
-  requestedLedgerCharts.push(`${symbol}:${period}`);
   const basePrice = symbol === "BTC" ? 76_500 : symbol === "ETH" ? 2_420 : 185;
   const now = Date.now();
   const points = Array.from({ length: 18 }, (_, index) => ({
@@ -470,23 +470,28 @@ await context.route("**/api/market-chart**", async (route) => {
   });
 });
 
-await assertMobileLayout("/ledger-wallet", "LARPZ WALLET · DEMO ONLY", 20_000);
-await page.locator('[data-testid="ledger-home"]').waitFor();
-await page.waitForFunction(() => document.body.innerText.includes("SOL"), undefined, { timeout: 10_000 });
+await page.goto(`${baseUrl}/ledger-wallet`, { waitUntil: "domcontentloaded" });
+const ledgerRoot = page.locator('[data-testid="ledger-wallet"]');
+const ledgerHome = page.locator('[data-testid="ledger-home"]');
+await ledgerRoot.waitFor({ timeout: 20_000 });
+await ledgerHome.waitFor();
+await page.getByRole("heading", { name: "Wallet", exact: true }).waitFor();
+await page.locator('[data-testid="ledger-primary-tabs"]').getByRole("tab", { name: "Crypto", exact: true }).waitFor();
+await page.locator('[data-testid="ledger-primary-tabs"]').getByRole("tab", { name: "Market", exact: true }).waitFor();
+await page.locator('[data-testid="ledger-portfolio-chart"]').waitFor({ timeout: 10_000 });
+if (ledgerScreenshotDir) await page.screenshot({ path: `${ledgerScreenshotDir}/ledger-home.png`, fullPage: true });
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet home");
-const ledgerHomeText = await page.locator('[data-testid="ledger-home"]').innerText();
+const ledgerHomeText = await ledgerHome.innerText();
 if (/TikTok|@northlarp|recording indicator/i.test(ledgerHomeText)) {
   throw new Error("Larpz Wallet still contains source-video watermarks or recording UI.");
 }
 
 const ledgerBottomNav = page.locator('[data-testid="ledger-bottom-nav"]');
 await ledgerBottomNav.waitFor();
-for (const tab of ["Home", "Swap", "Earn", "Card"]) {
+for (const tab of ["Wallet", "Earn", "Transfer", "Discover", "My Larpz"]) {
   await ledgerBottomNav.getByRole("button", { name: tab, exact: true }).waitFor();
 }
 
-const originalLedgerBalance = await page.locator('[data-testid="ledger-portfolio-balance"]').textContent();
-await page.locator('[data-testid="ledger-portfolio-balance"]').evaluate((element) => { element.textContent = "$98,765,432,109,876.54"; });
 for (const viewport of [
   { width: 390, height: 844 },
   { width: 393, height: 852 },
@@ -495,182 +500,168 @@ for (const viewport of [
   await page.setViewportSize(viewport);
   await assertViewportContentFits(page, "Larpz Wallet home", viewport.width);
 }
-await page.locator('[data-testid="ledger-portfolio-balance"]').evaluate((element, original) => { element.textContent = original; }, originalLedgerBalance);
 await page.setViewportSize({ width: 390, height: 844 });
 
-const ledgerActions = page.locator('section[aria-label="Wallet actions"]');
+const ledgerActions = page.locator('[data-testid="ledger-actions"]');
+for (const action of ["Buy", "Swap", "Send", "Receive", "Earn"]) {
+  await ledgerActions.getByRole("button", { name: action, exact: true }).waitFor();
+}
+
+for (const period of ["1D", "1W", "1M", "1Y", "ALL"]) {
+  const periodTab = ledgerHome.getByRole("tab", { name: period, exact: true });
+  await periodTab.click();
+  if (await periodTab.getAttribute("aria-selected") !== "true") throw new Error(`Larpz Wallet did not select the ${period} chart period.`);
+}
+await ledgerHome.getByRole("button", { name: "Hide portfolio balance" }).click();
+if ((await page.locator('[data-testid="ledger-portfolio-balance"]').textContent()) !== "••••••") throw new Error("Larpz Wallet balance visibility control did not hide the balance.");
+await ledgerHome.getByRole("button", { name: "Show portfolio balance" }).click();
+
+const ledgerHoldingsTabs = page.locator('[data-testid="ledger-holdings-tabs"]');
+await ledgerHoldingsTabs.getByRole("tab", { name: "Accounts", exact: true }).click();
+await ledgerHome.getByRole("button", { name: "Add account", exact: true }).waitFor();
+await ledgerHome.getByText(/sim_ledger_/).first().waitFor();
+await ledgerHoldingsTabs.getByRole("tab", { name: "Assets", exact: true }).click();
+await ledgerHome.getByRole("button", { name: "See all assets", exact: true }).click();
+await page.getByRole("heading", { name: "All assets", exact: true }).waitFor();
+await page.getByLabel("Search all assets").fill("Bitcoin");
+await page.locator('[data-testid="ledger-all-assets"]').getByText("Bitcoin", { exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerHome.waitFor();
+
+await page.locator('[data-testid="ledger-allocation"]').getByRole("button", { name: "View detailed portfolio allocation" }).click();
+await page.locator('[data-testid="ledger-allocation-detail"]').waitFor();
+await page.getByRole("heading", { name: "Allocation", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerHome.waitFor();
+
+await page.locator('[data-testid="ledger-primary-tabs"]').getByRole("tab", { name: "Market", exact: true }).click();
+await page.getByRole("heading", { name: "Explore", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerHome.waitFor();
+
+await ledgerHome.getByRole("button", { name: "Open Larpz card" }).click();
+await page.getByRole("heading", { name: "Card", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerHome.getByRole("button", { name: "Open notifications" }).click();
+await page.getByRole("heading", { name: "Notifications", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+
 await ledgerActions.getByRole("button", { name: "Receive", exact: true }).click();
 const ledgerReceiveSheet = page.locator("section[aria-label='Receive']");
 await ledgerReceiveSheet.getByRole("heading", { name: "Receive", exact: true }).waitFor();
-await ledgerReceiveSheet.getByRole("img", { name: "Wallet address QR code" }).waitFor();
-await ledgerReceiveSheet.getByText("Receive in Account 1", { exact: true }).waitFor();
-await ledgerReceiveSheet.getByRole("button", { name: /Larpz Wallet address/ }).click();
+const ledgerReceiveQr = ledgerReceiveSheet.getByRole("img", { name: "Wallet address QR code" });
+await ledgerReceiveQr.waitFor();
+if (await ledgerReceiveQr.locator("circle").count() < 20) throw new Error("Larpz Wallet Receive did not generate an address QR code.");
+await ledgerReceiveSheet.getByRole("button", { name: /Larpz Wallet address/i }).click();
 await ledgerReceiveSheet.getByText("Address copied", { exact: true }).waitFor();
 await ledgerReceiveSheet.getByRole("button", { name: "Close", exact: true }).click();
 await ledgerReceiveSheet.waitFor({ state: "hidden" });
 
-await ledgerActions.getByRole("button", { name: "Send", exact: true }).click();
-const ledgerSendSheet = page.locator("section[aria-label='Send']");
-await ledgerSendSheet.getByRole("heading", { name: "Send", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet send");
-if (await ledgerSendSheet.getByLabel("Source wallet").inputValue() !== "ledger") {
+await ledgerActions.getByRole("button", { name: "Buy", exact: true }).click();
+await page.getByRole("heading", { name: "Buy", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerActions.getByRole("button", { name: "Swap", exact: true }).click();
+await page.getByRole("heading", { name: "Swap", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+
+await ledgerBottomNav.getByRole("button", { name: "Transfer", exact: true }).click();
+const ledgerTransferSheet = page.locator("section[aria-label='Send']");
+await ledgerTransferSheet.getByRole("heading", { name: "Send", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet transfer");
+if (await ledgerTransferSheet.getByLabel("Source wallet").inputValue() !== "ledger") {
   throw new Error("Larpz Wallet Send did not default to its own source account.");
 }
-await ledgerSendSheet.getByRole("button", { name: "Scan recipient QR code" }).click();
+await ledgerTransferSheet.getByRole("button", { name: "Scan recipient QR code" }).click();
 const ledgerCameraScanner = page.getByRole("dialog", { name: "QR code scanner" });
 await ledgerCameraScanner.waitFor();
 await ledgerCameraScanner.getByLabel("Live camera preview").waitFor();
 await ledgerCameraScanner.waitFor({ state: "hidden", timeout: 8_000 });
-const ledgerScannedAddress = await ledgerSendSheet.getByLabel("Destination wallet address").inputValue();
+const ledgerScannedAddress = await ledgerTransferSheet.getByLabel("Destination wallet address").inputValue();
 if (ledgerScannedAddress !== "sim_ledger_cameraqr123") {
-  throw new Error(`Larpz Wallet camera scanner did not populate the real destination field: ${ledgerScannedAddress}`);
+  throw new Error(`Larpz Wallet camera scanner did not populate the destination field: ${ledgerScannedAddress}`);
 }
-await ledgerSendSheet.getByRole("button", { name: "Close", exact: true }).click();
-await ledgerSendSheet.waitFor({ state: "hidden" });
-
-await page.getByRole("button", { name: "Accounts", exact: true }).click();
-const ledgerAccountsSheet = page.locator("section[aria-label='Accounts']");
-await ledgerAccountsSheet.getByRole("heading", { name: "Accounts", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet accounts");
-await ledgerAccountsSheet.getByLabel("New account name").fill("Smoke Larpz Account");
-await ledgerAccountsSheet.getByRole("button", { name: "Add account", exact: true }).click();
-await ledgerAccountsSheet.getByText("Smoke Larpz Account", { exact: true }).waitFor();
-await ledgerAccountsSheet.getByRole("button", { name: "Close", exact: true }).click();
-await ledgerAccountsSheet.waitFor({ state: "hidden" });
-
-await page.getByRole("button", { name: "Search Larpz Wallet" }).click();
-await page.getByRole("heading", { name: "Search", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet search");
-const ledgerSearch = page.getByLabel("Search assets and activity");
-await ledgerSearch.fill("Solana");
-await page.getByRole("button").filter({ hasText: "Solana" }).first().waitFor();
-await page.getByRole("button", { name: "Clear search" }).click();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerTransferSheet.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerTransferSheet.waitFor({ state: "hidden" });
 
 await page.getByRole("button", { name: "Open Larpz Wallet settings" }).click();
-await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet settings");
-await page.getByLabel("Currency").selectOption("EUR");
-await page.getByLabel("Optional market API key").fill("smoke-market-key-2026");
-await page.getByRole("checkbox", { name: "Pro market details" }).check();
-await page.getByRole("radio", { name: "Send first", exact: true }).click();
-await page.getByRole("radio", { name: "light", exact: true }).click();
-await page.getByRole("button", { name: "Save settings", exact: true }).click();
-await page.getByText("Settings saved on this device.", { exact: true }).waitFor();
+const ledgerEditPortfolio = page.locator('[data-testid="ledger-edit-portfolio-sheet"]');
+await ledgerEditPortfolio.waitFor();
+await ledgerEditPortfolio.getByRole("heading", { name: "Edit Portfolio", exact: true }).waitFor();
+if (ledgerScreenshotDir) await page.screenshot({ path: `${ledgerScreenshotDir}/ledger-settings.png` });
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet Edit Portfolio");
+const originalLedgerBtcBalance = await ledgerEditPortfolio.getByLabel("BTC balance").inputValue();
+await ledgerEditPortfolio.getByLabel("BTC balance").fill("999999999.99999999");
+await ledgerEditPortfolio.getByLabel("Currency").selectOption("EUR");
+await ledgerEditPortfolio.getByLabel("Optional CoinGecko API key").fill("smoke-market-key-2026");
+await ledgerEditPortfolio.getByLabel("USDT network").selectOption("ETH");
+await ledgerEditPortfolio.getByRole("checkbox", { name: "Pro market details" }).check();
+await ledgerEditPortfolio.getByRole("radio", { name: "Send first", exact: true }).click();
+await ledgerEditPortfolio.getByRole("radio", { name: "Light", exact: true }).click();
+await ledgerEditPortfolio.getByRole("button", { name: "Save", exact: true }).click();
+await ledgerEditPortfolio.getByRole("status").filter({ hasText: "Portfolio settings saved for this account." }).waitFor();
 await page.locator('html[data-ledger-color-scheme="light"]').waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-await page.locator('[data-testid="ledger-home"]').waitFor();
-await page.waitForFunction(() => document.querySelector('section[aria-label="Wallet actions"] button')?.textContent?.trim() === "Send");
-
-await page.reload({ waitUntil: "domcontentloaded" });
-await page.locator('[data-testid="ledger-home"]').waitFor({ timeout: 20_000 });
-await page.locator('html[data-ledger-color-scheme="light"]').waitFor();
-await page.waitForFunction(() => document.querySelector('section[aria-label="Wallet actions"] button')?.textContent?.trim() === "Send");
-await page.getByRole("button", { name: "Open Larpz Wallet settings" }).click();
-await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-if (await page.getByLabel("Currency").inputValue() !== "EUR" || await page.getByLabel("Optional market API key").inputValue() !== "smoke-market-key-2026") {
-  throw new Error("Larpz Wallet settings did not persist after reload.");
+await ledgerEditPortfolio.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerEditPortfolio.waitFor({ state: "hidden" });
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 393, height: 852 },
+  { width: 430, height: 932 },
+]) {
+  await page.setViewportSize(viewport);
+  await assertViewportContentFits(page, "Larpz Wallet very large balance", viewport.width);
 }
-if (!await page.getByRole("checkbox", { name: "Pro market details" }).isChecked() || !await page.getByRole("radio", { name: "Send first", exact: true }).isChecked()) {
-  throw new Error("Larpz Wallet market and quick-action preferences did not persist after reload.");
-}
-await page.getByRole("button", { name: "Manage accounts", exact: true }).click();
-await page.locator("section[aria-label='Accounts']").getByText("Smoke Larpz Account", { exact: true }).waitFor();
-await page.locator("section[aria-label='Accounts']").getByRole("button", { name: "Close", exact: true }).click();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-
-await page.getByRole("button", { name: "Refresh portfolio" }).click();
-const ledgerRefreshStatus = page.getByRole("status").filter({ hasText: "Refreshing portfolio" });
-await ledgerRefreshStatus.waitFor();
-await ledgerRefreshStatus.waitFor({ state: "hidden", timeout: 5_000 });
-
-await page.locator('section[aria-label="Wallet actions"]').getByRole("button", { name: "Buy", exact: true }).click();
-await page.getByRole("heading", { name: "Buy", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet buy");
-await page.locator("#ledger-buy-asset").selectOption("SOL");
-await page.locator("#ledger-buy-amount").fill("5");
-await page.getByRole("button", { name: "Add to demo balance", exact: true }).click();
-await page.getByRole("status").filter({ hasText: /SOL added to this demo account/ }).waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-
-await page.getByRole("button").filter({ hasText: "Solana" }).last().click();
-await page.getByLabel("Select asset").waitFor();
-if (await page.getByLabel("Select asset").inputValue() !== "SOL") throw new Error("The Solana asset row did not open the SOL detail screen.");
-await page.getByRole("img", { name: "SOL 1D market price chart" }).waitFor({ timeout: 10_000 });
-for (const period of ["1W", "1M", "1Y", "ALL"]) {
-  const responsePromise = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname === "/api/market-chart" && url.searchParams.get("symbol") === "SOL" && url.searchParams.get("period") === period;
-  });
-  await page.getByRole("tab", { name: period, exact: true }).click();
-  await responsePromise;
-  await page.getByRole("img", { name: `SOL ${period} market price chart` }).waitFor();
-}
-for (const period of ["1D", "1W", "1M", "1Y", "ALL"]) {
-  if (!requestedLedgerCharts.includes(`SOL:${period}`)) throw new Error(`The SOL ${period} chart was not requested.`);
-}
-await page.getByText("Smoke Larpz Account", { exact: true }).waitFor();
-await page.getByRole("button", { name: "Transfer", exact: true }).click();
-await page.locator("section[aria-label='Send']").getByRole("heading", { name: "Send", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet asset transfer");
-await page.locator("section[aria-label='Send']").getByRole("button", { name: "Close", exact: true }).click();
-const bitcoinChartResponse = page.waitForResponse((response) => {
-  const url = new URL(response.url());
-  return url.pathname === "/api/market-chart" && url.searchParams.get("symbol") === "BTC" && url.searchParams.get("period") === "ALL";
-});
-await page.getByLabel("Select asset").selectOption("BTC");
-await bitcoinChartResponse;
-await page.getByRole("img", { name: "BTC ALL market price chart" }).waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-
-await page.getByRole("button", { name: "Discover markets" }).click();
-await page.getByRole("heading", { name: "Explore", exact: true }).waitFor();
-await page.getByText(/Market cap/).first().waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-await page.getByRole("button").filter({ hasText: "Explore perpetual markets" }).click();
-await page.getByRole("heading", { name: "Perpetuals", exact: true }).waitFor();
-await page.getByText("No leveraged order or real-money position is opened.", { exact: false }).waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-
-await page.getByRole("button", { name: "Open transaction history" }).click();
-await page.getByRole("heading", { name: "Transaction history", exact: true }).waitFor();
-await page.getByText("SOL Main", { exact: true }).first().waitFor();
-await page.getByRole("button", { name: "Back to home", exact: true }).click();
-
-await ledgerBottomNav.getByRole("button", { name: "Swap", exact: true }).click();
-await page.getByRole("heading", { name: "Swap", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet swap");
-await page.getByLabel("Token to receive").selectOption("ETH");
-await page.getByLabel("Token to pay").selectOption("SOL");
-await page.getByLabel("Swap amount").fill("0.001");
-await page.getByRole("button", { name: "Review swap", exact: true }).click();
-await page.getByRole("status").filter({ hasText: /Swapped .* SOL for .* ETH/ }).waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await page.setViewportSize({ width: 390, height: 844 });
 
 await ledgerBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
 await page.getByRole("heading", { name: "Earn", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet Earn");
-await page.getByLabel("Asset to earn").selectOption("SOL");
-await page.getByLabel("Amount to earn").fill("0.001");
-await page.getByRole("button", { name: "Start earning", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "SOL moved to Earn" }).waitFor();
-await page.getByRole("button", { name: "Withdraw", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "SOL returned to your balance" }).waitFor();
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
+await ledgerBottomNav.getByRole("button", { name: "Wallet", exact: true }).click();
+await ledgerHome.waitFor();
 
-await ledgerBottomNav.getByRole("button", { name: "Card", exact: true }).click();
-await page.getByRole("heading", { name: "Card", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet card");
-await page.getByRole("button", { name: "Show details", exact: true }).click();
-await page.getByText("5412  8940  2731  4242", { exact: true }).waitFor();
-await page.getByRole("button", { name: "Freeze card", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "Card frozen" }).waitFor();
-await page.getByLabel("Monthly spending limit").fill("2500");
-await page.getByRole("button", { name: "Save", exact: true }).click();
-await page.waitForFunction(() => [...document.querySelectorAll("p")].some((element) => element.textContent?.includes("Current limit:") && element.textContent.includes("2,500")));
-await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
-await ledgerBottomNav.getByRole("button", { name: "Home", exact: true }).click();
-await page.locator('[data-testid="ledger-home"]').waitFor();
+await ledgerBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
+await page.getByRole("heading", { name: "Explore", exact: true }).waitFor();
+await ledgerBottomNav.getByRole("button", { name: "Wallet", exact: true }).click();
+await ledgerHome.waitFor();
+
+await ledgerBottomNav.getByRole("button", { name: "My Larpz", exact: true }).click();
+await ledgerEditPortfolio.waitFor();
+if (await ledgerEditPortfolio.getByLabel("Currency").inputValue() !== "EUR"
+  || await ledgerEditPortfolio.getByLabel("Optional CoinGecko API key").inputValue() !== "smoke-market-key-2026"
+  || await ledgerEditPortfolio.getByLabel("USDT network").inputValue() !== "ETH") {
+  throw new Error("Larpz Wallet account-scoped Edit Portfolio settings did not persist.");
+}
+if (!await ledgerEditPortfolio.getByRole("checkbox", { name: "Pro market details" }).isChecked()
+  || !await ledgerEditPortfolio.getByRole("radio", { name: "Send first", exact: true }).isChecked()
+  || !await ledgerEditPortfolio.getByRole("radio", { name: "Light", exact: true }).isChecked()) {
+  throw new Error("Larpz Wallet account-scoped portfolio preferences did not persist.");
+}
+await ledgerEditPortfolio.getByLabel("BTC balance").fill(originalLedgerBtcBalance);
+await ledgerEditPortfolio.getByRole("button", { name: "Save", exact: true }).click();
+await ledgerEditPortfolio.getByRole("status").filter({ hasText: "Portfolio settings saved for this account." }).waitFor();
+await ledgerEditPortfolio.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerEditPortfolio.waitFor({ state: "hidden" });
+
+await ledgerHome.getByRole("button", { name: "Add transaction", exact: true }).click();
+const ledgerAddTransaction = page.locator('[data-testid="ledger-add-transaction-sheet"]');
+await ledgerAddTransaction.waitFor();
+await ledgerAddTransaction.getByRole("heading", { name: "Add Transaction", exact: true }).waitFor();
+if (ledgerScreenshotDir) await page.screenshot({ path: `${ledgerScreenshotDir}/ledger-transaction.png` });
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet Add Transaction");
+await ledgerAddTransaction.getByRole("radio", { name: "Received", exact: true }).click();
+await ledgerAddTransaction.getByLabel("Transaction crypto").selectOption("BTC");
+await ledgerAddTransaction.getByLabel("Transaction amount").fill("0.00001");
+await ledgerAddTransaction.getByRole("button", { name: "Add Transaction", exact: true }).click();
+await ledgerAddTransaction.getByRole("status").filter({ hasText: "Transaction added to this Larpz Wallet account." }).waitFor();
+await ledgerAddTransaction.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerAddTransaction.waitFor({ state: "hidden" });
+await ledgerHome.getByText("+0.00001 BTC", { exact: true }).first().waitFor();
+
+if (process.env.WALLET_TEST_SCOPE === "ledger") {
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Ledger mobile smoke test passed: responsive home, chart, actions, transfer source lock, account-scoped settings, bottom navigation, and atomic Add Transaction.");
+  process.exit(0);
+}
 
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 const trustSplash = page.locator('[data-testid="trust-splash"]');

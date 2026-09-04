@@ -36,6 +36,10 @@ export type LedgerWalletSettings = {
   actionPreference: LedgerActionPreference;
   colorScheme: LedgerColorScheme;
   language: "en";
+  stablecoinNetworks: {
+    USDT: "BNB" | "ETH" | "TRX";
+    USDC: "TRX" | "ETH" | "SOL";
+  };
   customTokens: LedgerCustomToken[];
 };
 
@@ -43,15 +47,21 @@ export const defaultLedgerWalletSettings: LedgerWalletSettings = {
   currency: "USD",
   marketApiKey: "",
   proKeyEnabled: false,
-  actionPreference: "receive-first",
+  actionPreference: "send-first",
   colorScheme: "dark",
   language: "en",
+  stablecoinNetworks: { USDT: "BNB", USDC: "TRX" },
   customTokens: [],
 };
 
 const ethereumAddressPattern = /^0x[a-fA-F0-9]{40}$/;
 const solanaAddressPattern = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const reservedTokenSymbols = new Set(walletMarketSymbols);
+
+function customTokenContractKey(network: LedgerTokenNetwork, value: string) {
+  const address = value.trim();
+  return `${network}:${network === "ethereum" ? address.toLowerCase() : address}`;
+}
 
 export function validateLedgerTokenAddress(network: LedgerTokenNetwork, value: string) {
   const address = value.trim();
@@ -93,9 +103,13 @@ export function normalizeLedgerWalletSettings(value: unknown): LedgerWalletSetti
     currency: isCurrencyCode(settings.currency) ? settings.currency : defaultLedgerWalletSettings.currency,
     marketApiKey: typeof settings.marketApiKey === "string" ? settings.marketApiKey.slice(0, 180) : "",
     proKeyEnabled: settings.proKeyEnabled === true,
-    actionPreference: settings.actionPreference === "send-first" ? "send-first" : "receive-first",
+    actionPreference: settings.actionPreference === "receive-first" ? "receive-first" : defaultLedgerWalletSettings.actionPreference,
     colorScheme: settings.colorScheme === "light" ? "light" : "dark",
     language: "en",
+    stablecoinNetworks: {
+      USDT: settings.stablecoinNetworks?.USDT === "ETH" || settings.stablecoinNetworks?.USDT === "TRX" ? settings.stablecoinNetworks.USDT : "BNB",
+      USDC: settings.stablecoinNetworks?.USDC === "ETH" || settings.stablecoinNetworks?.USDC === "SOL" ? settings.stablecoinNetworks.USDC : "TRX",
+    },
     customTokens: Array.isArray(settings.customTokens) ? settings.customTokens.filter(isCustomToken).slice(0, 30) : [],
   };
 }
@@ -109,7 +123,7 @@ export function validateLedgerSettings(settings: LedgerWalletSettings) {
   for (const token of settings.customTokens) {
     const addressError = validateLedgerTokenAddress(token.network, token.contractAddress);
     if (addressError) return `${token.symbol || "Custom token"}: ${addressError}`;
-    const contractKey = `${token.network}:${token.contractAddress.toLowerCase()}`;
+    const contractKey = customTokenContractKey(token.network, token.contractAddress);
     if (seenContracts.has(contractKey)) return "Each custom-token contract can only be added once.";
     seenContracts.add(contractKey);
     const symbol = token.symbol.trim().toUpperCase();
