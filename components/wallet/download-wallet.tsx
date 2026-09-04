@@ -718,8 +718,10 @@ function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
       </div>
       <div className="absolute -bottom-3 -right-1 h-40 w-[138px] overflow-hidden rounded-[2rem] shadow-[0_0_50px_rgba(115,244,219,.08)]">
         <Image src="/assets/hyperevm-watchlist.png" alt="HyperEVM watchlist artwork" fill sizes="138px" className="object-cover" priority />
-        <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-0 top-0 z-20 h-11 w-11 rounded-full focus-visible:ring-2 focus-visible:ring-[#a99bf7]" />
       </div>
+      <button type="button" onClick={() => setVisible(false)} aria-label="Dismiss watchlist card" className="absolute right-2 top-2 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/[0.1] bg-[#171719] text-white/70 shadow-[0_0_0_7px_#171719,0_8px_24px_rgba(0,0,0,.35)] transition hover:bg-[#232326] hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a99bf7] focus-visible:ring-offset-2 focus-visible:ring-offset-[#171719]">
+        <X className="h-5 w-5" strokeWidth={2.1} aria-hidden="true" />
+      </button>
     </aside>
   );
 }

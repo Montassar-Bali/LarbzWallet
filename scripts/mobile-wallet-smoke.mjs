@@ -1,6 +1,7 @@
 import { chromium } from "playwright-core";
 
 const baseUrl = process.env.WALLET_TEST_URL || "http://localhost:3000";
+const phantomScreenshotDir = process.env.PHANTOM_SCREENSHOT_DIR || "";
 const ledgerScreenshotDir = process.env.LEDGER_SCREENSHOT_DIR || "";
 const executablePath = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
@@ -239,6 +240,30 @@ await context.route("**/api/wallet-ledger", createInMemoryWalletLedger(activated
 
 await assertMobileLayout("/download-wallet", "Search Phantom", 20_000);
 await assertWritingFieldsAvoidIosZoom(page, "Phantom home");
+const phantomWatchlistClose = page.getByRole("button", { name: "Dismiss watchlist card" });
+await phantomWatchlistClose.waitFor();
+await phantomWatchlistClose.scrollIntoViewIfNeeded();
+const phantomWatchlistCard = phantomWatchlistClose.locator("xpath=ancestor::aside");
+if (phantomScreenshotDir) await phantomWatchlistCard.screenshot({ path: `${phantomScreenshotDir}/phantom-watchlist-close.png` });
+const phantomWatchlistCloseLayout = await phantomWatchlistClose.evaluate((button) => {
+  const buttonBounds = button.getBoundingClientRect();
+  const iconBounds = button.querySelector("svg")?.getBoundingClientRect();
+  return {
+    buttonWidth: buttonBounds.width,
+    buttonHeight: buttonBounds.height,
+    iconOffsetX: iconBounds ? iconBounds.left - buttonBounds.left : null,
+    iconOffsetY: iconBounds ? iconBounds.top - buttonBounds.top : null,
+    iconWidth: iconBounds?.width ?? null,
+    iconHeight: iconBounds?.height ?? null,
+  };
+});
+if (phantomWatchlistCloseLayout.buttonWidth < 44 || phantomWatchlistCloseLayout.buttonHeight < 44
+  || phantomWatchlistCloseLayout.iconOffsetX !== 12 || phantomWatchlistCloseLayout.iconOffsetY !== 12
+  || phantomWatchlistCloseLayout.iconWidth !== 20 || phantomWatchlistCloseLayout.iconHeight !== 20) {
+  throw new Error(`Phantom watchlist close button is not a centered 44px target: ${JSON.stringify(phantomWatchlistCloseLayout)}`);
+}
+await phantomWatchlistClose.click();
+await phantomWatchlistCard.waitFor({ state: "detached" });
 const responsiveHomeLayout = await page.evaluate(() => {
   const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
   const total = document.querySelector('[data-testid="phantom-total-balance"]');
@@ -451,6 +476,14 @@ if (Math.abs(cashAfterAdd - cashBeforeAdd - 50) > 1e-9) {
 }
 const expectedCashLabel = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(cashAfterAdd);
 await page.getByRole("button").filter({ hasText: "Cash" }).filter({ hasText: expectedCashLabel }).first().waitFor();
+
+if (process.env.WALLET_TEST_SCOPE === "phantom") {
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Phantom mobile smoke test passed: watchlist close control is crisp, centered, accessible, and dismisses the card.");
+  process.exit(0);
+}
 
 await context.route("**/api/market-chart**", async (route) => {
   const requestUrl = new URL(route.request().url());
