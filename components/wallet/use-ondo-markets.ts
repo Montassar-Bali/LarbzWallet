@@ -21,11 +21,14 @@ export type OndoMarketAsset = WalletToken & {
 };
 
 export type OndoMarketStatus = "idle" | "loading" | "ready" | "partial" | "stale" | "unauthorized" | "unconfigured" | "error";
+export type OndoMarketProvider = "ondo" | "blockdaemon";
 
 type OndoMarketSnapshot = {
   assets: OndoMarketAsset[];
   status: OndoMarketStatus;
   updatedAt?: string;
+  provider?: OndoMarketProvider;
+  source?: string;
 };
 
 const emptySnapshot: OndoMarketSnapshot = { assets: [], status: "idle" };
@@ -129,6 +132,8 @@ export function useOndoMarkets(enabled: boolean, refreshKey = 0) {
           configured?: boolean;
           status?: "live" | "partial" | "stale" | "unauthorized" | "unavailable" | "unconfigured";
           updatedAt?: string;
+          provider?: OndoMarketProvider;
+          source?: string;
           error?: string;
         };
         if (cancelled) return;
@@ -140,10 +145,19 @@ export function useOndoMarkets(enabled: boolean, refreshKey = 0) {
         else if (!response.ok || payload.status === "unavailable" || (!hasUsableAssets && Boolean(payload.error))) status = "error";
         else if (payload.status === "partial") status = "partial";
         else if (payload.status === "stale") status = "stale";
-        setSnapshot({ assets, status, updatedAt: safeText(payload.updatedAt, 80) || undefined });
+        const provider = payload.provider === "ondo" || payload.provider === "blockdaemon"
+          ? payload.provider
+          : undefined;
+        setSnapshot({
+          assets,
+          status,
+          updatedAt: safeText(payload.updatedAt, 80) || undefined,
+          provider,
+          source: safeText(payload.source, 80) || undefined,
+        });
       } catch (caught) {
         if (cancelled || (caught instanceof DOMException && caught.name === "AbortError")) return;
-        setSnapshot((current) => ({ ...current, status: "error" }));
+        setSnapshot((current) => ({ ...current, status: current.assets.length ? "stale" : "error" }));
       }
     };
 

@@ -2,12 +2,22 @@ import type { WalletToken } from "@/lib/types";
 
 const ONDO_MARKET_URL = "https://api.gm.ondo.finance/v1/assets/all/market";
 const ONDO_METADATA_URL = "https://api.gm.ondo.finance/v1/assets/all/metadata";
+const BLOCKDAEMON_CHAIN_ID = "eip155:1";
+const BLOCKDAEMON_ONDO_ADDRESS = "0xfAbA6f8e4a5E8Ab82F62fe7C39859FA577269BE3";
+const BLOCKDAEMON_TOKENS_URL = `https://svc.blockdaemon.com/pricing/v1/allowed_tokens/${BLOCKDAEMON_CHAIN_ID}`;
+const BLOCKDAEMON_QUOTES_URL = `https://svc.blockdaemon.com/pricing/v1/quotes/${BLOCKDAEMON_CHAIN_ID}`;
 const MARKET_CACHE_TTL_MS = 60_000;
 const METADATA_CACHE_TTL_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_HISTORY_POINTS = 48;
 
 export const ONDO_MARKETS_SOURCE = "Ondo Global Markets" as const;
+export const BLOCKDAEMON_MARKETS_SOURCE = "Blockdaemon Token Price API" as const;
+
+export type OndoMarketProvider = "ondo" | "blockdaemon";
+export type OndoMarketSource =
+  | typeof ONDO_MARKETS_SOURCE
+  | typeof BLOCKDAEMON_MARKETS_SOURCE;
 
 export type OndoMarketStatus =
   | "live"
@@ -43,13 +53,15 @@ export type OndoMarketAsset = WalletToken & {
 export type OndoMarketsSnapshot = {
   assets: OndoMarketAsset[];
   updatedAt: string;
-  source: typeof ONDO_MARKETS_SOURCE;
+  provider: OndoMarketProvider | null;
+  source: OndoMarketSource | null;
   status: OndoMarketStatus;
   configured: boolean;
   error?: string;
 };
 
 type TimedCache<T> = {
+  provider: OndoMarketProvider;
   apiKey: string;
   expiresAt: number;
   value: T;
@@ -70,14 +82,27 @@ type MetadataState = {
   freshness: "fresh" | "stale" | "unavailable";
 };
 
+type ProviderCredentials = {
+  provider: OndoMarketProvider;
+  source: OndoMarketSource;
+  apiKey: string;
+};
+
 let snapshotCache: TimedCache<OndoMarketsSnapshot> | null = null;
 let metadataCache: TimedCache<Map<string, MetadataRecord>> | null = null;
-let inFlight: { apiKey: string; promise: Promise<OndoMarketsSnapshot> } | null = null;
+let inFlight: {
+  provider: OndoMarketProvider;
+  apiKey: string;
+  promise: Promise<OndoMarketsSnapshot>;
+} | null = null;
 
-class OndoRequestError extends Error {
-  constructor(readonly status: number) {
-    super("Ondo market data request failed.");
-    this.name = "OndoRequestError";
+class MarketRequestError extends Error {
+  constructor(
+    readonly provider: OndoMarketProvider,
+    readonly status: number,
+  ) {
+    super("Market data request failed.");
+    this.name = "MarketRequestError";
   }
 }
 
@@ -329,12 +354,36 @@ function parseMarketAssets(
   return Array.from(assets.values());
 }
 
-function apiKeyFromEnvironment() {
-  const value = process.env.ONDO_API_KEY?.trim();
-  return value || undefined;
+function providerFromEnvironment(): ProviderCredentials | null {
+  const ondoApiKey = process.env.ONDO_API_KEY?.trim();
+  if (ondoApiKey) {
+    return {
+      provider: "ondo",
+      source: ONDO_MARKETS_SOURCE,
+      apiKey: ondoApiKey,
+    };
+  }
+
+  const blockdaemonApiKey = process.env.BLOCKDAEMON_API_KEY?.trim();
+  if (blockdaemonApiKey) {
+    return {
+      provider: "blockdaemon",
+      source: BLOCKDAEMON_MARKETS_SOURCE,
+      apiKey: blockdaemonApiKey,
+    };
+  }
+
+  return null;
 }
 
-async function fetchJson(endpoint: string, apiKey: string) {
+function sameCredentials(
+  cached: Pick<TimedCache<unknown>, "provider" | "apiKey"> | null,
+  credentials: ProviderCredentials,
+) {
+  return cached?.provider === credentials.provider && cached.apiKey === credentials.apiKey;
+}
+
+async function fetchOndoJson(endpoint: string, apiKey: string) {
   const response = await fetch(endpoint, {
     method: "GET",
     headers: {
@@ -346,26 +395,128 @@ async function fetchJson(endpoint: string, apiKey: string) {
   });
 
   if (!response.ok) {
-    throw new OndoRequestError(response.status);
+    throw new MarketRequestError("ondo", response.status);
   }
   return (await response.json()) as unknown;
 }
 
-function isAuthenticationFailure(error: unknown) {
-  return error instanceof OndoRequestError && (error.status === 401 || error.status === 403);
+async function fetchBlockdaemonJson(
+  endpoint: string,
+  apiKey: string,
+  init: { method: "GET" | "POST"; body?: string },
+) {
+  const response = await fetch(endpoint, {
+    method: init.method,
+    headers: {
+      Accept: "application/json",
+      "X-API-Key": apiKey,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(init.body ? { body: init.body } : {}),
+    cache: "no-store",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new MarketRequestError("blockdaemon", response.status);
+  }
+  return (await response.json()) as unknown;
+}
+
+function isAuthenticationFailure(
+  error: unknown,
+  provider: OndoMarketProvider,
+) {
+  return error instanceof MarketRequestError &&
+    error.provider === provider &&
+    (error.status === 401 || error.status === 403);
+}
+
+function payloadContainsAddress(
+  value: unknown,
+  expectedAddress: string,
+  depth = 0,
+): boolean {
+  if (depth > 8) return false;
+  if (typeof value === "string") {
+    return value.trim().toLowerCase() === expectedAddress.toLowerCase();
+  }
+  if (Array.isArray(value)) {
+    return value.some((entry) => payloadContainsAddress(entry, expectedAddress, depth + 1));
+  }
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, entry]) =>
+    key.toLowerCase() === expectedAddress.toLowerCase() ||
+    payloadContainsAddress(entry, expectedAddress, depth + 1)
+  );
+}
+
+function positivePrice(value: unknown) {
+  const parsed = finiteNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
+}
+
+function blockdaemonUsdPrice(value: unknown, depth = 0): number | undefined {
+  if (depth > 8 || value === null || value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const price = blockdaemonUsdPrice(entry, depth + 1);
+      if (price !== undefined) return price;
+    }
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+
+  for (const key of ["USD", "usd"]) {
+    if (!(key in value)) continue;
+    const direct = positivePrice(value[key]);
+    if (direct !== undefined) return direct;
+    const nested = blockdaemonUsdPrice(value[key], depth + 1);
+    if (nested !== undefined) return nested;
+  }
+
+  if ("price" in value) {
+    const direct = positivePrice(value.price);
+    if (direct !== undefined) return direct;
+    const nested = blockdaemonUsdPrice(value.price, depth + 1);
+    if (nested !== undefined) return nested;
+  }
+
+  const quoteCurrency = cleanText(
+    value.currency ?? value.unit ?? value.quoteCurrency ?? value.quote_currency,
+    12,
+  )?.toUpperCase();
+  if (quoteCurrency === "USD") {
+    for (const key of ["value", "amount", "quote", "rate"]) {
+      const direct = positivePrice(value[key]);
+      if (direct !== undefined) return direct;
+    }
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (["timestamp", "time", "status", "decimals", "chainId", "chain_id"].includes(key)) {
+      continue;
+    }
+    const nested = blockdaemonUsdPrice(entry, depth + 1);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
 }
 
 async function metadataForRequest(apiKey: string, now: number): Promise<MetadataState> {
-  const cached = metadataCache?.apiKey === apiKey ? metadataCache : null;
+  const cached = metadataCache?.provider === "ondo" && metadataCache.apiKey === apiKey
+    ? metadataCache
+    : null;
   if (cached && cached.expiresAt > now) {
     return { records: cached.value, freshness: "fresh" };
   }
 
   try {
-    const payload = await fetchJson(ONDO_METADATA_URL, apiKey);
+    const payload = await fetchOndoJson(ONDO_METADATA_URL, apiKey);
     const records = parseMetadata(payload);
     if (!records.size) throw new Error("Ondo metadata response was empty.");
     metadataCache = {
+      provider: "ondo",
       apiKey,
       expiresAt: now + METADATA_CACHE_TTL_MS,
       value: records,
@@ -381,45 +532,61 @@ function emptySnapshot(
   status: "unauthorized" | "unavailable" | "unconfigured",
   configured: boolean,
   error: string,
+  credentials: ProviderCredentials | null,
 ): OndoMarketsSnapshot {
   return {
     assets: [],
     updatedAt: new Date().toISOString(),
-    source: ONDO_MARKETS_SOURCE,
+    provider: credentials?.provider ?? null,
+    source: credentials?.source ?? null,
     status,
     configured,
     error,
   };
 }
 
-async function loadOndoMarkets(apiKey: string, now: number): Promise<OndoMarketsSnapshot> {
-  const marketPromise = fetchJson(ONDO_MARKET_URL, apiKey);
-  const metadataPromise = metadataForRequest(apiKey, now);
+function staleSnapshot(
+  credentials: ProviderCredentials,
+  error: string,
+) {
+  const stale = sameCredentials(snapshotCache, credentials)
+    ? snapshotCache?.value
+    : null;
+  return stale?.assets.length
+    ? { ...stale, status: "stale" as const, error }
+    : null;
+}
+
+async function loadOfficialOndoMarkets(
+  credentials: ProviderCredentials,
+  now: number,
+): Promise<OndoMarketsSnapshot> {
+  const marketPromise = fetchOndoJson(ONDO_MARKET_URL, credentials.apiKey);
+  const metadataPromise = metadataForRequest(credentials.apiKey, now);
   const [marketResult, metadataResult] = await Promise.allSettled([
     marketPromise,
     metadataPromise,
   ]);
 
   if (marketResult.status === "rejected") {
-    if (isAuthenticationFailure(marketResult.reason)) {
+    if (isAuthenticationFailure(marketResult.reason, "ondo")) {
       return emptySnapshot(
         "unauthorized",
         true,
         "Ondo rejected the configured API key.",
+        credentials,
       );
     }
-    const stale = snapshotCache?.apiKey === apiKey ? snapshotCache.value : null;
-    if (stale?.assets.length) {
-      return {
-        ...stale,
-        status: "stale",
-        error: "Live Ondo market data is temporarily unavailable.",
-      };
-    }
+    const stale = staleSnapshot(
+      credentials,
+      "Live Ondo market data is temporarily unavailable.",
+    );
+    if (stale) return stale;
     return emptySnapshot(
       "unavailable",
       true,
       "Ondo market data is temporarily unavailable.",
+      credentials,
     );
   }
 
@@ -430,18 +597,16 @@ async function loadOndoMarkets(apiKey: string, now: number): Promise<OndoMarkets
   const fetchedAt = new Date(now).toISOString();
   const assets = parseMarketAssets(marketResult.value, metadataState.records, fetchedAt);
   if (!assets.length) {
-    const stale = snapshotCache?.apiKey === apiKey ? snapshotCache.value : null;
-    if (stale?.assets.length) {
-      return {
-        ...stale,
-        status: "stale",
-        error: "Live Ondo market data is temporarily unavailable.",
-      };
-    }
+    const stale = staleSnapshot(
+      credentials,
+      "Live Ondo market data is temporarily unavailable.",
+    );
+    if (stale) return stale;
     return emptySnapshot(
       "unavailable",
       true,
       "Ondo market data is temporarily unavailable.",
+      credentials,
     );
   }
 
@@ -453,7 +618,8 @@ async function loadOndoMarkets(apiKey: string, now: number): Promise<OndoMarkets
   const snapshot: OndoMarketsSnapshot = {
     assets,
     updatedAt: latestTimestamp ? new Date(latestTimestamp).toISOString() : fetchedAt,
-    source: ONDO_MARKETS_SOURCE,
+    provider: credentials.provider,
+    source: credentials.source,
     status: metadataIsFresh ? "live" : "partial",
     configured: true,
     ...(!metadataIsFresh
@@ -467,36 +633,140 @@ async function loadOndoMarkets(apiKey: string, now: number): Promise<OndoMarkets
   };
 
   snapshotCache = {
-    apiKey,
+    provider: credentials.provider,
+    apiKey: credentials.apiKey,
     expiresAt: now + MARKET_CACHE_TTL_MS,
     value: snapshot,
   };
   return snapshot;
 }
 
+async function loadBlockdaemonOndoPrice(
+  credentials: ProviderCredentials,
+  now: number,
+): Promise<OndoMarketsSnapshot> {
+  const capabilityUrl = new URL(BLOCKDAEMON_TOKENS_URL);
+  capabilityUrl.searchParams.append("addresses", BLOCKDAEMON_ONDO_ADDRESS);
+
+  try {
+    const supportedTokens = await fetchBlockdaemonJson(
+      capabilityUrl.href,
+      credentials.apiKey,
+      { method: "GET" },
+    );
+    if (!payloadContainsAddress(supportedTokens, BLOCKDAEMON_ONDO_ADDRESS)) {
+      return emptySnapshot(
+        "unavailable",
+        true,
+        "Blockdaemon does not currently support pricing for the Ethereum ONDO token.",
+        credentials,
+      );
+    }
+
+    const quotePayload = await fetchBlockdaemonJson(
+      BLOCKDAEMON_QUOTES_URL,
+      credentials.apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          addresses: [BLOCKDAEMON_ONDO_ADDRESS],
+          units: ["USD"],
+        }),
+      },
+    );
+    const price = blockdaemonUsdPrice(quotePayload);
+    if (price === undefined) {
+      return emptySnapshot(
+        "unavailable",
+        true,
+        "Blockdaemon returned no usable USD price for the Ethereum ONDO token.",
+        credentials,
+      );
+    }
+
+    const updatedAt = new Date(now).toISOString();
+    return {
+      assets: [
+        {
+          id: "blockdaemon-ondo-ethereum",
+          name: "Ondo",
+          symbol: "ONDO",
+          price,
+          balance: 0,
+          change24h: 0,
+          image: "",
+          updatedAt,
+          tradableSessions: [],
+          priceHistory24h: [],
+          addresses: [
+            {
+              networkChainId: "ethereum-1",
+              address: BLOCKDAEMON_ONDO_ADDRESS,
+              decimals: 18,
+            },
+          ],
+        },
+      ],
+      updatedAt,
+      provider: credentials.provider,
+      source: credentials.source,
+      status: "partial",
+      configured: true,
+      error: "Blockdaemon provides current Ethereum ONDO pricing only.",
+    };
+  } catch (error) {
+    if (isAuthenticationFailure(error, "blockdaemon")) {
+      return emptySnapshot(
+        "unauthorized",
+        true,
+        "Blockdaemon rejected the configured API key.",
+        credentials,
+      );
+    }
+    const stale = staleSnapshot(
+      credentials,
+      "Live Blockdaemon ONDO pricing is temporarily unavailable.",
+    );
+    if (stale) return stale;
+    return emptySnapshot(
+      "unavailable",
+      true,
+      "Blockdaemon ONDO pricing is temporarily unavailable.",
+      credentials,
+    );
+  }
+}
+
 export async function fetchOndoMarkets(): Promise<OndoMarketsSnapshot> {
-  const apiKey = apiKeyFromEnvironment();
-  if (!apiKey) {
+  const credentials = providerFromEnvironment();
+  if (!credentials) {
     return emptySnapshot(
       "unconfigured",
       false,
       "Ondo market data is not configured.",
+      null,
     );
   }
 
   const now = Date.now();
+  const cachedSnapshot = sameCredentials(snapshotCache, credentials)
+    ? snapshotCache
+    : null;
+  if (cachedSnapshot && cachedSnapshot.expiresAt > now) return cachedSnapshot.value;
   if (
-    snapshotCache?.apiKey === apiKey &&
-    snapshotCache.expiresAt > now
-  ) {
-    return snapshotCache.value;
-  }
-  if (inFlight?.apiKey === apiKey) return inFlight.promise;
+    inFlight?.provider === credentials.provider &&
+    inFlight.apiKey === credentials.apiKey
+  ) return inFlight.promise;
 
-  const promise = loadOndoMarkets(apiKey, now)
+  const promise = (
+    credentials.provider === "ondo"
+      ? loadOfficialOndoMarkets(credentials, now)
+      : loadBlockdaemonOndoPrice(credentials, now)
+  )
     .then((snapshot) => {
       snapshotCache = {
-        apiKey,
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
         expiresAt: now + MARKET_CACHE_TTL_MS,
         value: snapshot,
       };
@@ -505,7 +775,11 @@ export async function fetchOndoMarkets(): Promise<OndoMarketsSnapshot> {
     .finally(() => {
       if (inFlight?.promise === promise) inFlight = null;
     });
-  inFlight = { apiKey, promise };
+  inFlight = {
+    provider: credentials.provider,
+    apiKey: credentials.apiKey,
+    promise,
+  };
   return promise;
 }
 

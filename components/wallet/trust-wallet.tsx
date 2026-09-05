@@ -1227,7 +1227,7 @@ export function TrustWallet() {
       { value: "price-desc", label: "Price ↓" },
     ];
     const periodOptions = marketCategory === "ondo"
-      ? [{ value: "24h", label: "24h" }]
+      ? [{ value: "24h", label: ondoSnapshot.provider === "blockdaemon" ? "Spot" : "24h" }]
       : [
           { value: "1h", label: "1h" },
           { value: "24h", label: "24h" },
@@ -1252,6 +1252,18 @@ export function TrustWallet() {
     const networkLabel = marketNetwork === "all" ? "Network" : networkOptions.find((option) => option.value === marketNetwork)?.label ?? "Network";
     const sortLabel = sortOptions.find((option) => option.value === marketSort)?.label ?? "Volume ↓";
     const periodLabel = periodOptions.find((option) => option.value === marketPeriod)?.label ?? "24h";
+    const ondoSource = ondoSnapshot.source
+      ?? (ondoSnapshot.provider === "blockdaemon"
+        ? "Blockdaemon Token Price API"
+        : ondoSnapshot.provider === "ondo"
+          ? "Ondo Global Markets"
+          : "Ondo market data");
+    const isCachedBlockdaemonQuote = ondoSnapshot.provider === "blockdaemon" && ondoSnapshot.status === "stale";
+    const ondoSourceLabel = ondoSnapshot.provider === "blockdaemon"
+      ? `Ondo asset · ${isCachedBlockdaemonQuote ? "Cached Blockdaemon price" : "Price by Blockdaemon"}`
+      : ondoSnapshot.provider === "ondo"
+        ? `Live display data · ${ondoSource}`
+        : ondoSource;
     const emptyMarketMessage = marketCategory === "bstocks"
       ? "bStocks are not available from the current live market source."
       : marketCategory === "ondo"
@@ -1260,9 +1272,9 @@ export function TrustWallet() {
           : ondoSnapshot.status === "unconfigured"
             ? "Ondo market access is not configured."
             : ondoSnapshot.status === "unauthorized"
-              ? "Ondo rejected the configured API key."
+              ? `${ondoSnapshot.provider === "blockdaemon" ? "Blockdaemon" : "Ondo"} rejected the configured API key.`
               : ondoSnapshot.status === "error"
-                ? "Ondo Global Markets is temporarily unavailable."
+                ? `${ondoSource} is temporarily unavailable.`
                 : "No Ondo markets match these filters."
         : "No assets match these filters.";
     const ondoStatusLabel = ondoSnapshot.status === "ready"
@@ -1308,7 +1320,7 @@ export function TrustWallet() {
         </div>
         {marketCategory === "ondo" ? (
           <div data-testid="trust-ondo-market-source" role={ondoSnapshot.status === "error" || ondoSnapshot.status === "unconfigured" || ondoSnapshot.status === "unauthorized" ? "alert" : "status"} className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#171824] px-3 text-xs font-bold text-white/45">
-            <span className="truncate">Live display data · Ondo Global Markets</span>
+            <span className="truncate">{ondoSourceLabel}</span>
             <span className={`shrink-0 ${ondoSnapshot.status === "ready" ? "text-[#3ed474]" : ondoSnapshot.status === "partial" || ondoSnapshot.status === "stale" ? "text-[#f4b953]" : "text-white/38"}`}>{ondoStatusLabel}</span>
           </div>
         ) : null}
@@ -1316,7 +1328,9 @@ export function TrustWallet() {
           {marketTokens.map((token) => {
             const change = marketChangeFor(token, marketPeriod);
             const network = marketNetworksFor(token).join(",") || "unavailable";
-            return <button key={token.id} type="button" data-testid={`trust-market-row-${token.symbol.toLowerCase()}`} data-source={marketCategory === "ondo" ? "Ondo Global Markets" : "Crypto market feed"} data-network={network} data-price={token.price} data-volume={token.volume24h ?? 0} data-market-cap={token.marketCap ?? 0} data-change={change} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="flex min-h-[4.25rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={44} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.marketCap ? `${compact(token.marketCap)} MCap` : "— MCap"} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[38%] shrink-0 text-right"><strong className="block truncate text-[19px]/[24px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>;
+            const isOndoToken = ondoSnapshot.assets.some((asset) => asset.id === token.id);
+            const isBlockdaemonQuote = isOndoToken && ondoSnapshot.provider === "blockdaemon";
+            return <button key={token.id} type="button" data-testid={`trust-market-row-${token.symbol.toLowerCase()}`} data-source={isOndoToken ? ondoSource : "Crypto market feed"} data-network={network} data-price={token.price} data-volume={token.volume24h ?? 0} data-market-cap={token.marketCap ?? 0} data-change={change} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="flex min-h-[4.25rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={44} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.marketCap ? `${compact(token.marketCap)} MCap` : "— MCap"} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[38%] shrink-0 text-right"><strong className="block truncate text-[19px]/[24px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong>{isBlockdaemonQuote ? <span className="block text-[15px]/[19px] font-bold text-white/45">{isCachedBlockdaemonQuote ? "Cached price" : "Live price"}</span> : <span className={`block text-[15px]/[19px] font-bold ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span>}</span></button>;
           })}
           {!marketTokens.length ? <p role="status" className="py-16 text-center text-sm font-semibold text-white/42">{emptyMarketMessage}</p> : null}
         </div>
@@ -1366,7 +1380,9 @@ export function TrustWallet() {
           <div data-testid={`${testPrefix}-results`} className="mt-3">
             {tokenResults.map((token) => {
               const starred = watchlist.includes(token.symbol);
-              return <div key={token.id} data-testid={`${testPrefix}-row-${token.symbol.toLowerCase()}`} data-volume={token.volume24h ?? 0} className="flex min-h-[4.25rem] items-center gap-1"><button type="button" aria-label={`Open ${token.name} search result`} onClick={() => selectSearchToken(token)} className="flex min-h-[4.25rem] min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={40} /><span className="min-w-0 flex-1"><strong className="block truncate text-[18px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.symbol} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[34%] shrink-0 text-right"><strong className="block truncate text-[18px]/[23px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button><button type="button" data-testid={`${testPrefix}-star-${token.symbol.toLowerCase()}`} aria-label={`${starred ? "Remove" : "Add"} ${token.symbol} ${starred ? "from" : "to"} watchlist`} aria-pressed={starred} onClick={() => toggleWatch(token.symbol)} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-full text-white/40 focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Star aria-hidden="true" className={`size-5 ${starred ? "fill-[#8179ff] text-[#8179ff]" : ""}`} /></button></div>;
+              const isBlockdaemonQuote = ondoSnapshot.provider === "blockdaemon" && ondoSnapshot.assets.some((asset) => asset.id === token.id);
+              const isCachedBlockdaemonQuote = isBlockdaemonQuote && ondoSnapshot.status === "stale";
+              return <div key={token.id} data-testid={`${testPrefix}-row-${token.symbol.toLowerCase()}`} data-volume={token.volume24h ?? 0} className="flex min-h-[4.25rem] items-center gap-1"><button type="button" aria-label={`Open ${token.name} search result`} onClick={() => selectSearchToken(token)} className="flex min-h-[4.25rem] min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={40} /><span className="min-w-0 flex-1"><strong className="block truncate text-[18px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.symbol} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[34%] shrink-0 text-right"><strong className="block truncate text-[18px]/[23px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong>{isBlockdaemonQuote ? <span className="block text-[15px]/[19px] font-bold text-white/45">{isCachedBlockdaemonQuote ? "Cached price" : "Live price"}</span> : <span className={`block text-[15px]/[19px] font-bold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span>}</span></button><button type="button" data-testid={`${testPrefix}-star-${token.symbol.toLowerCase()}`} aria-label={`${starred ? "Remove" : "Add"} ${token.symbol} ${starred ? "from" : "to"} watchlist`} aria-pressed={starred} onClick={() => toggleWatch(token.symbol)} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-full text-white/40 focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Star aria-hidden="true" className={`size-5 ${starred ? "fill-[#8179ff] text-[#8179ff]" : ""}`} /></button></div>;
             })}
           </div>
           {!tokenResults.length && !featureResults.length && !addressResult ? <p role="status" className="py-16 text-center text-sm font-semibold text-white/42">No results found.</p> : null}
@@ -1399,11 +1415,14 @@ export function TrustWallet() {
   function renderOndoToken(token: OndoMarketAsset) {
     const watched = watchlist.includes(token.symbol);
     const sessions = token.tradableSessions?.map((session) => session.replace(/\b\w/g, (letter) => letter.toUpperCase())).join(" · ");
+    const isBlockdaemonQuote = ondoSnapshot.provider === "blockdaemon";
+    const isCachedBlockdaemonQuote = isBlockdaemonQuote && ondoSnapshot.status === "stale";
+    const ondoSource = ondoSnapshot.source ?? (isBlockdaemonQuote ? "Blockdaemon Token Price API" : "Ondo Global Markets");
     return (
       <div data-testid="trust-ondo-market-detail" className="pb-8">
         <Header title={token.name} onBack={back} right={<IconButton label={watched ? "Remove from watchlist" : "Add to watchlist"} icon={Star} active={watched} onClick={() => toggleWatch(token.symbol)} />} />
         <div className="mt-6 flex min-w-0 items-center gap-3"><TokenIcon token={token} size={50} /><div className="min-w-0"><p className="text-sm font-bold text-white/42">Market price</p><p className="truncate text-[38px] font-black tracking-[-.045em]">{cash(token.price, profile.currency)}</p></div></div>
-        <p className={`mt-2 font-extrabold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "▲" : "▼"} {Math.abs(token.change24h).toFixed(2)}% · 24 hours</p>
+        {isBlockdaemonQuote ? <p className="mt-2 font-extrabold text-white/45">{isCachedBlockdaemonQuote ? "Cached quote" : "Live quote"} · Blockdaemon</p> : <p className={`mt-2 font-extrabold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "▲" : "▼"} {Math.abs(token.change24h).toFixed(2)}% · 24 hours</p>}
         <div className="-mx-4 mt-5"><TrustLiveChart symbol={token.underlyingTicker ?? token.symbol} period="24H" livePrice={token.price} currency={profile.currency} rate={rates[profile.currency]} points={token.priceHistory24h} /></div>
         <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#191a28] p-3">
           <span className="min-w-0"><span className="block text-xs font-bold text-white/38">Market cap</span><strong className="mt-1 block truncate text-sm">{token.marketCap ? compact(token.marketCap) : "—"}</strong></span>
@@ -1411,10 +1430,10 @@ export function TrustWallet() {
           <span className="min-w-0 pl-1"><span className="block text-xs font-bold text-white/38">Holders</span><strong className="mt-1 block truncate text-sm">{token.totalHolders?.toLocaleString("en-US") ?? "—"}</strong></span>
         </div>
         <div className="mt-5 rounded-[1.3rem] bg-[#191a28] p-5">
-          <div className="flex items-start justify-between gap-4"><span><p className="text-sm font-bold text-white/42">Underlying asset</p><strong className="mt-1 block">{token.underlyingTicker ?? token.symbol}</strong></span><span className="text-right"><p className="text-sm font-bold text-white/42">Type</p><strong className="mt-1 block">{token.instrumentType ?? token.assetClass ?? "Tokenized asset"}</strong></span></div>
+          <div className="flex items-start justify-between gap-4"><span><p className="text-sm font-bold text-white/42">Underlying asset</p><strong className="mt-1 block">{token.underlyingTicker ?? token.symbol}</strong></span><span className="text-right"><p className="text-sm font-bold text-white/42">Type</p><strong className="mt-1 block">{token.instrumentType ?? token.assetClass ?? (isBlockdaemonQuote ? "Governance token" : "Tokenized asset")}</strong></span></div>
           {sessions ? <p className="mt-4 border-t border-white/[.06] pt-4 text-sm leading-6 text-white/45">Tradable sessions: {sessions}</p> : null}
         </div>
-        <div className="mt-5 rounded-[1.3rem] border border-[#8179ff]/20 bg-[#171824] p-4 text-sm leading-6 text-white/48"><strong className="block text-white/82">Ondo Global Markets</strong>Live display data for this tokenized market. Trading execution is not enabled in this wallet simulator.</div>
+        <div className="mt-5 rounded-[1.3rem] border border-[#8179ff]/20 bg-[#171824] p-4 text-sm leading-6 text-white/48"><strong className="block text-white/82">{ondoSource}</strong>{isBlockdaemonQuote ? `${isCachedBlockdaemonQuote ? "Last cached" : "Live"} ONDO token price from Blockdaemon. Market cap, volume, holders, and 24-hour history are not supplied by this provider.` : "Live display data for this tokenized market. Trading execution is not enabled in this wallet simulator."}</div>
       </div>
     );
   }

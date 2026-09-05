@@ -8,7 +8,11 @@ import {
 
 const MARKET_URL = "https://api.gm.ondo.finance/v1/assets/all/market";
 const METADATA_URL = "https://api.gm.ondo.finance/v1/assets/all/metadata";
+const BLOCKDAEMON_TOKENS_URL = "https://svc.blockdaemon.com/pricing/v1/allowed_tokens/eip155:1";
+const BLOCKDAEMON_QUOTES_URL = "https://svc.blockdaemon.com/pricing/v1/quotes/eip155:1";
+const ETHEREUM_ONDO_ADDRESS = "0xfAbA6f8e4a5E8Ab82F62fe7C39859FA577269BE3";
 const TEST_API_KEY = "ondo_test_key_not_a_secret";
+const TEST_BLOCKDAEMON_API_KEY = "blockdaemon_test_key_not_a_secret";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -68,12 +72,38 @@ function successfulMetadataPayload() {
   ];
 }
 
+function successfulBlockdaemonTokensPayload() {
+  return {
+    data: [
+      {
+        address: ETHEREUM_ONDO_ADDRESS.toLowerCase(),
+        name: "Ondo",
+        symbol: "ONDO",
+        decimals: 18,
+      },
+    ],
+  };
+}
+
+function successfulBlockdaemonQuotePayload() {
+  return {
+    data: [
+      {
+        address: ETHEREUM_ONDO_ADDRESS.toLowerCase(),
+        quotes: [{ currency: "USD", value: "0.7421" }],
+      },
+    ],
+  };
+}
+
 describe("Ondo Global Markets server adapter", () => {
   const originalApiKey = process.env.ONDO_API_KEY;
+  const originalBlockdaemonApiKey = process.env.BLOCKDAEMON_API_KEY;
 
   beforeEach(() => {
     resetOndoMarketsCacheForTests();
     process.env.ONDO_API_KEY = TEST_API_KEY;
+    delete process.env.BLOCKDAEMON_API_KEY;
   });
 
   afterEach(() => {
@@ -83,10 +113,13 @@ describe("Ondo Global Markets server adapter", () => {
     vi.unstubAllGlobals();
     if (originalApiKey === undefined) delete process.env.ONDO_API_KEY;
     else process.env.ONDO_API_KEY = originalApiKey;
+    if (originalBlockdaemonApiKey === undefined) delete process.env.BLOCKDAEMON_API_KEY;
+    else process.env.BLOCKDAEMON_API_KEY = originalBlockdaemonApiKey;
   });
 
   it("keeps an absent API key server-side and returns a safe unconfigured response", async () => {
     delete process.env.ONDO_API_KEY;
+    delete process.env.BLOCKDAEMON_API_KEY;
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -94,7 +127,8 @@ describe("Ondo Global Markets server adapter", () => {
 
     expect(snapshot).toMatchObject({
       assets: [],
-      source: "Ondo Global Markets",
+      provider: null,
+      source: null,
       status: "unconfigured",
       configured: false,
       error: "Ondo market data is not configured.",
@@ -104,6 +138,7 @@ describe("Ondo Global Markets server adapter", () => {
 
   it("returns a non-cacheable service error when the API key is missing", async () => {
     delete process.env.ONDO_API_KEY;
+    delete process.env.BLOCKDAEMON_API_KEY;
 
     const response = await getOndoMarkets();
     const payload = await response.json();
@@ -123,6 +158,8 @@ describe("Ondo Global Markets server adapter", () => {
     expect(response.status).toBe(502);
     expect(payload).toMatchObject({
       assets: [],
+      provider: "ondo",
+      source: "Ondo Global Markets",
       status: "unauthorized",
       configured: true,
       error: "Ondo rejected the configured API key.",
@@ -145,6 +182,7 @@ describe("Ondo Global Markets server adapter", () => {
     const asset = snapshot.assets[0];
 
     expect(snapshot).toMatchObject({
+      provider: "ondo",
       source: "Ondo Global Markets",
       status: "live",
       configured: true,
@@ -182,6 +220,252 @@ describe("Ondo Global Markets server adapter", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(snapshot)).not.toContain(TEST_API_KEY);
+  });
+
+  it("prefers the official Ondo provider when both provider keys are configured", async () => {
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input) === MARKET_URL
+        ? jsonResponse(successfulMarketPayload())
+        : jsonResponse(successfulMetadataPayload()),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = await fetchOndoMarkets();
+
+    expect(snapshot).toMatchObject({
+      provider: "ondo",
+      source: "Ondo Global Markets",
+      status: "live",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith("https://api.gm.ondo.finance/"))).toBe(true);
+  });
+
+  it("uses Blockdaemon to capability-check and price only the verified Ethereum ONDO token", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      const [input] = args;
+      const url = String(input);
+      if (url.startsWith(BLOCKDAEMON_TOKENS_URL)) {
+        return jsonResponse(successfulBlockdaemonTokensPayload());
+      }
+      if (url === BLOCKDAEMON_QUOTES_URL) {
+        return jsonResponse(successfulBlockdaemonQuotePayload());
+      }
+      return jsonResponse({}, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = await fetchOndoMarkets();
+
+    expect(snapshot).toMatchObject({
+      provider: "blockdaemon",
+      source: "Blockdaemon Token Price API",
+      status: "partial",
+      configured: true,
+      error: "Blockdaemon provides current Ethereum ONDO pricing only.",
+    });
+    expect(snapshot.assets).toEqual([
+      {
+        id: "blockdaemon-ondo-ethereum",
+        name: "Ondo",
+        symbol: "ONDO",
+        price: 0.7421,
+        balance: 0,
+        change24h: 0,
+        image: "",
+        updatedAt: snapshot.updatedAt,
+        tradableSessions: [],
+        priceHistory24h: [],
+        addresses: [
+          {
+            networkChainId: "ethereum-1",
+            address: ETHEREUM_ONDO_ADDRESS,
+            decimals: 18,
+          },
+        ],
+      },
+    ]);
+    expect(snapshot.assets[0]).not.toHaveProperty("marketCap");
+    expect(snapshot.assets[0]).not.toHaveProperty("volume24h");
+    expect(snapshot.assets[0]).not.toHaveProperty("totalHolders");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [capabilityUrl, capabilityInit] = fetchMock.mock.calls[0];
+    expect(String(capabilityUrl)).toContain(`addresses=${ETHEREUM_ONDO_ADDRESS}`);
+    expect(capabilityInit).toMatchObject({
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-API-Key": TEST_BLOCKDAEMON_API_KEY,
+      },
+    });
+    const [quoteUrl, quoteInit] = fetchMock.mock.calls[1];
+    expect(String(quoteUrl)).toBe(BLOCKDAEMON_QUOTES_URL);
+    expect(quoteInit).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_BLOCKDAEMON_API_KEY,
+      },
+    });
+    expect(JSON.parse(String(quoteInit?.body))).toEqual({
+      addresses: [ETHEREUM_ONDO_ADDRESS],
+      units: ["USD"],
+    });
+    expect(JSON.stringify(snapshot)).not.toContain(TEST_BLOCKDAEMON_API_KEY);
+  });
+
+  it("reports an unsupported Blockdaemon token capability without requesting a quote", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = await fetchOndoMarkets();
+
+    expect(snapshot).toMatchObject({
+      assets: [],
+      provider: "blockdaemon",
+      source: "Blockdaemon Token Price API",
+      status: "unavailable",
+      configured: true,
+      error: "Blockdaemon does not currently support pricing for the Ethereum ONDO token.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports rejected Blockdaemon credentials without exposing the configured key", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async () => jsonResponse({ title: "Invalid Token" }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getOndoMarkets();
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toMatchObject({
+      assets: [],
+      provider: "blockdaemon",
+      source: "Blockdaemon Token Price API",
+      status: "unauthorized",
+      configured: true,
+      error: "Blockdaemon rejected the configured API key.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(payload)).not.toContain(TEST_BLOCKDAEMON_API_KEY);
+  });
+
+  it("does not manufacture an ONDO asset when Blockdaemon omits a usable USD quote", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input).startsWith(BLOCKDAEMON_TOKENS_URL)
+        ? jsonResponse(successfulBlockdaemonTokensPayload())
+        : jsonResponse({ data: [{ address: ETHEREUM_ONDO_ADDRESS, quotes: [] }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = await fetchOndoMarkets();
+
+    expect(snapshot).toMatchObject({
+      assets: [],
+      provider: "blockdaemon",
+      status: "unavailable",
+      error: "Blockdaemon returned no usable USD price for the Ethereum ONDO token.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a rejected Blockdaemon quote as an authentication failure", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input).startsWith(BLOCKDAEMON_TOKENS_URL)
+        ? jsonResponse(successfulBlockdaemonTokensPayload())
+        : jsonResponse({ title: "Invalid Token" }, 403),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = await fetchOndoMarkets();
+
+    expect(snapshot).toMatchObject({
+      assets: [],
+      provider: "blockdaemon",
+      source: "Blockdaemon Token Price API",
+      status: "unauthorized",
+      configured: true,
+      error: "Blockdaemon rejected the configured API key.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(snapshot)).not.toContain(TEST_BLOCKDAEMON_API_KEY);
+  });
+
+  it("returns the last Blockdaemon quote as stale when its capability refresh fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_BLOCKDAEMON_API_KEY;
+    let capabilityShouldFail = false;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith(BLOCKDAEMON_TOKENS_URL)) {
+        return capabilityShouldFail
+          ? jsonResponse({ type: "unavailable" }, 503)
+          : jsonResponse(successfulBlockdaemonTokensPayload());
+      }
+      return jsonResponse(successfulBlockdaemonQuotePayload());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await fetchOndoMarkets();
+    capabilityShouldFail = true;
+    vi.advanceTimersByTime(61_000);
+    const stale = await fetchOndoMarkets();
+
+    expect(first.status).toBe("partial");
+    expect(stale).toMatchObject({
+      assets: first.assets,
+      provider: "blockdaemon",
+      source: "Blockdaemon Token Price API",
+      status: "stale",
+      configured: true,
+      error: "Live Blockdaemon ONDO pricing is temporarily unavailable.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("isolates provider caches even when both providers use the same key text", async () => {
+    delete process.env.ONDO_API_KEY;
+    process.env.BLOCKDAEMON_API_KEY = TEST_API_KEY;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith(BLOCKDAEMON_TOKENS_URL)) {
+        return jsonResponse(successfulBlockdaemonTokensPayload());
+      }
+      if (url === BLOCKDAEMON_QUOTES_URL) {
+        return jsonResponse(successfulBlockdaemonQuotePayload());
+      }
+      if (url === MARKET_URL) return jsonResponse(successfulMarketPayload());
+      if (url === METADATA_URL) return jsonResponse(successfulMetadataPayload());
+      return jsonResponse({}, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const blockdaemonSnapshot = await fetchOndoMarkets();
+    process.env.ONDO_API_KEY = TEST_API_KEY;
+    const officialSnapshot = await fetchOndoMarkets();
+
+    expect(blockdaemonSnapshot.provider).toBe("blockdaemon");
+    expect(officialSnapshot.provider).toBe("ondo");
+    expect(officialSnapshot.assets[0]?.symbol).toBe("AAPLon");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("coalesces repeated reads through the one-minute market cache", async () => {
