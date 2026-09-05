@@ -818,6 +818,40 @@ for (const [anchor, expected] of Object.entries(expectedTrustTypography)) {
     throw new Error(`Trust ${anchor} typography does not match the reference: ${JSON.stringify(actual)}`);
   }
 }
+const trustActionLayout = await page.locator('[data-testid="trust-actions"]').evaluate((row) => [...row.children].map((button) => {
+  const tile = button.querySelector('[data-testid="trust-action-tile"]');
+  const label = button.querySelector('[data-testid="trust-action-label"]');
+  const icon = tile?.querySelector("svg");
+  if (!(button instanceof HTMLButtonElement) || !(tile instanceof HTMLElement) || !(label instanceof HTMLElement) || !(icon instanceof SVGElement)) {
+    throw new Error("A Trust action is missing its button, icon tile, label, or icon.");
+  }
+  const buttonRect = button.getBoundingClientRect();
+  const tileRect = tile.getBoundingClientRect();
+  const labelRect = label.getBoundingClientRect();
+  const iconRect = icon.getBoundingClientRect();
+  return {
+    name: button.getAttribute("aria-label"),
+    labelInsideTile: tile.contains(label),
+    tileWidth: tileRect.width,
+    tileHeight: tileRect.height,
+    gap: labelRect.top - tileRect.bottom,
+    labelCenterDelta: Math.abs((labelRect.left + labelRect.width / 2) - (tileRect.left + tileRect.width / 2)),
+    iconCenterDelta: Math.max(
+      Math.abs((iconRect.left + iconRect.width / 2) - (tileRect.left + tileRect.width / 2)),
+      Math.abs((iconRect.top + iconRect.height / 2) - (tileRect.top + tileRect.height / 2)),
+    ),
+    buttonWidth: buttonRect.width,
+    buttonHeight: buttonRect.height,
+  };
+}));
+if (trustActionLayout.map(({ name }) => name).join(",") !== "Send,Receive,Swap,Buy") {
+  throw new Error(`Trust actions are not the expected English labels: ${JSON.stringify(trustActionLayout)}`);
+}
+for (const action of trustActionLayout) {
+  if (action.labelInsideTile || Math.abs(action.tileHeight - 56) > 0.1 || action.tileWidth < 75 || action.tileWidth > 85 || action.gap < 9 || action.gap > 12 || action.labelCenterDelta > 0.5 || action.iconCenterDelta > 0.5 || action.buttonWidth < 44 || action.buttonHeight < 44) {
+    throw new Error(`Trust ${action.name} action does not match the detached-label reference layout: ${JSON.stringify(action)}`);
+  }
+}
 if (trustScreenshotDir) {
   await page.locator('[data-testid="trust-home"]').evaluate((home) => { if (home.parentElement) home.parentElement.scrollTop = 0; });
   await page.screenshot({ path: `${trustScreenshotDir}/trust-home.png` });
