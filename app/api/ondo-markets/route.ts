@@ -6,10 +6,16 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const snapshot = await fetchOndoMarkets();
+  const status = snapshot.status === "unconfigured"
+    ? 503
+    : snapshot.status === "unauthorized" || snapshot.status === "unavailable"
+      ? 502
+      : 200;
+
   return NextResponse.json(snapshot, {
-    status: 200,
+    status,
     headers: {
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, max-age=0",
     },
   });
 }

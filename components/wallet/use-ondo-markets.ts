@@ -20,7 +20,7 @@ export type OndoMarketAsset = WalletToken & {
   }[];
 };
 
-export type OndoMarketStatus = "idle" | "loading" | "ready" | "partial" | "stale" | "unconfigured" | "error";
+export type OndoMarketStatus = "idle" | "loading" | "ready" | "partial" | "stale" | "unauthorized" | "unconfigured" | "error";
 
 type OndoMarketSnapshot = {
   assets: OndoMarketAsset[];
@@ -127,7 +127,7 @@ export function useOndoMarkets(enabled: boolean, refreshKey = 0) {
         const payload = await response.json() as {
           assets?: unknown[];
           configured?: boolean;
-          status?: "live" | "partial" | "stale" | "unavailable" | "unconfigured";
+          status?: "live" | "partial" | "stale" | "unauthorized" | "unavailable" | "unconfigured";
           updatedAt?: string;
           error?: string;
         };
@@ -136,6 +136,7 @@ export function useOndoMarkets(enabled: boolean, refreshKey = 0) {
         const hasUsableAssets = assets.length > 0;
         let status: OndoMarketStatus = "ready";
         if (payload.configured === false || payload.status === "unconfigured") status = "unconfigured";
+        else if (payload.status === "unauthorized") status = "unauthorized";
         else if (!response.ok || payload.status === "unavailable" || (!hasUsableAssets && Boolean(payload.error))) status = "error";
         else if (payload.status === "partial") status = "partial";
         else if (payload.status === "stale") status = "stale";

@@ -13,6 +13,7 @@ export type OndoMarketStatus =
   | "live"
   | "partial"
   | "stale"
+  | "unauthorized"
   | "unavailable"
   | "unconfigured";
 
@@ -72,6 +73,13 @@ type MetadataState = {
 let snapshotCache: TimedCache<OndoMarketsSnapshot> | null = null;
 let metadataCache: TimedCache<Map<string, MetadataRecord>> | null = null;
 let inFlight: { apiKey: string; promise: Promise<OndoMarketsSnapshot> } | null = null;
+
+class OndoRequestError extends Error {
+  constructor(readonly status: number) {
+    super("Ondo market data request failed.");
+    this.name = "OndoRequestError";
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -338,9 +346,13 @@ async function fetchJson(endpoint: string, apiKey: string) {
   });
 
   if (!response.ok) {
-    throw new Error("Ondo market data request failed.");
+    throw new OndoRequestError(response.status);
   }
   return (await response.json()) as unknown;
+}
+
+function isAuthenticationFailure(error: unknown) {
+  return error instanceof OndoRequestError && (error.status === 401 || error.status === 403);
 }
 
 async function metadataForRequest(apiKey: string, now: number): Promise<MetadataState> {
@@ -366,7 +378,7 @@ async function metadataForRequest(apiKey: string, now: number): Promise<Metadata
 }
 
 function emptySnapshot(
-  status: "unavailable" | "unconfigured",
+  status: "unauthorized" | "unavailable" | "unconfigured",
   configured: boolean,
   error: string,
 ): OndoMarketsSnapshot {
@@ -389,6 +401,13 @@ async function loadOndoMarkets(apiKey: string, now: number): Promise<OndoMarkets
   ]);
 
   if (marketResult.status === "rejected") {
+    if (isAuthenticationFailure(marketResult.reason)) {
+      return emptySnapshot(
+        "unauthorized",
+        true,
+        "Ondo rejected the configured API key.",
+      );
+    }
     const stale = snapshotCache?.apiKey === apiKey ? snapshotCache.value : null;
     if (stale?.assets.length) {
       return {

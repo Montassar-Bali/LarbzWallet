@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { GET as getOndoMarkets } from "@/app/api/ondo-markets/route";
 import {
   fetchOndoMarkets,
   resetOndoMarketsCacheForTests,
@@ -99,6 +100,35 @@ describe("Ondo Global Markets server adapter", () => {
       error: "Ondo market data is not configured.",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a non-cacheable service error when the API key is missing", async () => {
+    delete process.env.ONDO_API_KEY;
+
+    const response = await getOndoMarkets();
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(payload).toMatchObject({ status: "unconfigured", configured: false });
+  });
+
+  it("reports rejected credentials without exposing the configured key", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ message: "Forbidden" }, 403));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getOndoMarkets();
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toMatchObject({
+      assets: [],
+      status: "unauthorized",
+      configured: true,
+      error: "Ondo rejected the configured API key.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(payload)).not.toContain(TEST_API_KEY);
   });
 
   it("normalizes official market and metadata responses into client-safe assets", async () => {

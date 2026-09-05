@@ -1259,9 +1259,11 @@ export function TrustWallet() {
           ? "Loading live Ondo markets…"
           : ondoSnapshot.status === "unconfigured"
             ? "Ondo market access is not configured."
-            : ondoSnapshot.status === "error"
-              ? "Ondo Global Markets is temporarily unavailable."
-              : "No Ondo markets match these filters."
+            : ondoSnapshot.status === "unauthorized"
+              ? "Ondo rejected the configured API key."
+              : ondoSnapshot.status === "error"
+                ? "Ondo Global Markets is temporarily unavailable."
+                : "No Ondo markets match these filters."
         : "No assets match these filters.";
     const ondoStatusLabel = ondoSnapshot.status === "ready"
       ? "Live"
@@ -1271,7 +1273,9 @@ export function TrustWallet() {
           ? "Cached"
           : ondoSnapshot.status === "loading" || ondoSnapshot.status === "idle"
             ? "Loading…"
-            : "Unavailable";
+            : ondoSnapshot.status === "unauthorized"
+              ? "API key rejected"
+              : "Unavailable";
     const openMemeRush = () => {
       setMarketCategory("stock-meme");
       setMarketNetwork("all");
@@ -1303,7 +1307,7 @@ export function TrustWallet() {
           <MarketFilterSelect label={periodLabel} ariaLabel="Market change period" value={marketPeriod} options={periodOptions} onChange={(value) => setMarketPeriod(value as MarketPeriod)} testId="trust-market-period-filter" className="w-[4.5rem]" />
         </div>
         {marketCategory === "ondo" ? (
-          <div data-testid="trust-ondo-market-source" role={ondoSnapshot.status === "error" || ondoSnapshot.status === "unconfigured" ? "alert" : "status"} className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#171824] px-3 text-xs font-bold text-white/45">
+          <div data-testid="trust-ondo-market-source" role={ondoSnapshot.status === "error" || ondoSnapshot.status === "unconfigured" || ondoSnapshot.status === "unauthorized" ? "alert" : "status"} className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#171824] px-3 text-xs font-bold text-white/45">
             <span className="truncate">Live display data · Ondo Global Markets</span>
             <span className={`shrink-0 ${ondoSnapshot.status === "ready" ? "text-[#3ed474]" : ondoSnapshot.status === "partial" || ondoSnapshot.status === "stale" ? "text-[#f4b953]" : "text-white/38"}`}>{ondoStatusLabel}</span>
           </div>
