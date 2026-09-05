@@ -733,6 +733,26 @@ if (process.env.WALLET_TEST_SCOPE === "ledger") {
   process.exit(0);
 }
 
+const ondoMarketUpdatedAt = new Date().toISOString();
+const ondoHistory = (basePrice) => Array.from({ length: 18 }, (_, index) => ({
+  time: Date.now() - (17 - index) * 60 * 60 * 1000,
+  price: basePrice * (0.982 + index * 0.0012 + Math.sin(index / 2.4) * 0.004),
+}));
+const ondoMarketAssets = [
+  { id: "ondo-aaplon", name: "Apple (Ondo Tokenized)", symbol: "AAPLon", underlyingTicker: "AAPL", price: 232.42, balance: 0, change24h: 1.38, image: "", marketCap: 3_480_000_000_000, volume24h: 58_500_000, totalHolders: 128, assetClass: "Equities", instrumentType: "Stock", addresses: [{ networkChainId: "bsc-56", address: "0x390a684ef9cade28a7ad0dfa61ab1eb3842618c4", decimals: 18 }, { networkChainId: "ethereum-1", address: "0x14c3abf95cb9c93a8b82c1cdcb76d72cb87b2d4c", decimals: 18 }], tradableSessions: ["premarket", "regular", "postmarket", "overnight"], priceHistory24h: ondoHistory(232.42), updatedAt: ondoMarketUpdatedAt },
+  { id: "ondo-nvdaon", name: "NVIDIA (Ondo Tokenized)", symbol: "NVDAon", underlyingTicker: "NVDA", price: 182.71, balance: 0, change24h: -0.74, image: "", marketCap: 4_420_000_000_000, volume24h: 72_100_000, totalHolders: 94, assetClass: "Equities", instrumentType: "Stock", addresses: [{ networkChainId: "ethereum-1", address: "0x1143abf95cb9c93a8b82c1cdcb76d72cb87b2d4c", decimals: 18 }], tradableSessions: ["premarket", "regular", "postmarket", "overnight"], priceHistory24h: ondoHistory(182.71), updatedAt: ondoMarketUpdatedAt },
+  { id: "ondo-tslaon", name: "Tesla (Ondo Tokenized)", symbol: "TSLAon", underlyingTicker: "TSLA", price: 344.18, balance: 0, change24h: 2.16, image: "", marketCap: 1_100_000_000_000, volume24h: 44_700_000, totalHolders: 76, assetClass: "Equities", instrumentType: "Stock", addresses: [{ networkChainId: "ethereum-1", address: "0x2143abf95cb9c93a8b82c1cdcb76d72cb87b2d4c", decimals: 18 }], tradableSessions: ["premarket", "regular", "postmarket"], priceHistory24h: ondoHistory(344.18), updatedAt: ondoMarketUpdatedAt },
+  { id: "ondo-spyon", name: "SPDR S&P 500 ETF (Ondo Tokenized)", symbol: "SPYon", underlyingTicker: "SPY", price: 671.09, balance: 0, change24h: 0.42, image: "", marketCap: 710_000_000_000, volume24h: 39_800_000, totalHolders: 51, assetClass: "Equities", instrumentType: "ETF", addresses: [{ networkChainId: "ethereum-1", address: "0x3143abf95cb9c93a8b82c1cdcb76d72cb87b2d4c", decimals: 18 }], tradableSessions: ["premarket", "regular", "postmarket"], priceHistory24h: ondoHistory(671.09), updatedAt: ondoMarketUpdatedAt },
+];
+await context.route("**/api/ondo-markets", async (route) => {
+  await route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "Cache-Control": "no-store" },
+    body: JSON.stringify({ assets: ondoMarketAssets, configured: true, source: "Ondo Global Markets", updatedAt: ondoMarketUpdatedAt }),
+  });
+});
+
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 const trustSplash = page.locator('[data-testid="trust-splash"]');
 await trustSplash.waitFor({ state: "visible", timeout: 10_000 });
@@ -766,13 +786,103 @@ await trustSplash.waitFor({ state: "detached", timeout: 5_000 });
 if (await trustWalletContent.getAttribute("aria-hidden") !== "false" || await trustWalletContent.getAttribute("inert") !== null) {
   throw new Error("Trust wallet splash did not hand control to the wallet after its animation.");
 }
-await assertMobileLayout("/trust-wallet", "Explore perpetual markets", 20_000, false);
+await assertMobileLayout("/trust-wallet", "View all tokens", 20_000, false);
 await page.locator('[data-testid="trust-wallet"]').waitFor();
 await page.locator('[data-testid="trust-home"]').waitFor();
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style home");
 const trustHomeText = await page.locator('[data-testid="trust-wallet"]').innerText();
 if (/TikTok|@northlarp|recording indicator|\b(?:Kaufen|Verkaufen|Tausch|Senden|Empfangen|Suchen|Weiter|Anpassen|Haupt-Wallet)\b/i.test(trustHomeText)) {
   throw new Error("The Larpz Trust-style wallet still contains source-video, watermark, or German interface text.");
+}
+
+const expectedTrustAnnouncements = [
+  { id: "security", title: "Secure your wallet", subtitle: "Secure your recovery phrase", image: "trust-news-security.png" },
+  { id: "stable-swap", title: "0% swap fees on selected stables", subtitle: "Applicable to same-chain swaps only", image: "trust-news-stable.png" },
+  { id: "bstocks", title: "bStocks now live, 0% fees", subtitle: "Buy now", image: "trust-news-bstocks.png" },
+  { id: "hyperliquid", title: "Explore Hyperliquid: 200+ markets", subtitle: "Explore now", image: "trust-news-hyperliquid.png" },
+];
+const trustAnnouncementCarousel = page.locator('[data-testid="trust-announcement-carousel"]');
+await trustAnnouncementCarousel.waitFor();
+const trustAnnouncementContract = await trustAnnouncementCarousel.evaluate((carousel) => {
+  const balance = document.querySelector('[data-testid="trust-portfolio-balance"]');
+  if (!(balance instanceof HTMLElement)) throw new Error("Trust portfolio balance is missing.");
+  const carouselBounds = carousel.getBoundingClientRect();
+  const balanceBounds = balance.getBoundingClientRect();
+  return {
+    order: carousel.getAttribute("data-announcement-order"),
+    active: carousel.getAttribute("data-active-announcement"),
+    count: carousel.getAttribute("data-announcement-count"),
+    direction: carousel.getAttribute("data-transition-direction"),
+    precedesBalance: Boolean(carousel.compareDocumentPosition(balance) & Node.DOCUMENT_POSITION_FOLLOWING),
+    clearsBalance: carouselBounds.bottom <= balanceBounds.top,
+    fitsViewport: carouselBounds.left >= -1 && carouselBounds.right <= window.innerWidth + 1,
+  };
+});
+const expectedTrustAnnouncementOrder = expectedTrustAnnouncements.map(({ id }) => id).join(",");
+if (trustAnnouncementContract.order !== expectedTrustAnnouncementOrder
+  || trustAnnouncementContract.count !== "4"
+  || trustAnnouncementContract.direction !== "up"
+  || !trustAnnouncementContract.precedesBalance
+  || !trustAnnouncementContract.clearsBalance
+  || !trustAnnouncementContract.fitsViewport) {
+  throw new Error(`Trust wallet news does not match the four-slide placement and upward-transition contract: ${JSON.stringify(trustAnnouncementContract)}`);
+}
+const trustAnnouncementNext = trustAnnouncementCarousel.getByRole("button", { name: "Next wallet news", exact: true });
+async function advanceTrustAnnouncement() {
+  const previousId = await trustAnnouncementCarousel.getAttribute("data-active-announcement");
+  await trustAnnouncementNext.evaluate((button) => button.click());
+  await page.waitForFunction((prior) => document.querySelector('[data-testid="trust-announcement-carousel"]')?.getAttribute("data-active-announcement") !== prior, previousId);
+}
+for (let attempt = 0; attempt < expectedTrustAnnouncements.length && await trustAnnouncementCarousel.getAttribute("data-active-announcement") !== "security"; attempt += 1) {
+  await advanceTrustAnnouncement();
+}
+if (await trustAnnouncementCarousel.getAttribute("data-active-announcement") !== "security") {
+  throw new Error("Trust wallet news could not return to the first ordered announcement.");
+}
+const germanAnnouncementCopy = /Sichere|deine|Wiederherstellungs|Gebühren|ausgewählten|Kaufen|Entdecke|Märkte/i;
+for (const expected of expectedTrustAnnouncements) {
+  if (await trustAnnouncementCarousel.getAttribute("data-active-announcement") !== expected.id) {
+    throw new Error(`Trust wallet news order did not activate ${expected.id}.`);
+  }
+  const slide = trustAnnouncementCarousel.locator(`[data-testid="trust-announcement-slide"][data-announcement-id="${expected.id}"]`);
+  await slide.waitFor();
+  await slide.getByText(expected.title, { exact: true }).waitFor();
+  await slide.getByText(expected.subtitle, { exact: true }).waitFor();
+  const image = slide.locator('[data-testid="trust-announcement-image"]');
+  const imageDetails = await image.evaluate((element) => ({
+    basename: decodeURIComponent(new URL(element.getAttribute("src") ?? "", window.location.href).pathname).split("/").pop(),
+    alt: element.getAttribute("alt"),
+  }));
+  if (imageDetails.basename !== expected.image || !imageDetails.alt || germanAnnouncementCopy.test(await slide.innerText())) {
+    throw new Error(`Trust ${expected.id} announcement has incorrect English copy or artwork: ${JSON.stringify(imageDetails)}`);
+  }
+  await advanceTrustAnnouncement();
+}
+if (await trustAnnouncementCarousel.getAttribute("data-active-announcement") !== "security") {
+  throw new Error("Trust wallet news did not wrap from Hyperliquid back to security.");
+}
+const securityAnnouncement = trustAnnouncementCarousel.locator('[data-testid="trust-announcement-slide"][data-announcement-id="security"]');
+const dismissSecurityAnnouncement = securityAnnouncement.getByRole("button", { name: "Dismiss Secure your wallet", exact: true });
+await dismissSecurityAnnouncement.click();
+await page.waitForFunction(() => document.querySelector('[data-testid="trust-announcement-carousel"]')?.getAttribute("data-active-announcement") === "stable-swap");
+await securityAnnouncement.waitFor({ state: "detached" });
+const dismissedTrustAnnouncementContract = await trustAnnouncementCarousel.evaluate((carousel) => ({
+  order: carousel.getAttribute("data-announcement-order"),
+  active: carousel.getAttribute("data-active-announcement"),
+  count: carousel.getAttribute("data-announcement-count"),
+}));
+if (dismissedTrustAnnouncementContract.order !== "stable-swap,bstocks,hyperliquid"
+  || dismissedTrustAnnouncementContract.active !== "stable-swap"
+  || dismissedTrustAnnouncementContract.count !== "3") {
+  throw new Error(`Dismissing the Trust security announcement did not advance and remove it: ${JSON.stringify(dismissedTrustAnnouncementContract)}`);
+}
+
+if (process.env.WALLET_TEST_SCOPE === "trust-announcements") {
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust announcements smoke test passed: four ordered English slides, exact artwork, upward transitions, placement, deterministic cycling, and dismissal.");
+  process.exit(0);
 }
 
 const trustBottomNav = page.locator('[data-testid="trust-bottom-nav"]');
@@ -1682,6 +1792,50 @@ if (await trustStockMemeCategory.getAttribute("aria-pressed") !== "true") throw 
 await page.locator('[data-testid="trust-market-row-doge"]').waitFor();
 await page.locator('[data-testid="trust-market-category-hot"]').click();
 if (await page.locator('[data-testid="trust-market-category-hot"]').getAttribute("aria-pressed") !== "true") throw new Error("Trust Hot tokens category did not activate.");
+
+await page.locator('[data-testid="trust-market-search"]').click();
+const trustOndoSearchInput = page.locator('[data-testid="trust-market-search-input"]');
+await trustOndoSearchInput.fill("AAPLon");
+await page.locator('[data-testid="trust-market-search-row-aaplon"]').waitFor();
+await page.locator('[data-testid="trust-market-search-close"]').click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+
+const trustOndoCategory = page.locator('[data-testid="trust-market-category-ondo"]');
+await trustOndoCategory.click();
+if (await trustOndoCategory.getAttribute("aria-pressed") !== "true") throw new Error("Trust Ondo category did not activate.");
+await page.locator('[data-testid="trust-market-row-nvdaon"]').waitFor();
+const trustOndoSource = page.locator('[data-testid="trust-ondo-market-source"]');
+await trustOndoSource.getByText("Ondo Global Markets", { exact: false }).waitFor();
+await trustOndoSource.getByText("Live", { exact: true }).waitFor();
+const trustOndoRows = page.locator('[data-testid="trust-market-list"] > [data-testid^="trust-market-row-"]');
+if (await trustOndoRows.count() !== ondoMarketAssets.length) throw new Error("Trust Ondo category did not render every source market.");
+if (!(await trustOndoRows.evaluateAll((rows) => rows.every((row) => row.getAttribute("data-source") === "Ondo Global Markets")))) {
+  throw new Error("Trust Ondo rows are missing their live source attribution.");
+}
+const trustOndoVolumes = await trustOndoRows.evaluateAll((rows) => rows.map((row) => Number(row.getAttribute("data-volume"))));
+if (trustOndoVolumes.some((volume, index) => index > 0 && trustOndoVolumes[index - 1] < volume)) {
+  throw new Error(`Trust Ondo markets are not sorted by source volume: ${JSON.stringify(trustOndoVolumes)}`);
+}
+const trustOndoPeriod = page.locator('[data-testid="trust-market-period-filter"]');
+if (await trustOndoPeriod.inputValue() !== "24h" || await trustOndoPeriod.locator("option").count() !== 1) {
+  throw new Error("Trust Ondo markets should expose the source-supported 24h period only.");
+}
+const trustOndoNetwork = page.locator('[data-testid="trust-market-network-filter"]');
+await trustOndoNetwork.selectOption("bnb");
+await page.locator('[data-testid="trust-market-row-aaplon"]').waitFor();
+if (await trustOndoRows.count() !== 1) throw new Error("Trust Ondo BNB Chain filter did not use source contract metadata.");
+await trustOndoNetwork.selectOption("all");
+await page.locator('[data-testid="trust-market-row-aaplon"]').click();
+const trustOndoDetail = page.locator('[data-testid="trust-ondo-market-detail"]');
+await trustOndoDetail.getByRole("heading", { name: "Apple (Ondo Tokenized)", exact: true }).waitFor();
+await trustOndoDetail.getByRole("img", { name: "AAPL 24H market price chart", exact: true }).waitFor();
+await trustOndoDetail.getByText("Trading execution is not enabled", { exact: false }).waitFor();
+await trustOndoDetail.getByRole("button", { name: "Add to watchlist", exact: true }).click();
+await trustOndoDetail.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+await page.locator('[data-testid="trust-market-category-favorites"]').click();
+await page.locator('[data-testid="trust-market-row-aaplon"]').waitFor();
+await page.locator('[data-testid="trust-market-category-hot"]').click();
 
 const trustMarketNetwork = page.locator('[data-testid="trust-market-network-filter"]');
 await trustMarketNetwork.selectOption("solana");

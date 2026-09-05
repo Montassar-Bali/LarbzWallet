@@ -3,14 +3,22 @@
 import { RefreshCw } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
-type ChartPoint = { time: number; price: number };
+export type TrustChartPoint = { time: number; price: number };
 
-function useTrustChart(symbol: string, period: string, livePrice: number, retryKey: number) {
-  const [points, setPoints] = useState<ChartPoint[]>([]);
+function useTrustChart(
+  symbol: string,
+  period: string,
+  livePrice: number,
+  retryKey: number,
+  enabled = true,
+) {
+  const [points, setPoints] = useState<TrustChartPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!enabled) return;
+
     const controller = new AbortController();
     let active = true;
 
@@ -22,7 +30,7 @@ function useTrustChart(symbol: string, period: string, livePrice: number, retryK
           `/api/market-chart?symbol=${encodeURIComponent(symbol)}&period=${encodeURIComponent(period)}`,
           { cache: "no-store", signal: controller.signal },
         );
-        const payload = await response.json() as { points?: ChartPoint[]; error?: string };
+        const payload = await response.json() as { points?: TrustChartPoint[]; error?: string };
         const valid = (payload.points ?? []).filter(
           (point) => Number.isFinite(point.time) && Number.isFinite(point.price) && point.price > 0,
         );
@@ -47,7 +55,7 @@ function useTrustChart(symbol: string, period: string, livePrice: number, retryK
       active = false;
       controller.abort();
     };
-  }, [livePrice, period, retryKey, symbol]);
+  }, [enabled, livePrice, period, retryKey, symbol]);
 
   return { points, loading, error };
 }
@@ -66,17 +74,28 @@ export function TrustLiveChart({
   livePrice,
   currency = "USD",
   rate = 1,
+  points: suppliedPoints,
 }: {
   symbol: string;
   period: string;
   livePrice: number;
   currency?: string;
   rate?: number;
+  points?: TrustChartPoint[];
 }) {
   const [retryKey, setRetryKey] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const gradientId = `trust-chart-${useId().replaceAll(":", "")}`;
-  const { points, loading, error } = useTrustChart(symbol, period, livePrice, retryKey);
+  const supplied = useMemo(() => (suppliedPoints ?? []).filter(
+    (point) => Number.isFinite(point.time) && Number.isFinite(point.price) && point.price > 0,
+  ), [suppliedPoints]);
+  const remote = useTrustChart(symbol, period, livePrice, retryKey, suppliedPoints === undefined);
+  const points = useMemo(
+    () => suppliedPoints === undefined ? remote.points : supplied.length >= 2 ? supplied : [],
+    [remote.points, supplied, suppliedPoints],
+  );
+  const loading = suppliedPoints === undefined ? remote.loading : false;
+  const error = suppliedPoints === undefined ? remote.error : supplied.length >= 2 ? "" : "Live chart data is unavailable.";
 
   const chart = useMemo(() => {
     const width = 420;
@@ -124,9 +143,11 @@ export function TrustLiveChart({
         ) : (
           <div>
             <p role="alert" className="text-sm text-white/50">{error || "Live chart data is unavailable."}</p>
-            <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mx-auto mt-4 flex min-h-11 items-center gap-2 rounded-full bg-white/[.08] px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#675cff]">
-              <RefreshCw className="size-4" /> Try again
-            </button>
+            {suppliedPoints === undefined ? (
+              <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mx-auto mt-4 flex min-h-11 items-center gap-2 rounded-full bg-white/[.08] px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#675cff]">
+                <RefreshCw className="size-4" /> Try again
+              </button>
+            ) : null}
           </div>
         )}
       </div>

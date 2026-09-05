@@ -41,7 +41,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 
 import { TrustLiveChart } from "@/components/wallet/trust-live-chart";
 import { AddressQrCode } from "@/components/wallet/address-qr-code";
+import { TrustNewsCarousel } from "@/components/wallet/trust-news-carousel";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
+import { useOndoMarkets, type OndoMarketAsset } from "@/components/wallet/use-ondo-markets";
 import { useWalletRuntime } from "@/components/wallet/wallet-runtime";
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
@@ -188,6 +190,19 @@ function marketNetworkFor(symbol: string): Exclude<MarketNetwork, "all"> {
   if (symbol === "BNB") return "bnb";
   if (["ETH", "USDT", "USDC", "LINK", "MATIC", "ARB", "OP", "SHIB", "PEPE"].includes(symbol)) return "ethereum";
   return "other";
+}
+
+function marketNetworksFor(token: WalletToken): Exclude<MarketNetwork, "all">[] {
+  const addresses = (token as Partial<OndoMarketAsset>).addresses;
+  if (Array.isArray(addresses)) {
+    return Array.from(new Set(addresses.map(({ networkChainId }) => {
+      if (networkChainId === "ethereum-1") return "ethereum";
+      if (networkChainId === "bsc-56") return "bnb";
+      if (networkChainId === "solana-900") return "solana";
+      return "other";
+    })));
+  }
+  return [marketNetworkFor(token.symbol)];
 }
 
 function marketChangeFor(token: WalletToken, period: MarketPeriod) {
@@ -588,6 +603,11 @@ export function TrustWallet() {
     show(success ? "Wallet and live prices refreshed." : "Wallet refreshed. Live prices are temporarily unavailable.");
   });
 
+  const needsOndoMarkets = screen === "market-search" || (
+    screen === "market" && (marketCategory === "ondo" || marketCategory === "favorites")
+  );
+  const ondoSnapshot = useOndoMarkets(needsOndoMarkets, refreshKey);
+
   useEffect(() => {
     document.documentElement.dataset.walletTheme = "trust";
     return () => {
@@ -680,7 +700,8 @@ export function TrustWallet() {
   }, [activity, runtime.currentAccount, runtime.state]);
 
   const total = useMemo(() => tokens.reduce((sum, token) => sum + token.balance * token.price, 0), [tokens]);
-  const selected = tokens.find((token) => token.symbol === selectedSymbol) ?? tokens[0];
+  const selectedOndo = ondoSnapshot.assets.find((token) => token.symbol === selectedSymbol);
+  const selected = selectedOndo ?? tokens.find((token) => token.symbol === selectedSymbol) ?? tokens[0];
   const buyToken = tokens.find((token) => token.symbol === buySymbol) ?? tokens[0];
   const fromToken = tokens.find((token) => token.symbol === swapFrom) ?? tokens[0];
   const toToken = tokens.find((token) => token.symbol === swapTo) ?? tokens[1] ?? tokens[0];
@@ -1106,7 +1127,26 @@ export function TrustWallet() {
       </header>
       {refreshing ? <div data-testid="trust-refresh-status" role="status" className="mt-6 flex justify-center gap-2 text-sm font-bold text-white/50"><LoaderCircle className="size-4 animate-spin" />Refreshing wallet…</div> : null}
       {renderMarketStatus()}
-      <button type="button" onClick={() => open("perpetuals")} className="mt-7 flex min-h-[4.3rem] w-full items-center gap-3 rounded-[1.2rem] border border-white/[.07] bg-[#151621] px-4 text-left"><span className="grid size-10 place-items-center rounded-xl bg-[#252547] text-[#8179ff]"><InfinityIcon className="size-5" /></span><span className="min-w-0 flex-1"><strong className="block truncate text-[16px]/[20px] font-extrabold">Explore perpetual markets</strong><span className="text-[14px]/[18px] font-semibold text-white/38">Internal practice markets</span></span><ChevronRight className="size-5 text-white/40" /></button>
+      <TrustNewsCarousel
+        onSecurity={runtime.openSecurity}
+        onStableSwap={() => {
+          const stable = tokens.find((token) => ["USDT", "USDC"].includes(token.symbol) && token.balance > 0)
+            ?? tokens.find((token) => ["USDT", "USDC"].includes(token.symbol))
+            ?? tokens[0];
+          openSwapFor(stable.symbol);
+        }}
+        onBStocks={() => {
+          setMarketCategory("ondo");
+          setMarketNetwork("all");
+          setMarketSort("volume-desc");
+          setMarketPeriod("24h");
+          open("market");
+        }}
+        onHyperliquid={() => {
+          setEarnStage("list");
+          open("earn");
+        }}
+      />
       <section className="mt-9">
         <div className="flex min-w-0 items-center gap-2">{visible ? <SplitBalance value={total} currency={profile.currency} /> : <p className="min-w-0 flex-1 truncate text-[clamp(48px,12.31vw,54px)] font-extrabold leading-none tracking-[-.045em]">••••</p>}<button type="button" aria-label={visible ? "Hide portfolio balance" : "Show portfolio balance"} onClick={() => setVisible((value) => !value)} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-full text-white/45 focus-visible:outline-2 focus-visible:outline-[#665cff]">{visible ? <Eye className="size-5" /> : <EyeOff className="size-5" />}</button></div>
         <p data-testid="trust-portfolio-change" className={`mt-3 text-[18px]/[24px] font-extrabold ${change === 0 ? "text-white/45" : change > 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change === 0 ? "" : change > 0 ? "▲ " : "▼ "}{cash(Math.abs(change), profile.currency)} ({Math.abs(changePercent).toFixed(2)}%)</p>
@@ -1157,9 +1197,8 @@ export function TrustWallet() {
     const preferredTop = preferredTopSymbols.map((symbol) => tokens.find((token) => token.symbol === symbol)).filter(Boolean) as WalletToken[];
     const preferredIds = new Set(preferredTop.map((token) => token.id));
     const topTraded = [...preferredTop, ...volumeRanked.filter((token) => !preferredIds.has(token.id))].slice(0, 3);
-    const categorySymbols: Record<Exclude<MarketCategory, "favorites" | "hot">, string[]> = {
+    const categorySymbols: Record<Exclude<MarketCategory, "favorites" | "hot" | "ondo">, string[]> = {
       bstocks: [],
-      ondo: [],
       "stock-meme": ["DOGE", "SHIB", "PEPE", "WIF"],
     };
     const categories: { id: MarketCategory; label: string }[] = [
@@ -1169,7 +1208,7 @@ export function TrustWallet() {
       { id: "ondo", label: "Ondo" },
       { id: "stock-meme", label: "Stock Meme" },
     ];
-    const networkOptions = [
+    const standardNetworkOptions = [
       { value: "all", label: "All networks" },
       { value: "bitcoin", label: "Bitcoin" },
       { value: "ethereum", label: "Ethereum" },
@@ -1177,21 +1216,31 @@ export function TrustWallet() {
       { value: "bnb", label: "BNB Chain" },
       { value: "other", label: "Other" },
     ];
+    const ondoNetworks = new Set(ondoSnapshot.assets.flatMap(marketNetworksFor));
+    const networkOptions = marketCategory === "ondo"
+      ? standardNetworkOptions.filter((option) => option.value === "all" || ondoNetworks.has(option.value as Exclude<MarketNetwork, "all">))
+      : standardNetworkOptions;
     const sortOptions = [
       { value: "volume-desc", label: "Volume ↓" },
       { value: "volume-asc", label: "Volume ↑" },
       { value: "market-cap-desc", label: "Market cap ↓" },
       { value: "price-desc", label: "Price ↓" },
     ];
-    const periodOptions = [
-      { value: "1h", label: "1h" },
-      { value: "24h", label: "24h" },
-      { value: "7d", label: "7d" },
-    ];
-    let marketTokens = [...tokens];
+    const periodOptions = marketCategory === "ondo"
+      ? [{ value: "24h", label: "24h" }]
+      : [
+          { value: "1h", label: "1h" },
+          { value: "24h", label: "24h" },
+          { value: "7d", label: "7d" },
+        ];
+    let marketTokens: WalletToken[] = marketCategory === "ondo"
+      ? [...ondoSnapshot.assets]
+      : marketCategory === "favorites"
+        ? [...tokens, ...ondoSnapshot.assets]
+        : [...tokens];
     if (marketCategory === "favorites") marketTokens = marketTokens.filter((token) => watchlist.includes(token.symbol));
-    else if (marketCategory !== "hot") marketTokens = marketTokens.filter((token) => categorySymbols[marketCategory].includes(token.symbol));
-    if (marketNetwork !== "all") marketTokens = marketTokens.filter((token) => marketNetworkFor(token.symbol) === marketNetwork);
+    else if (marketCategory !== "hot" && marketCategory !== "ondo") marketTokens = marketTokens.filter((token) => categorySymbols[marketCategory].includes(token.symbol));
+    if (marketNetwork !== "all") marketTokens = marketTokens.filter((token) => marketNetworksFor(token).includes(marketNetwork));
     marketTokens.sort((left, right) => {
       let difference = 0;
       if (marketSort === "volume-desc") difference = (right.volume24h ?? 0) - (left.volume24h ?? 0);
@@ -1206,8 +1255,23 @@ export function TrustWallet() {
     const emptyMarketMessage = marketCategory === "bstocks"
       ? "bStocks are not available from the current live market source."
       : marketCategory === "ondo"
-        ? "Ondo markets are not available from the current live market source."
+        ? ondoSnapshot.status === "loading" || ondoSnapshot.status === "idle"
+          ? "Loading live Ondo markets…"
+          : ondoSnapshot.status === "unconfigured"
+            ? "Ondo market access is not configured."
+            : ondoSnapshot.status === "error"
+              ? "Ondo Global Markets is temporarily unavailable."
+              : "No Ondo markets match these filters."
         : "No assets match these filters.";
+    const ondoStatusLabel = ondoSnapshot.status === "ready"
+      ? "Live"
+      : ondoSnapshot.status === "partial"
+        ? "Limited"
+        : ondoSnapshot.status === "stale"
+          ? "Cached"
+          : ondoSnapshot.status === "loading" || ondoSnapshot.status === "idle"
+            ? "Loading…"
+            : "Unavailable";
     const openMemeRush = () => {
       setMarketCategory("stock-meme");
       setMarketNetwork("all");
@@ -1231,18 +1295,24 @@ export function TrustWallet() {
           </div>
         </section>
         <div ref={marketListAnchor} data-testid="trust-market-categories" className="-mx-4 mt-4 flex scroll-mt-3 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-          {categories.map((category) => <button key={category.id} type="button" data-testid={`trust-market-category-${category.id}`} aria-label={category.label} aria-pressed={marketCategory === category.id} onClick={() => { setMarketCategory(category.id); setMarketNetwork("all"); }} className={`flex min-h-11 shrink-0 items-center justify-center rounded-full text-[15px]/[20px] font-extrabold focus-visible:outline-2 focus-visible:outline-[#8179ff] ${category.id === "favorites" ? "w-11 px-0" : "px-4"} ${marketCategory === category.id ? "bg-[#8c93e8] text-white" : "bg-[#171824] text-white/82"}`}>{category.id === "favorites" ? <Star aria-hidden="true" className={`size-5 ${marketCategory === category.id ? "fill-current" : ""}`} /> : category.label}</button>)}
+          {categories.map((category) => <button key={category.id} type="button" data-testid={`trust-market-category-${category.id}`} aria-label={category.label} aria-pressed={marketCategory === category.id} onClick={() => { setMarketCategory(category.id); setMarketNetwork("all"); if (category.id === "ondo") setMarketPeriod("24h"); }} className={`flex min-h-11 shrink-0 items-center justify-center rounded-full text-[15px]/[20px] font-extrabold focus-visible:outline-2 focus-visible:outline-[#8179ff] ${category.id === "favorites" ? "w-11 px-0" : "px-4"} ${marketCategory === category.id ? "bg-[#8c93e8] text-white" : "bg-[#171824] text-white/82"}`}>{category.id === "favorites" ? <Star aria-hidden="true" className={`size-5 ${marketCategory === category.id ? "fill-current" : ""}`} /> : category.label}</button>)}
         </div>
         <div data-testid="trust-market-filters" className="mt-3 flex items-stretch gap-2">
           <MarketFilterSelect label={networkLabel} ariaLabel="Market network filter" value={marketNetwork} options={networkOptions} onChange={(value) => setMarketNetwork(value as MarketNetwork)} testId="trust-market-network-filter" className="w-[7.25rem]" />
           <MarketFilterSelect label={sortLabel} ariaLabel="Market sort order" value={marketSort} options={sortOptions} onChange={(value) => setMarketSort(value as MarketSort)} testId="trust-market-sort" className="ml-auto w-[6.75rem]" showChevron={false} />
           <MarketFilterSelect label={periodLabel} ariaLabel="Market change period" value={marketPeriod} options={periodOptions} onChange={(value) => setMarketPeriod(value as MarketPeriod)} testId="trust-market-period-filter" className="w-[4.5rem]" />
         </div>
+        {marketCategory === "ondo" ? (
+          <div data-testid="trust-ondo-market-source" role={ondoSnapshot.status === "error" || ondoSnapshot.status === "unconfigured" ? "alert" : "status"} className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#171824] px-3 text-xs font-bold text-white/45">
+            <span className="truncate">Live display data · Ondo Global Markets</span>
+            <span className={`shrink-0 ${ondoSnapshot.status === "ready" ? "text-[#3ed474]" : ondoSnapshot.status === "partial" || ondoSnapshot.status === "stale" ? "text-[#f4b953]" : "text-white/38"}`}>{ondoStatusLabel}</span>
+          </div>
+        ) : null}
         <div data-testid="trust-market-list" className="mt-3">
           {marketTokens.map((token) => {
             const change = marketChangeFor(token, marketPeriod);
-            const network = marketNetworkFor(token.symbol);
-            return <button key={token.id} type="button" data-testid={`trust-market-row-${token.symbol.toLowerCase()}`} data-network={network} data-price={token.price} data-volume={token.volume24h ?? 0} data-market-cap={token.marketCap ?? 0} data-change={change} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="flex min-h-[4.25rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={44} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.marketCap ? `${compact(token.marketCap)} MCap` : "— MCap"} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[38%] shrink-0 text-right"><strong className="block truncate text-[19px]/[24px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>;
+            const network = marketNetworksFor(token).join(",") || "unavailable";
+            return <button key={token.id} type="button" data-testid={`trust-market-row-${token.symbol.toLowerCase()}`} data-source={marketCategory === "ondo" ? "Ondo Global Markets" : "Crypto market feed"} data-network={network} data-price={token.price} data-volume={token.volume24h ?? 0} data-market-cap={token.marketCap ?? 0} data-change={change} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="flex min-h-[4.25rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={44} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.marketCap ? `${compact(token.marketCap)} MCap` : "— MCap"} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[38%] shrink-0 text-right"><strong className="block truncate text-[19px]/[24px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>;
           })}
           {!marketTokens.length ? <p role="status" className="py-16 text-center text-sm font-semibold text-white/42">{emptyMarketMessage}</p> : null}
         </div>
@@ -1252,12 +1322,15 @@ export function TrustWallet() {
 
   function renderSearchSurface(mode: "wallet" | "market") {
     const normalizedQuery = query.trim().toLowerCase();
-    const trending = [...tokens]
+    const searchableTokens = mode === "market"
+      ? Array.from(new Map([...tokens, ...ondoSnapshot.assets].map((token) => [token.symbol.toUpperCase(), token])).values())
+      : tokens;
+    const trending = [...searchableTokens]
       .filter((token) => token.price > 0)
       .sort((left, right) => (right.volume24h ?? 0) - (left.volume24h ?? 0))
       .slice(0, 6);
     const tokenResults = normalizedQuery
-      ? tokens.filter((token) => `${token.name} ${token.symbol}`.toLowerCase().includes(normalizedQuery))
+      ? searchableTokens.filter((token) => `${token.name} ${token.symbol}`.toLowerCase().includes(normalizedQuery))
       : trending;
     const features: { label: string; description: string; keywords: string; icon: LucideIcon; action: () => void }[] = [
       { label: "Swap", description: "Exchange wallet tokens", keywords: "trade convert", icon: RefreshCw, action: () => openSwapFor(tokens.find((token) => token.balance > 0 && token.price > 0)?.symbol ?? "SOL") },
@@ -1319,8 +1392,32 @@ export function TrustWallet() {
     return <div className="pb-8"><Header title={title} onBack={back} right={<IconButton label={heldOnly ? "Show all tokens" : "Show held tokens"} icon={ListFilter} active={heldOnly} onClick={() => setHeldOnly((value) => !value)} />} />{renderMarketStatus()}<label className="mt-5 flex min-h-14 items-center gap-3 rounded-[1.2rem] bg-[#191a28] px-4"><Search className="size-5 text-white/42" /><input aria-label="Search tokens" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-white/28" /></label><div className="mt-5">{filtered.map((token) => <TokenRow key={token.id} token={token} currency={profile.currency} onClick={() => selectToken(token)} />)}{!filtered.length ? <p className="py-20 text-center text-sm text-white/40">No tokens found.</p> : null}</div></div>;
   }
 
+  function renderOndoToken(token: OndoMarketAsset) {
+    const watched = watchlist.includes(token.symbol);
+    const sessions = token.tradableSessions?.map((session) => session.replace(/\b\w/g, (letter) => letter.toUpperCase())).join(" · ");
+    return (
+      <div data-testid="trust-ondo-market-detail" className="pb-8">
+        <Header title={token.name} onBack={back} right={<IconButton label={watched ? "Remove from watchlist" : "Add to watchlist"} icon={Star} active={watched} onClick={() => toggleWatch(token.symbol)} />} />
+        <div className="mt-6 flex min-w-0 items-center gap-3"><TokenIcon token={token} size={50} /><div className="min-w-0"><p className="text-sm font-bold text-white/42">Market price</p><p className="truncate text-[38px] font-black tracking-[-.045em]">{cash(token.price, profile.currency)}</p></div></div>
+        <p className={`mt-2 font-extrabold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "▲" : "▼"} {Math.abs(token.change24h).toFixed(2)}% · 24 hours</p>
+        <div className="-mx-4 mt-5"><TrustLiveChart symbol={token.underlyingTicker ?? token.symbol} period="24H" livePrice={token.price} currency={profile.currency} rate={rates[profile.currency]} points={token.priceHistory24h} /></div>
+        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#191a28] p-3">
+          <span className="min-w-0"><span className="block text-xs font-bold text-white/38">Market cap</span><strong className="mt-1 block truncate text-sm">{token.marketCap ? compact(token.marketCap) : "—"}</strong></span>
+          <span className="min-w-0 border-x border-white/[.06] px-2"><span className="block text-xs font-bold text-white/38">24h volume</span><strong className="mt-1 block truncate text-sm">{token.volume24h ? compact(token.volume24h) : "—"}</strong></span>
+          <span className="min-w-0 pl-1"><span className="block text-xs font-bold text-white/38">Holders</span><strong className="mt-1 block truncate text-sm">{token.totalHolders?.toLocaleString("en-US") ?? "—"}</strong></span>
+        </div>
+        <div className="mt-5 rounded-[1.3rem] bg-[#191a28] p-5">
+          <div className="flex items-start justify-between gap-4"><span><p className="text-sm font-bold text-white/42">Underlying asset</p><strong className="mt-1 block">{token.underlyingTicker ?? token.symbol}</strong></span><span className="text-right"><p className="text-sm font-bold text-white/42">Type</p><strong className="mt-1 block">{token.instrumentType ?? token.assetClass ?? "Tokenized asset"}</strong></span></div>
+          {sessions ? <p className="mt-4 border-t border-white/[.06] pt-4 text-sm leading-6 text-white/45">Tradable sessions: {sessions}</p> : null}
+        </div>
+        <div className="mt-5 rounded-[1.3rem] border border-[#8179ff]/20 bg-[#171824] p-4 text-sm leading-6 text-white/48"><strong className="block text-white/82">Ondo Global Markets</strong>Live display data for this tokenized market. Trading execution is not enabled in this wallet simulator.</div>
+      </div>
+    );
+  }
+
   function renderToken() {
     if (!selected) return renderHome();
+    if (selectedOndo) return renderOndoToken(selectedOndo);
     return (
       <div className="pb-24">
         <Header title={selected.name} onBack={back} right={<IconButton label={watchlist.includes(selected.symbol) ? "Remove from watchlist" : "Add to watchlist"} icon={Star} active={watchlist.includes(selected.symbol)} onClick={() => toggleWatch(selected.symbol)} />} />
