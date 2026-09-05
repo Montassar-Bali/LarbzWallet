@@ -10,6 +10,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Compass,
   Copy,
   CreditCard,
   Eye,
@@ -17,13 +18,14 @@ import {
   Gauge,
   Globe2,
   History,
-  Home,
   Infinity as InfinityIcon,
   ListFilter,
   LoaderCircle,
   Plus,
+  Presentation,
   QrCode,
   RefreshCw,
+  Rocket,
   Search,
   Share2,
   Settings2,
@@ -57,7 +59,7 @@ import {
   type LiveMarketSnapshot,
 } from "@/lib/wallet-market";
 
-type Screen = "home" | "market" | "earn" | "discover" | "search" | "buy" | "swap" | "tokens" | "perpetuals" | "watchlist" | "ai" | "settings" | "token" | "asset-receive";
+type Screen = "home" | "market" | "market-search" | "predictions" | "earn" | "discover" | "dapp" | "search" | "buy" | "swap" | "tokens" | "perpetuals" | "watchlist" | "ai" | "settings" | "token" | "asset-receive";
 type Currency = "USD" | "EUR" | "GBP" | "CAD" | "AUD";
 type ColorScheme = "dark" | "light";
 type Picker = "buy" | "swap-from" | "swap-to" | null;
@@ -75,6 +77,19 @@ type EarnStage = "list" | "amount" | "review" | "success";
 type PerpetualStage = "list" | "order" | "review" | "success";
 type PaymentMethod = "apple-pay" | "demo-card";
 type MarketStatus = "loading" | "ready" | "error";
+type MarketCategory = "favorites" | "hot" | "bstocks" | "ondo" | "stock-meme";
+type MarketNetwork = "all" | "bitcoin" | "ethereum" | "solana" | "bnb" | "other";
+type MarketSort = "volume-desc" | "volume-asc" | "market-cap-desc" | "price-desc";
+type MarketPeriod = "1h" | "24h" | "7d";
+type EarnMarket = { id: string; symbol: string; leverage: number };
+type DiscoverCategory = "featured" | "dex" | "lending" | "yield" | "staking";
+type DiscoverDapp = {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  categories: Exclude<DiscoverCategory, "featured">[];
+};
 
 const TOKENS_KEY = "larpz_trust_wallet_tokens";
 const ACTIVITY_KEY = "larpz_trust_wallet_transactions";
@@ -94,6 +109,34 @@ const earnOffers = [
   { symbol: "ATOM", apy: 15.2, network: "Cosmos" },
   { symbol: "DOT", apy: 12.5, network: "Polkadot" },
 ];
+const earnMarkets: EarnMarket[] = [
+  { id: "btc-40", symbol: "BTC", leverage: 40 },
+  { id: "eth-25", symbol: "ETH", leverage: 25 },
+  { id: "sol-25", symbol: "SOL", leverage: 25 },
+  { id: "hype-25", symbol: "HYPE", leverage: 25 },
+  { id: "bnb-25", symbol: "BNB", leverage: 25 },
+];
+const discoverCategories: { id: DiscoverCategory; label: string }[] = [
+  { id: "featured", label: "Featured" },
+  { id: "dex", label: "DEX" },
+  { id: "lending", label: "Lending" },
+  { id: "yield", label: "Yield" },
+  { id: "staking", label: "Staking" },
+];
+const discoverDapps: DiscoverDapp[] = [
+  { id: "lido", name: "Lido", description: "Liquid staking for Ethereum and Polygon", url: "https://lido.fi", categories: ["staking", "yield"] },
+  { id: "aave", name: "Aave", description: "Open-source, non-custodial liquidity protocol", url: "https://app.aave.com", categories: ["lending", "yield"] },
+  { id: "uniswap", name: "Uniswap", description: "Swap, earn, and build on the leading decentralized exchange", url: "https://app.uniswap.org", categories: ["dex"] },
+  { id: "pancakeswap", name: "PancakeSwap", description: "Trade, earn, win, and explore NFTs", url: "https://pancakeswap.finance/swap", categories: ["dex", "yield"] },
+  { id: "pendle", name: "Pendle", description: "Trade and earn yield with fixed-rate markets", url: "https://app.pendle.finance/trade/markets", categories: ["yield"] },
+];
+const discoverCampaign: DiscoverDapp = {
+  id: "bstocks-campaign",
+  name: "bStocks campaign",
+  description: "Explore tokenized stock markets and current campaign information.",
+  url: "https://trustwallet.com",
+  categories: [],
+};
 const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"];
 
 function accountKey(base: string, accountId?: string) {
@@ -126,6 +169,44 @@ function amount(value: number, digits = 6) {
 
 function compact(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(value);
+}
+
+function marketPrice(value: number, currency: Currency) {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  const converted = value * rates[currency];
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: converted > 0 && converted < 0.01 ? 4 : 2,
+    maximumFractionDigits: converted > 0 && converted < 0.01 ? 8 : 2,
+  }).format(converted);
+}
+
+function marketNetworkFor(symbol: string): Exclude<MarketNetwork, "all"> {
+  if (["BTC", "BCH", "LTC"].includes(symbol)) return "bitcoin";
+  if (["SOL", "WIF"].includes(symbol)) return "solana";
+  if (symbol === "BNB") return "bnb";
+  if (["ETH", "USDT", "USDC", "LINK", "MATIC", "ARB", "OP", "SHIB", "PEPE"].includes(symbol)) return "ethereum";
+  return "other";
+}
+
+function marketChangeFor(token: WalletToken, period: MarketPeriod) {
+  if (period === "1h") return token.change1h ?? token.change24h;
+  if (period === "7d") return token.change7d ?? token.change24h;
+  return token.change24h;
+}
+
+function normalizeDiscoverUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname.includes(".")) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 function seededTokens(): WalletToken[] {
@@ -269,6 +350,33 @@ function TokenIcon({ token, size = 44 }: { token: Pick<WalletToken, "name" | "sy
   );
 }
 
+function MarketSparkline({ token, change }: { token: Pick<WalletToken, "symbol">; change: number }) {
+  const paths = [
+    "M2 35 C10 31 13 34 20 28 S31 31 38 24 S50 18 57 24 S68 46 76 43 S88 38 96 42 S107 38 118 40",
+    "M2 27 C9 16 16 39 24 25 S37 17 44 36 S55 45 63 28 S76 49 84 33 S95 26 103 35 S112 31 118 34",
+    "M2 22 C12 27 17 32 27 27 S41 29 49 24 S61 35 69 23 S80 19 87 25 S94 48 102 43 S111 39 118 41",
+  ];
+  const index = [...token.symbol].reduce((sum, letter) => sum + letter.charCodeAt(0), 0) % paths.length;
+  const line = paths[index];
+  return (
+    <svg data-testid={`trust-market-sparkline-${token.symbol.toLowerCase()}`} viewBox="0 0 120 52" aria-hidden="true" className={`h-10 w-full overflow-visible ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`} preserveAspectRatio="none">
+      <path d={`${line} L118 52 L2 52 Z`} fill="currentColor" opacity=".1" />
+      <path d={line} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+function MarketFilterSelect({ label, ariaLabel, value, options, onChange, testId, className = "", showChevron = true }: { label: string; ariaLabel: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; testId: string; className?: string; showChevron?: boolean }) {
+  return (
+    <label className={`relative flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl bg-[#171824] px-2 text-[14px]/[18px] font-extrabold text-white/48 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[#8179ff] ${className}`}>
+      <span className="truncate">{label}</span>{showChevron ? <ChevronDown aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+      <select data-testid={testId} aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 cursor-pointer text-base opacity-0">
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function IconButton({ label, icon: Icon, onClick, active = false }: { label: string; icon: LucideIcon; onClick: () => void; active?: boolean }) {
   return <button type="button" aria-label={label} onClick={onClick} className={`grid min-h-11 min-w-11 place-items-center rounded-full border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#665cff] ${active ? "border-[#665cff]/60 bg-[#4437ff]" : "border-white/[.08] bg-[#181925] text-white/85"}`}><Icon className="size-5" /></button>;
 }
@@ -309,14 +417,71 @@ function TokenPicker({ tokens, onChoose, onClose }: { tokens: WalletToken[]; onC
   return <div data-testid="trust-token-picker" className="absolute inset-0 z-[70] overflow-y-auto bg-[#10101b] px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]"><Header title="Select token" onBack={onClose} /><label className="mt-6 flex min-h-14 items-center gap-3 rounded-[1.2rem] border border-white/[.07] bg-[#181925] px-4"><Search className="size-5 text-white/45" /><input autoFocus aria-label="Search tokens" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tokens" className="min-w-0 flex-1 bg-transparent text-base font-semibold outline-none placeholder:text-white/28" /></label><div className="mt-5">{filtered.map((token) => <TokenRow key={token.id} token={token} currency="USD" onClick={() => onChoose(token)} />)}{!filtered.length ? <p className="py-20 text-center text-sm text-white/40">No matching tokens.</p> : null}</div></div>;
 }
 
+function TrustHomeIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" className="size-7" fill="none"><path fill="currentColor" fillRule="evenodd" clipRule="evenodd" d="M10.4 2.8a2.5 2.5 0 0 1 3.2 0l6.25 5.15a2.5 2.5 0 0 1 .9 1.93v8.37A2.75 2.75 0 0 1 18 21H6a2.75 2.75 0 0 1-2.75-2.75V9.88a2.5 2.5 0 0 1 .9-1.93L10.4 2.8ZM8 15.75h8V18H8v-2.25Z" /></svg>;
+}
+
+function TrustInfinityMark({ className = "" }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 112 72" className={className} fill="none">
+      <defs>
+        <linearGradient id="trust-earn-infinity-gradient" x1="4" y1="54" x2="108" y2="18" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#3d31ff" />
+          <stop offset=".5" stopColor="#187bff" />
+          <stop offset="1" stopColor="#46e1dc" />
+        </linearGradient>
+      </defs>
+      <path d="M22 15C9 15 3 24.5 3 36s6 21 19 21c22 0 34-42 57-42 13 0 22 9.5 22 21s-9 21-22 21C56 57 44 15 22 15Z" stroke="url(#trust-earn-infinity-gradient)" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DiscoverDappIcon({ id, size = 46 }: { id: string; size?: number }) {
+  const className = "size-full";
+  let mark: ReactNode;
+  if (id === "lido") {
+    mark = <svg aria-hidden="true" viewBox="0 0 48 48" className={className}><path d="M24 7 14.2 22.1a11.7 11.7 0 1 0 19.6 0L24 7Z" fill="#44bfe8"/><path d="m24 7-5.9 9.2h11.8L24 7Zm-7.8 17.4c1.9 2 4.6 3.2 7.8 3.2s5.9-1.2 7.8-3.2" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/></svg>;
+  } else if (id === "aave") {
+    mark = <svg aria-hidden="true" viewBox="0 0 48 48" className={className}><path d="M12 30.5V23c0-7.2 5.4-12 12-12s12 4.8 12 12v7.5c-3.3-1.7-7.3-2.6-12-2.6s-8.7.9-12 2.6Z" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round"/><circle cx="20" cy="22" r="1.8" fill="#fff"/><circle cx="28" cy="22" r="1.8" fill="#fff"/></svg>;
+  } else if (id === "uniswap") {
+    mark = <svg aria-hidden="true" viewBox="0 0 48 48" className={className}><path d="M12 30c4-1 6.7-3.2 8.1-6.6-2.2-.9-3.7-2.5-4.6-4.7 3.8.9 7 .2 9.7-2.2l3.6 3.1c3.3.1 5.7 1.7 7.2 4.8-2.8-.6-5.1-.1-6.9 1.4 1.6 2.9 4.2 4.8 7.9 5.7-5.1 1.3-9.6.3-13.5-3-2.1 2.4-5.9 2.9-11.5 1.5Z" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/><path d="m23 16-1.3-5 5.2 4.2" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+  } else if (id === "pancakeswap") {
+    mark = <svg aria-hidden="true" viewBox="0 0 48 48" className={className}><path d="M17.5 18.5 15.8 10c-.4-2 2.2-3 3.3-1.4l4.8 6.8 4.8-6.8c1.1-1.6 3.7-.6 3.3 1.4l-1.7 8.5c3.8 1.9 6.2 5.2 6.2 9 0 6.1-5.6 10.5-12.6 10.5s-12.6-4.4-12.6-10.5c0-3.8 2.4-7.1 6.2-9Z" fill="#d78a3d" stroke="#5b321d" strokeWidth="1.7"/><circle cx="19.5" cy="27" r="1.6" fill="#3d2418"/><circle cx="28.5" cy="27" r="1.6" fill="#3d2418"/><path d="M21 32c1.9 1.2 4.1 1.2 6 0" fill="none" stroke="#3d2418" strokeWidth="1.7" strokeLinecap="round"/></svg>;
+  } else if (id === "pendle") {
+    mark = <svg aria-hidden="true" viewBox="0 0 48 48" className={className}><path d="M24 8v20" stroke="#222733" strokeWidth="3.2" strokeLinecap="round"/><path d="M24 28 16 41h16l-8-13Z" fill="#1664a7"/><circle cx="24" cy="29" r="4" fill="#222733"/></svg>;
+  } else {
+    mark = <Globe2 aria-hidden="true" className="size-6 text-white" />;
+  }
+  const background = id === "lido" ? "bg-[linear-gradient(145deg,#ff826f,#ffd3a6)]" : id === "aave" ? "bg-[#8179ff]" : id === "uniswap" ? "bg-[#f40878]" : id === "pancakeswap" ? "bg-[#42d4de]" : id === "pendle" ? "bg-[#f3f4f7]" : "bg-[#4437ff]";
+  return <span data-testid={`trust-discover-icon-${id}`} aria-hidden="true" className={`grid shrink-0 place-items-center overflow-hidden rounded-[.85rem] shadow-[0_5px_16px_rgba(0,0,0,.2)] ${background}`} style={{ width: size, height: size }}>{mark}</span>;
+}
+
+function DiscoverCampaignArt() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 132 108" className="h-[6.5rem] w-[7.8rem] overflow-visible drop-shadow-[0_12px_14px_rgba(0,0,0,.42)]">
+      <g transform="translate(62 5) rotate(19 34 25)">
+        <ellipse cx="34" cy="27" rx="31" ry="18" fill="#e6bd51" />
+        <ellipse cx="34" cy="22" rx="31" ry="18" fill="#bce7f5" stroke="#f7d875" strokeWidth="3" />
+        <path d="m17 24 10-5 8 7 14-10" fill="none" stroke="#69a9dc" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+      <g transform="translate(15 39) rotate(-10 48 31)">
+        <ellipse cx="48" cy="36" rx="43" ry="29" fill="#e2aa35" />
+        <ellipse cx="48" cy="30" rx="43" ry="29" fill="#de2c4c" stroke="#ffd364" strokeWidth="4" />
+        <circle cx="48" cy="30" r="18" fill="#ef4964" />
+        <path d="M37 39 55 21m-12 0h12v12" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    </svg>
+  );
+}
+
 function BottomNav({ active, onOpen }: { active: Screen; onOpen: (screen: Screen) => void }) {
-  const items: { label: string; screen: Screen; icon: LucideIcon }[] = [
-    { label: "Home", screen: "home", icon: Home },
-    { label: "Market", screen: "market", icon: TrendingUp },
-    { label: "Earn", screen: "earn", icon: InfinityIcon },
-    { label: "Discover", screen: "discover", icon: Globe2 },
+  const items: { label: string; screen: Screen; icon: ReactNode }[] = [
+    { label: "Home", screen: "home", icon: <TrustHomeIcon /> },
+    { label: "Market", screen: "market", icon: <TrendingUp aria-hidden="true" className="size-7 stroke-[2.5]" /> },
+    { label: "Earn", screen: "earn", icon: <InfinityIcon aria-hidden="true" className="size-7 stroke-[2.5]" /> },
+    { label: "Discover", screen: "discover", icon: <Compass aria-hidden="true" className="size-7 stroke-[2.5]" /> },
   ];
-  return <nav data-testid="trust-bottom-nav" aria-label="Larpz Wallet navigation" className="absolute inset-x-3 bottom-[max(.6rem,env(safe-area-inset-bottom))] z-40 flex gap-2"><div className="flex min-w-0 flex-1 rounded-[1.6rem] border border-white/[.09] bg-[#242531]/95 p-1.5 shadow-2xl backdrop-blur-2xl">{items.map(({ label, screen, icon: Icon }) => <button key={label} type="button" aria-label={label} onClick={() => onOpen(screen)} className={`flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1.2rem] text-[10px] font-extrabold ${active === screen ? "bg-white/[.11]" : "text-white/50"}`}><Icon className="size-5" />{label}</button>)}</div><button type="button" aria-label="Search" onClick={() => onOpen("search")} className={`grid min-h-14 min-w-14 place-items-center rounded-full border border-white/[.09] bg-[#242531]/95 ${active === "search" ? "text-[#8179ff]" : "text-white"}`}><Search className="size-6" /></button></nav>;
+  return <nav data-testid="trust-bottom-nav" aria-label="Trust Wallet navigation" className="absolute inset-x-4 bottom-[max(.75rem,env(safe-area-inset-bottom))] z-40 flex h-[4.25rem] items-stretch gap-2.5"><div data-testid="trust-nav-rail" className="flex min-w-0 flex-1 rounded-[1.75rem] border border-white/[.09] bg-[#191a28]/95 p-1.5 shadow-[0_12px_28px_rgba(0,0,0,.34)] backdrop-blur-2xl">{items.map(({ label, screen, icon }) => <button key={label} type="button" aria-label={label} aria-current={active === screen ? "page" : undefined} onClick={() => onOpen(screen)} className={`grid min-w-0 flex-1 place-items-center rounded-[1.45rem] text-white focus-visible:outline-2 focus-visible:outline-[#8179ff] ${active === screen ? "bg-[#303144]" : "bg-transparent"}`}>{icon}</button>)}</div><button type="button" data-testid="trust-nav-search" aria-label="Search" aria-current={active === "search" ? "page" : undefined} onClick={() => onOpen("search")} className={`grid w-[3.75rem] shrink-0 place-items-center rounded-[1.65rem] border border-white/[.09] bg-[#191a28]/95 shadow-[0_12px_28px_rgba(0,0,0,.34)] backdrop-blur-2xl focus-visible:outline-2 focus-visible:outline-[#8179ff] ${active === "search" ? "text-[#8179ff]" : "text-white"}`}><Search aria-hidden="true" className="size-8 stroke-[2.5]" /></button></nav>;
 }
 
 function SwipeConfirm({ disabled, busy, onConfirm }: { disabled: boolean; busy: boolean; onConfirm: () => void }) {
@@ -344,6 +509,7 @@ export function TrustWallet() {
   const [perpetualPositions, setPerpetualPositions] = useState<PerpetualPosition[]>([]);
   const [screen, setScreen] = useState<Screen>("home");
   const [previous, setPrevious] = useState<Screen>("home");
+  const [searchOrigin, setSearchOrigin] = useState<Screen>("home");
   const [selectedSymbol, setSelectedSymbol] = useState("SOL");
   const [picker, setPicker] = useState<Picker>(null);
   const [notice, setNotice] = useState("");
@@ -355,8 +521,16 @@ export function TrustWallet() {
   const pullStart = useRef<number | null>(null);
   const latest = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
   const scroll = useRef<HTMLDivElement>(null);
+  const marketListAnchor = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [heldOnly, setHeldOnly] = useState(false);
+  const [marketCategory, setMarketCategory] = useState<MarketCategory>("hot");
+  const [marketNetwork, setMarketNetwork] = useState<MarketNetwork>("all");
+  const [marketSort, setMarketSort] = useState<MarketSort>("volume-desc");
+  const [marketPeriod, setMarketPeriod] = useState<MarketPeriod>("24h");
+  const [discoverQuery, setDiscoverQuery] = useState("");
+  const [discoverCategory, setDiscoverCategory] = useState<DiscoverCategory>("featured");
+  const [activeDiscoverDapp, setActiveDiscoverDapp] = useState<DiscoverDapp | null>(null);
   const [buyMode, setBuyMode] = useState<"buy" | "sell">("buy");
   const [buyValue, setBuyValue] = useState("0");
   const [buySymbol, setBuySymbol] = useState("ETH");
@@ -379,6 +553,8 @@ export function TrustWallet() {
   const [perpetualSide, setPerpetualSide] = useState<"long" | "short">("long");
   const [perpetualLeverage, setPerpetualLeverage] = useState(2);
   const [perpetualPositionId, setPerpetualPositionId] = useState<string>();
+  const [earnMarketId, setEarnMarketId] = useState(earnMarkets[0].id);
+  const [perpetualOrderOrigin, setPerpetualOrderOrigin] = useState<"earn" | "perpetuals">("perpetuals");
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState("1D");
   const [aiQuery, setAiQuery] = useState("");
@@ -425,6 +601,17 @@ export function TrustWallet() {
       delete document.documentElement.dataset.trustColorScheme;
     };
   }, [profile.colorScheme]);
+
+  useEffect(() => {
+    if (screen !== "perpetuals" || perpetualStage !== "list" || perpetualOrderOrigin !== "earn") return;
+    const timeoutId = window.setTimeout(() => {
+      setEarnStage("list");
+      setScreen("earn");
+      setPrevious("home");
+      scroll.current?.scrollTo({ top: 0 });
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [perpetualOrderOrigin, perpetualStage, screen]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -511,6 +698,7 @@ export function TrustWallet() {
   }
 
   function open(next: Screen) {
+    if ((next === "search" || next === "market-search") && next !== screen) setSearchOrigin(screen);
     if (next !== screen) setPrevious(screen);
     setScreen(next);
     setQuery("");
@@ -523,9 +711,56 @@ export function TrustWallet() {
     scroll.current?.scrollTo({ top: 0 });
   }
 
+  function closeSearch() {
+    setScreen(searchOrigin);
+    setPrevious("home");
+    setQuery("");
+    scroll.current?.scrollTo({ top: 0 });
+  }
+
+  function openDiscoverDapp(dapp: DiscoverDapp) {
+    setActiveDiscoverDapp(dapp);
+    open("dapp");
+  }
+
+  function submitDiscoverSearch(event: FormEvent) {
+    event.preventDefault();
+    const needle = discoverQuery.trim().toLowerCase();
+    if (!needle) return;
+    const match = discoverDapps.find((dapp) => `${dapp.name} ${dapp.description} ${dapp.categories.join(" ")}`.toLowerCase().includes(needle));
+    if (match) {
+      openDiscoverDapp(match);
+      return;
+    }
+    const url = normalizeDiscoverUrl(discoverQuery);
+    if (!url) {
+      show("No dApp or valid web address found.");
+      return;
+    }
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    openDiscoverDapp({ id: "custom", name: hostname, description: "Web address entered in Discover", url, categories: [] });
+  }
+
+  async function copyDiscoverUrl() {
+    if (!activeDiscoverDapp) return;
+    try {
+      await navigator.clipboard.writeText(activeDiscoverDapp.url);
+      show("dApp address copied.");
+    } catch {
+      show("The dApp address could not be copied.");
+    }
+  }
+
   function selectToken(token: WalletToken) {
     setSelectedSymbol(token.symbol);
     open("token");
+  }
+
+  function selectSearchToken(token: WalletToken) {
+    setSelectedSymbol(token.symbol);
+    if (screen !== "token") setPrevious(screen);
+    setScreen("token");
+    scroll.current?.scrollTo({ top: 0 });
   }
 
   function refreshWallet() {
@@ -719,11 +954,12 @@ export function TrustWallet() {
     }
   }
 
-  function openPerpetualMarket(symbol: string) {
+  function openPerpetualMarket(symbol: string, side: "long" | "short" = "long", leverage = 2) {
+    setPerpetualOrderOrigin(screen === "earn" ? "earn" : "perpetuals");
     setPerpetualSymbol(symbol);
     setPerpetualValue("0");
-    setPerpetualSide("long");
-    setPerpetualLeverage(2);
+    setPerpetualSide(side);
+    setPerpetualLeverage(leverage);
     setPerpetualPositionId(undefined);
     setPerpetualStage("order");
     perpetualRequestId.current = createId("trust-perpetual");
@@ -915,6 +1151,169 @@ export function TrustWallet() {
     return <div data-testid="trust-swap-screen" className="pb-8"><Header title="Swap" onBack={back} right={<IconButton label="Swap settings" icon={Settings2} onClick={() => setSwapSettingsOpen(true)} />} /><button type="button" onClick={() => setSwapSettingsOpen(true)} className="mx-auto mt-2 flex min-h-11 items-center gap-2 rounded-full bg-[#191a28] px-4 font-bold">Market order <ChevronDown className="size-4" /></button><div className="mt-5 rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><input aria-label="Swap amount" inputMode="decimal" value={swapValue} onChange={(event) => setSwapValue(event.target.value.replace(/[^0-9.]/g, ""))} className="min-w-0 flex-1 bg-transparent text-[44px] font-black outline-none" /><button type="button" aria-label="Select source token" onClick={() => setPicker("swap-from")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{fromToken ? <TokenIcon token={fromToken} size={28} /> : null}{fromToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(numeric * (fromToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(fromToken?.balance ?? 0)}</span></div></div><button type="button" aria-label="Reverse swap tokens" onClick={() => { setSwapFrom(swapTo); setSwapTo(swapFrom); swapRequestId.current = createId("trust-swap"); }} className="relative z-10 mx-auto -my-4 grid size-11 place-items-center rounded-full border-4 border-[#10101b] bg-[#242535]"><ArrowDown className="size-5" /></button><div className="rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><p className="min-w-0 flex-1 truncate text-[44px] font-black text-white/32">{amount(output)}</p><button type="button" aria-label="Select destination token" onClick={() => setPicker("swap-to")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{toToken ? <TokenIcon token={toToken} size={28} /> : null}{toToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(output * (toToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(toToken?.balance ?? 0)}</span></div></div><div className="mt-4 rounded-2xl bg-white/[.035] px-4 py-3 text-xs text-white/45"><div className="flex justify-between py-1"><span>Provider fee</span><strong className="text-white/75">{amount(serviceFee)} {fromToken?.symbol}</strong></div><div className="flex justify-between py-1"><span>Maximum slippage</span><strong className="text-white/75">{slippage.toFixed(1)}%</strong></div><div className="flex justify-between py-1"><span>Rate</span><strong className="text-right text-white/75">1 {fromToken?.symbol} ≈ {toToken?.price ? amount((fromToken?.price ?? 0) / toToken.price) : "—"} {toToken?.symbol}</strong></div></div><div className="mt-[clamp(1rem,3svh,2rem)]"><div className="flex justify-between text-xs font-bold text-white/35"><span>Min</span><span>25%</span><span>50%</span><span>75%</span><span>Max</span></div><input aria-label="Swap percentage" type="range" min="0" max="100" value={fromToken?.balance ? Math.min(100, numeric / fromToken.balance * 100) : 0} onChange={(event) => { setSwapValue(String((fromToken?.balance ?? 0) * Number(event.target.value) / 100)); swapRequestId.current = createId("trust-swap"); }} className="min-h-11 w-full accent-[#4437ff]" /></div><Keypad value={swapValue} onChange={(value) => { setSwapValue(value); swapRequestId.current = createId("trust-swap"); }} /><SwipeConfirm disabled={!fromToken || !toToken || numeric <= 0 || numeric > (fromToken?.balance ?? 0) || fromToken?.symbol === toToken?.symbol} busy={busy} onConfirm={() => void performSwap()} />{swapSettingsOpen ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm" role="presentation"><button type="button" aria-label="Close swap settings" onClick={() => setSwapSettingsOpen(false)} className="absolute inset-0" /><section role="dialog" aria-modal="true" aria-label="Swap settings" className="relative w-full max-w-md rounded-[1.7rem] bg-[#202130] p-5"><div className="flex items-center justify-between"><h2 className="text-xl font-black">Market order settings</h2><IconButton label="Close swap settings" icon={X} onClick={() => setSwapSettingsOpen(false)} /></div><p className="mt-2 text-sm leading-6 text-white/45">The quote uses current server-side market prices. Choose the maximum accepted slippage.</p><div className="mt-5 grid grid-cols-3 gap-2">{[0.1, 0.5, 1].map((value) => <button key={value} type="button" onClick={() => setSlippage(value)} className={`min-h-12 rounded-xl font-bold ${slippage === value ? "bg-[#4437ff]" : "bg-[#151621]"}`}>{value.toFixed(1)}%</button>)}</div><button type="button" onClick={() => setSwapSettingsOpen(false)} className="mt-5 min-h-14 w-full rounded-full bg-[#4437ff] font-extrabold">Done</button></section></div> : null}</div>;
   }
 
+  function renderMarket() {
+    const preferredTopSymbols = ["ETH", "BNB", "SOL"];
+    const volumeRanked = [...tokens].sort((left, right) => (right.volume24h ?? 0) - (left.volume24h ?? 0));
+    const preferredTop = preferredTopSymbols.map((symbol) => tokens.find((token) => token.symbol === symbol)).filter(Boolean) as WalletToken[];
+    const preferredIds = new Set(preferredTop.map((token) => token.id));
+    const topTraded = [...preferredTop, ...volumeRanked.filter((token) => !preferredIds.has(token.id))].slice(0, 3);
+    const categorySymbols: Record<Exclude<MarketCategory, "favorites" | "hot">, string[]> = {
+      bstocks: [],
+      ondo: [],
+      "stock-meme": ["DOGE", "SHIB", "PEPE", "WIF"],
+    };
+    const categories: { id: MarketCategory; label: string }[] = [
+      { id: "favorites", label: "Favorites" },
+      { id: "hot", label: "Hot tokens" },
+      { id: "bstocks", label: "bStocks" },
+      { id: "ondo", label: "Ondo" },
+      { id: "stock-meme", label: "Stock Meme" },
+    ];
+    const networkOptions = [
+      { value: "all", label: "All networks" },
+      { value: "bitcoin", label: "Bitcoin" },
+      { value: "ethereum", label: "Ethereum" },
+      { value: "solana", label: "Solana" },
+      { value: "bnb", label: "BNB Chain" },
+      { value: "other", label: "Other" },
+    ];
+    const sortOptions = [
+      { value: "volume-desc", label: "Volume ↓" },
+      { value: "volume-asc", label: "Volume ↑" },
+      { value: "market-cap-desc", label: "Market cap ↓" },
+      { value: "price-desc", label: "Price ↓" },
+    ];
+    const periodOptions = [
+      { value: "1h", label: "1h" },
+      { value: "24h", label: "24h" },
+      { value: "7d", label: "7d" },
+    ];
+    let marketTokens = [...tokens];
+    if (marketCategory === "favorites") marketTokens = marketTokens.filter((token) => watchlist.includes(token.symbol));
+    else if (marketCategory !== "hot") marketTokens = marketTokens.filter((token) => categorySymbols[marketCategory].includes(token.symbol));
+    if (marketNetwork !== "all") marketTokens = marketTokens.filter((token) => marketNetworkFor(token.symbol) === marketNetwork);
+    marketTokens.sort((left, right) => {
+      let difference = 0;
+      if (marketSort === "volume-desc") difference = (right.volume24h ?? 0) - (left.volume24h ?? 0);
+      else if (marketSort === "volume-asc") difference = (left.volume24h ?? 0) - (right.volume24h ?? 0);
+      else if (marketSort === "market-cap-desc") difference = (right.marketCap ?? 0) - (left.marketCap ?? 0);
+      else difference = right.price - left.price;
+      return difference || left.symbol.localeCompare(right.symbol);
+    });
+    const networkLabel = marketNetwork === "all" ? "Network" : networkOptions.find((option) => option.value === marketNetwork)?.label ?? "Network";
+    const sortLabel = sortOptions.find((option) => option.value === marketSort)?.label ?? "Volume ↓";
+    const periodLabel = periodOptions.find((option) => option.value === marketPeriod)?.label ?? "24h";
+    const emptyMarketMessage = marketCategory === "bstocks"
+      ? "bStocks are not available from the current live market source."
+      : marketCategory === "ondo"
+        ? "Ondo markets are not available from the current live market source."
+        : "No assets match these filters.";
+    const openMemeRush = () => {
+      setMarketCategory("stock-meme");
+      setMarketNetwork("all");
+      window.setTimeout(() => marketListAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    };
+    return (
+      <div data-testid="trust-market" className="pb-8">
+        <header data-testid="trust-market-header" className="relative grid min-h-16 place-items-center">
+          <h1 className="text-center text-[22px]/[28px] font-extrabold tracking-[-.025em]">Markets</h1>
+          <button type="button" data-testid="trust-market-search" aria-label="Search markets" onClick={() => open("market-search")} className="absolute right-0 grid size-12 place-items-center rounded-full bg-[#171824] focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Search aria-hidden="true" className="size-6 stroke-[2.5]" /></button>
+        </header>
+        {marketStatus !== "ready" ? <p role={marketStatus === "loading" ? "status" : "alert"} aria-live="polite" className="sr-only">{marketStatus === "loading" ? "Updating live market prices." : "Showing saved market prices."}</p> : null}
+        <div data-testid="trust-market-shortcuts" className="mt-5 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => open("predictions")} className="flex min-h-[3.75rem] items-center justify-center gap-2.5 rounded-[1.1rem] bg-[#171824] px-3 text-[19px]/[24px] font-extrabold shadow-lg focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Presentation aria-hidden="true" className="size-6" />Predictions</button>
+          <button type="button" onClick={openMemeRush} className="flex min-h-[3.75rem] items-center justify-center gap-2.5 rounded-[1.1rem] bg-[#171824] px-3 text-[19px]/[24px] font-extrabold shadow-lg focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Rocket aria-hidden="true" className="size-6" />Meme Rush</button>
+        </div>
+        <section data-testid="trust-most-traded" className="mt-6">
+          <h2 className="text-[22px]/[28px] font-extrabold tracking-[-.025em]">Most traded (24h)</h2>
+          <div data-testid="trust-market-top-cards" className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+            {topTraded.map((token) => <button key={token.id} type="button" data-testid={`trust-market-card-${token.symbol.toLowerCase()}`} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="min-h-[8.75rem] min-w-[7.25rem] rounded-[1.1rem] bg-[#181925] p-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><span className="flex min-w-0 items-center justify-between gap-1.5"><strong className="truncate text-[13px]/[17px] font-extrabold text-white/48">{token.name}</strong><TokenIcon token={token} size={22} /></span><strong className="mt-2 block truncate text-[20px]/[25px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`mt-1 block text-[15px]/[19px] font-extrabold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span><span className="mt-1 block"><MarketSparkline token={token} change={token.change24h} /></span></button>)}
+          </div>
+        </section>
+        <div ref={marketListAnchor} data-testid="trust-market-categories" className="-mx-4 mt-4 flex scroll-mt-3 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+          {categories.map((category) => <button key={category.id} type="button" data-testid={`trust-market-category-${category.id}`} aria-label={category.label} aria-pressed={marketCategory === category.id} onClick={() => { setMarketCategory(category.id); setMarketNetwork("all"); }} className={`flex min-h-11 shrink-0 items-center justify-center rounded-full text-[15px]/[20px] font-extrabold focus-visible:outline-2 focus-visible:outline-[#8179ff] ${category.id === "favorites" ? "w-11 px-0" : "px-4"} ${marketCategory === category.id ? "bg-[#8c93e8] text-white" : "bg-[#171824] text-white/82"}`}>{category.id === "favorites" ? <Star aria-hidden="true" className={`size-5 ${marketCategory === category.id ? "fill-current" : ""}`} /> : category.label}</button>)}
+        </div>
+        <div data-testid="trust-market-filters" className="mt-3 flex items-stretch gap-2">
+          <MarketFilterSelect label={networkLabel} ariaLabel="Market network filter" value={marketNetwork} options={networkOptions} onChange={(value) => setMarketNetwork(value as MarketNetwork)} testId="trust-market-network-filter" className="w-[7.25rem]" />
+          <MarketFilterSelect label={sortLabel} ariaLabel="Market sort order" value={marketSort} options={sortOptions} onChange={(value) => setMarketSort(value as MarketSort)} testId="trust-market-sort" className="ml-auto w-[6.75rem]" showChevron={false} />
+          <MarketFilterSelect label={periodLabel} ariaLabel="Market change period" value={marketPeriod} options={periodOptions} onChange={(value) => setMarketPeriod(value as MarketPeriod)} testId="trust-market-period-filter" className="w-[4.5rem]" />
+        </div>
+        <div data-testid="trust-market-list" className="mt-3">
+          {marketTokens.map((token) => {
+            const change = marketChangeFor(token, marketPeriod);
+            const network = marketNetworkFor(token.symbol);
+            return <button key={token.id} type="button" data-testid={`trust-market-row-${token.symbol.toLowerCase()}`} data-network={network} data-price={token.price} data-volume={token.volume24h ?? 0} data-market-cap={token.marketCap ?? 0} data-change={change} aria-label={`Open ${token.name} market`} onClick={() => selectToken(token)} className="flex min-h-[4.25rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={44} /><span className="min-w-0 flex-1"><strong className="block truncate text-[19px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.marketCap ? `${compact(token.marketCap)} MCap` : "— MCap"} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[38%] shrink-0 text-right"><strong className="block truncate text-[19px]/[24px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${change >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span></span></button>;
+          })}
+          {!marketTokens.length ? <p role="status" className="py-16 text-center text-sm font-semibold text-white/42">{emptyMarketMessage}</p> : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSearchSurface(mode: "wallet" | "market") {
+    const normalizedQuery = query.trim().toLowerCase();
+    const trending = [...tokens]
+      .filter((token) => token.price > 0)
+      .sort((left, right) => (right.volume24h ?? 0) - (left.volume24h ?? 0))
+      .slice(0, 6);
+    const tokenResults = normalizedQuery
+      ? tokens.filter((token) => `${token.name} ${token.symbol}`.toLowerCase().includes(normalizedQuery))
+      : trending;
+    const features: { label: string; description: string; keywords: string; icon: LucideIcon; action: () => void }[] = [
+      { label: "Swap", description: "Exchange wallet tokens", keywords: "trade convert", icon: RefreshCw, action: () => openSwapFor(tokens.find((token) => token.balance > 0 && token.price > 0)?.symbol ?? "SOL") },
+      { label: "Buy and sell", description: "Add or sell internal assets", keywords: "purchase card apple pay stocks", icon: CreditCard, action: () => open("buy") },
+      { label: "Send", description: "Transfer to a wallet address", keywords: "address transfer", icon: ArrowUp, action: () => runtime.openTransfer() },
+      { label: "Receive", description: "Show your receiving address", keywords: "deposit qr address", icon: ArrowDown, action: () => runtime.openReceive() },
+      { label: "Scan QR", description: "Scan a wallet address", keywords: "camera address", icon: QrCode, action: runtime.openScanner },
+      { label: "Earn", description: "Browse yield opportunities", keywords: "apy stake rewards", icon: Sparkles, action: () => { setEarnStage("list"); open("earn"); } },
+      { label: "Predictions", description: "Open practice price predictions", keywords: "markets higher lower", icon: Presentation, action: () => open("predictions") },
+      { label: "Explore dApps", description: "Browse wallet discoveries", keywords: "dapp apps discover", icon: Compass, action: () => open("discover") },
+    ];
+    const featureResults = normalizedQuery
+      ? features.filter((feature) => `${feature.label} ${feature.description} ${feature.keywords}`.toLowerCase().includes(normalizedQuery))
+      : [];
+    const addressResult = /\.larpz$/i.test(query.trim()) || /^0x[a-f0-9]{6,}$/i.test(query.trim());
+    const title = mode === "market" ? "Search markets" : "Search";
+    const inputLabel = mode === "market" ? "Search markets" : "Search wallet";
+    const testId = mode === "market" ? "trust-market-search-screen" : "trust-search";
+    const testPrefix = mode === "market" ? "trust-market-search" : "trust-search";
+    return (
+      <div data-testid={testId} className="pb-8 pt-2">
+        <h1 className="sr-only">{title}</h1>
+        <div data-testid={`${testPrefix}-header`} className="grid grid-cols-[minmax(0,1fr)_3rem] gap-2">
+          <label data-testid={`${testPrefix}-field`} className="flex h-12 min-w-0 items-center gap-3 rounded-[1.15rem] border border-white/[.05] bg-[#171824] px-4 transition-colors focus-within:border-white/[.12]"><Search aria-hidden="true" className="size-6 shrink-0 text-white/58" /><input data-testid={`${testPrefix}-input`} autoFocus aria-label={inputLabel} autoCapitalize="none" autoComplete="off" enterKeyHint="search" spellCheck={false} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") closeSearch(); }} placeholder="Tokens, stocks, dApps, addresses" className="min-w-0 flex-1 bg-transparent text-[16px]/[22px] font-semibold caret-[#4437ff] outline-none placeholder:text-white/38" /></label>
+          <button type="button" data-testid={`${testPrefix}-close`} aria-label="Close search" onClick={closeSearch} className="grid size-12 place-items-center rounded-full border border-white/[.04] bg-[#171824] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8179ff]"><X aria-hidden="true" className="size-6 stroke-[2.5]" /></button>
+        </div>
+        <section aria-labelledby={`${testId}-results-heading`} className="mt-5">
+          <h2 id={`${testId}-results-heading`} className="text-[22px]/[28px] font-extrabold tracking-[-.025em]">{normalizedQuery ? "Search results" : "Trending"}</h2>
+          <div data-testid={`${testPrefix}-results`} className="mt-3">
+            {tokenResults.map((token) => {
+              const starred = watchlist.includes(token.symbol);
+              return <div key={token.id} data-testid={`${testPrefix}-row-${token.symbol.toLowerCase()}`} data-volume={token.volume24h ?? 0} className="flex min-h-[4.25rem] items-center gap-1"><button type="button" aria-label={`Open ${token.name} search result`} onClick={() => selectSearchToken(token)} className="flex min-h-[4.25rem] min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} size={40} /><span className="min-w-0 flex-1"><strong className="block truncate text-[18px]/[23px] font-extrabold">{token.name}</strong><span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{token.symbol} · {token.volume24h ? `${compact(token.volume24h)} Vol` : "— Vol"}</span></span><span className="max-w-[34%] shrink-0 text-right"><strong className="block truncate text-[18px]/[23px] font-extrabold">{marketPrice(token.price, profile.currency)}</strong><span className={`block text-[15px]/[19px] font-bold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span></button><button type="button" data-testid={`${testPrefix}-star-${token.symbol.toLowerCase()}`} aria-label={`${starred ? "Remove" : "Add"} ${token.symbol} ${starred ? "from" : "to"} watchlist`} aria-pressed={starred} onClick={() => toggleWatch(token.symbol)} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-full text-white/40 focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Star aria-hidden="true" className={`size-5 ${starred ? "fill-[#8179ff] text-[#8179ff]" : ""}`} /></button></div>;
+            })}
+          </div>
+          {!tokenResults.length && !featureResults.length && !addressResult ? <p role="status" className="py-16 text-center text-sm font-semibold text-white/42">No results found.</p> : null}
+        </section>
+        {featureResults.length || addressResult ? <section aria-labelledby={`${testId}-actions-heading`} className="mt-7"><h2 id={`${testId}-actions-heading`} className="text-[16px]/[21px] font-extrabold text-white/48">Wallet actions</h2><div className="mt-2">{addressResult ? <button type="button" data-testid={`${testPrefix}-address-result`} onClick={() => runtime.openTransfer()} className="flex min-h-[4.75rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><span className="grid size-11 place-items-center rounded-full bg-[#191a28]"><ArrowUp aria-hidden="true" className="size-5" /></span><span className="min-w-0 flex-1"><strong className="block truncate">Open Send</strong><span className="block truncate text-sm text-white/42">Paste {query.trim()} as the destination</span></span><ChevronRight aria-hidden="true" className="size-5 text-white/35" /></button> : null}{featureResults.map(({ label, description, icon: Icon, action }) => <button key={label} type="button" data-testid={`${testPrefix}-feature-${label.toLowerCase().replaceAll(" ", "-")}`} onClick={action} className="flex min-h-[4.75rem] w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><span className="grid size-11 place-items-center rounded-full bg-[#191a28]"><Icon aria-hidden="true" className="size-5 text-[#8179ff]" /></span><span className="min-w-0 flex-1"><strong className="block truncate">{label}</strong><span className="block truncate text-sm text-white/42">{description}</span></span><ChevronRight aria-hidden="true" className="size-5 text-white/35" /></button>)}</div></section> : null}
+      </div>
+    );
+  }
+
+  function renderMarketSearch() {
+    return renderSearchSurface("market");
+  }
+
+  function renderPredictions() {
+    const candidates = ["BTC", "ETH", "SOL", "HYPE", "BNB"].map((symbol) => tokens.find((token) => token.symbol === symbol)).filter(Boolean) as WalletToken[];
+    return (
+      <div data-testid="trust-predictions" className="pb-8">
+        <Header title="Predictions" onBack={back} />
+        <div className="mt-6 rounded-[1.4rem] border border-[#4437ff]/25 bg-[#191a28] p-5"><Presentation aria-hidden="true" className="size-7 text-[#8179ff]" /><h2 className="mt-3 text-2xl font-black">Practice predictions</h2><p className="mt-2 text-sm leading-6 text-white/45">Choose a live market, then predict a higher or lower move in the existing practice order flow. No real funds are used.</p></div>
+        <section className="mt-7"><h2 className="text-xl font-black">Live markets</h2><div className="mt-3 space-y-2">{candidates.map((token) => <button key={token.id} type="button" aria-label={`Predict ${token.symbol} price movement`} onClick={() => openPerpetualMarket(token.symbol)} className="flex min-h-[4.75rem] w-full items-center gap-3 rounded-[1.25rem] bg-[#191a28] px-4 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><TokenIcon token={token} /><span className="min-w-0 flex-1"><strong className="block truncate text-lg">{token.name}</strong><span className="text-sm text-white/42">Higher or lower</span></span><span className="shrink-0 text-right"><strong className="block">{marketPrice(token.price, profile.currency)}</strong><span className={`text-sm font-bold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></span><ChevronRight aria-hidden="true" className="size-5 text-white/35" /></button>)}</div></section>
+      </div>
+    );
+  }
+
   function renderTokenList(title = "Tokens") {
     const filtered = tokens.filter((token) => (!heldOnly || token.balance > 0) && `${token.name} ${token.symbol}`.toLowerCase().includes(query.toLowerCase()));
     return <div className="pb-8"><Header title={title} onBack={back} right={<IconButton label={heldOnly ? "Show all tokens" : "Show held tokens"} icon={ListFilter} active={heldOnly} onClick={() => setHeldOnly((value) => !value)} />} />{renderMarketStatus()}<label className="mt-5 flex min-h-14 items-center gap-3 rounded-[1.2rem] bg-[#191a28] px-4"><Search className="size-5 text-white/42" /><input aria-label="Search tokens" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-white/28" /></label><div className="mt-5">{filtered.map((token) => <TokenRow key={token.id} token={token} currency={profile.currency} onClick={() => selectToken(token)} />)}{!filtered.length ? <p className="py-20 text-center text-sm text-white/40">No tokens found.</p> : null}</div></div>;
@@ -972,6 +1371,67 @@ export function TrustWallet() {
       return <div data-testid="trust-earn-amount" className="pb-8"><Header title={`Earn ${earnToken?.symbol ?? ""}`} onBack={() => setEarnStage("list")} /><div className="mt-7 rounded-[1.4rem] bg-[linear-gradient(135deg,#252342,#171825)] p-5"><div className="flex items-center gap-3"><TokenIcon token={earnToken} /><div><h2 className="text-xl font-black">{earnOffer?.apy.toFixed(2)}% APY</h2><p className="text-sm text-white/42">{earnOffer?.network} network</p></div></div></div><div className="mt-8 text-center"><p className="text-sm font-bold text-white/42">Amount to allocate</p><div className="mt-3 flex min-w-0 items-end justify-center gap-2"><KeypadAmountInput label="Earn amount" value={earnValue} onChange={(next) => { setEarnValue(next); earnRequestId.current = createId("trust-earn"); }} className="min-w-0 max-w-[75%] bg-transparent text-right text-[48px] font-black leading-none outline-none" /><strong className="pb-1 text-lg">{earnToken?.symbol}</strong></div><p className="mt-3 text-sm text-white/42">Available {amount(earnToken?.balance ?? 0)} {earnToken?.symbol}</p></div><Keypad value={earnValue} onChange={(next) => { setEarnValue(next); earnRequestId.current = createId("trust-earn"); }} /><button type="button" disabled={!valid} onClick={() => setEarnStage("review")} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:bg-[#27283a] disabled:text-white/22">Review allocation</button></div>;
     }
 
+    if (earnStage === "list") {
+      const popularMarkets = earnMarkets.flatMap((market) => {
+        const token = tokens.find((candidate) => candidate.symbol === market.symbol);
+        return token ? [{ ...market, token }] : [];
+      });
+      const selectedMarket = popularMarkets.find((market) => market.id === earnMarketId) ?? popularMarkets[0];
+
+      return (
+        <div data-testid="trust-earn" className="pb-8">
+          <h1 className="sr-only">Earn</h1>
+          <section data-testid="trust-earn-hero" className="pt-7">
+            <div className="flex min-h-[7.25rem] items-center justify-between gap-3">
+              <h2 data-testid="trust-earn-title" className="max-w-[15rem] text-[28px]/[34px] font-black tracking-[-.035em]">Deposit assets and open your first position.</h2>
+              <TrustInfinityMark className="h-[4.5rem] w-[7rem] shrink-0" />
+            </div>
+            <button type="button" data-testid="trust-earn-deposit" onClick={() => runtime.openReceive()} className="mt-6 min-h-14 w-full rounded-full bg-[#4437ff] text-[19px]/[24px] font-extrabold shadow-[0_12px_30px_rgba(68,55,255,.22)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Deposit</button>
+          </section>
+
+          <section data-testid="trust-earn-popular" className="mt-14">
+            <button type="button" aria-label="View all perpetual markets" onClick={() => { setPerpetualOrderOrigin("perpetuals"); setPerpetualStage("list"); open("perpetuals"); }} className="flex min-h-11 items-center gap-1 text-[22px]/[28px] font-extrabold focus-visible:outline-2 focus-visible:outline-[#8179ff]">Popular <ChevronRight aria-hidden="true" className="size-5" /></button>
+            <div className="mt-2">
+              {popularMarkets.map((market) => {
+                const selectedMarketRow = selectedMarket?.id === market.id;
+                return (
+                  <button
+                    key={market.id}
+                    type="button"
+                    data-testid={`trust-earn-market-${market.id}`}
+                    data-symbol={market.symbol}
+                    data-leverage={market.leverage}
+                    data-price={market.token.price}
+                    data-volume={market.token.volume24h ?? 0}
+                    aria-label={`Select ${market.symbol} ${market.leverage}x market`}
+                    aria-pressed={selectedMarketRow}
+                    onClick={() => setEarnMarketId(market.id)}
+                    className="flex min-h-[4.25rem] w-full items-center gap-3 bg-transparent text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"
+                  >
+                    <TokenIcon token={market.token} size={42} />
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-[18px]/[23px] font-extrabold">{market.symbol} <span className="ml-1 text-[13px]/[18px] font-bold text-white/38">{market.leverage}x</span></strong>
+                      <span className="block truncate text-[14px]/[18px] font-semibold text-white/42">{market.token.volume24h ? `${compact(market.token.volume24h)} Vol.` : "— Vol."}</span>
+                    </span>
+                    <span data-testid={`trust-earn-sparkline-${market.id}`} className="hidden w-[4.25rem] shrink-0 min-[360px]:block"><MarketSparkline token={market.token} change={market.token.change24h} /></span>
+                    <span className="max-w-[30%] shrink-0 text-right">
+                      <strong className="block truncate text-[18px]/[23px] font-extrabold">{marketPrice(market.token.price, profile.currency)}</strong>
+                      <span className={`block text-[14px]/[18px] font-bold ${market.token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{market.token.change24h >= 0 ? "+" : ""}{market.token.change24h.toFixed(2)}%</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <div data-testid="trust-earn-yield" className="mt-20 pt-8">
+            {earnPositions.length ? <section><h2 className="text-xl font-black">Your positions</h2><div className="mt-3 space-y-3">{earnPositions.map((position) => { const token = tokens.find((item) => item.symbol === position.symbol); return <div key={position.id} className="flex min-h-[5.5rem] items-center gap-3 rounded-[1.3rem] border border-[#4437ff]/20 bg-[#191a28] p-4">{token ? <TokenIcon token={token} /> : null}<span className="min-w-0 flex-1"><strong className="block truncate">{amount(position.amount)} {position.symbol}</strong><span className="text-sm text-[#3ed474]">{position.apy.toFixed(2)}% APY · Active</span></span><button type="button" onClick={() => reviewEarnRedemption(position)} className="min-h-11 shrink-0 rounded-full bg-white/[.07] px-3 text-sm font-extrabold">Redeem</button></div>; })}</div></section> : null}
+            <section className={earnPositions.length ? "mt-8" : ""}><h2 className="text-xl font-black">Yield opportunities</h2><div className="mt-3 space-y-3">{earnOffers.map((offer) => { const token = tokens.find((item) => item.symbol === offer.symbol); return <button key={offer.symbol} type="button" aria-label={`Allocate ${offer.symbol} to Earn`} onClick={() => openEarnOffer(offer.symbol)} className="flex min-h-[5.4rem] w-full items-center gap-3 rounded-[1.3rem] bg-[#191a28] p-4 text-left focus-visible:outline-2 focus-visible:outline-[#665cff]">{token ? <TokenIcon token={token} /> : <span className="grid size-11 place-items-center rounded-full bg-[#303144]">{offer.symbol[0]}</span>}<span className="min-w-0 flex-1"><strong className="block text-lg">{offer.apy.toFixed(2)}% APY</strong><span className="text-sm text-white/40">{offer.network} · Available {amount(token?.balance ?? 0)}</span></span><span className="rounded-full bg-white/[.06] px-3 py-2 text-xs font-extrabold text-white/55">Start</span></button>; })}</div></section>
+          </div>
+        </div>
+      );
+    }
+
     return <div data-testid="trust-earn" className="pb-8"><Header title="Earn" onBack={back} /><div className="mt-6 rounded-[1.4rem] bg-[linear-gradient(135deg,#252342,#171825)] p-6"><Sparkles className="size-7 text-[#8179ff]" /><h2 className="mt-4 text-2xl font-black">Put your assets to work</h2><p className="mt-2 text-sm leading-6 text-white/45">Allocate assets to tracked positions and earn yield on your holdings.</p></div>{earnPositions.length ? <section className="mt-7"><h2 className="text-xl font-black">Your positions</h2><div className="mt-3 space-y-3">{earnPositions.map((position) => { const token = tokens.find((item) => item.symbol === position.symbol); return <div key={position.id} className="flex min-h-[5.5rem] items-center gap-3 rounded-[1.3rem] border border-[#4437ff]/20 bg-[#191a28] p-4">{token ? <TokenIcon token={token} /> : null}<span className="min-w-0 flex-1"><strong className="block truncate">{amount(position.amount)} {position.symbol}</strong><span className="text-sm text-[#3ed474]">{position.apy.toFixed(2)}% APY · Active</span></span><button type="button" onClick={() => reviewEarnRedemption(position)} className="min-h-11 shrink-0 rounded-full bg-white/[.07] px-3 text-sm font-extrabold">Redeem</button></div>; })}</div></section> : null}<section className="mt-7"><h2 className="text-xl font-black">Opportunities</h2><div className="mt-3 space-y-3">{earnOffers.map((offer) => { const token = tokens.find((item) => item.symbol === offer.symbol); return <button key={offer.symbol} type="button" aria-label={`Allocate ${offer.symbol} to Earn`} onClick={() => openEarnOffer(offer.symbol)} className="flex min-h-[5.4rem] w-full items-center gap-3 rounded-[1.3rem] bg-[#191a28] p-4 text-left focus-visible:outline-2 focus-visible:outline-[#665cff]">{token ? <TokenIcon token={token} /> : <span className="grid size-11 place-items-center rounded-full bg-[#303144]">{offer.symbol[0]}</span>}<span className="min-w-0 flex-1"><strong className="block text-lg">{offer.apy.toFixed(2)}% APY</strong><span className="text-sm text-white/40">{offer.network} · Available {amount(token?.balance ?? 0)}</span></span><span className="rounded-full bg-white/[.06] px-3 py-2 text-xs font-extrabold text-white/55">Start</span></button>; })}</div></section></div>;
   }
 
@@ -1011,34 +1471,98 @@ export function TrustWallet() {
   }
 
   function renderDiscover() {
-    const cards: { title: string; body: string; icon: LucideIcon; action: () => void }[] = [
+    const needle = discoverQuery.trim().toLowerCase();
+    const filteredDapps = discoverDapps.filter((dapp) => {
+      if (needle) return `${dapp.name} ${dapp.description} ${dapp.categories.join(" ")}`.toLowerCase().includes(needle);
+      return discoverCategory === "featured" || dapp.categories.includes(discoverCategory);
+    });
+    const tools: { title: string; body: string; icon: LucideIcon; action: () => void }[] = [
       { title: "Wallet security", body: "Review access and device protection.", icon: ShieldCheck, action: runtime.openSecurity },
       { title: "Explore markets", body: "Browse live token prices.", icon: Globe2, action: () => open("market") },
       { title: "Practice perpetuals", body: "View internal simulations.", icon: InfinityIcon, action: () => open("perpetuals") },
       { title: "Wallet settings", body: "Choose currency and preferences.", icon: Settings2, action: () => open("settings") },
     ];
-    return <div className="pb-8"><Header title="Discover" onBack={back} /><div className="mt-6 grid grid-cols-2 gap-3">{cards.map(({ title, body, icon: Icon, action }) => <button key={title} type="button" onClick={action} className="min-h-[10rem] rounded-[1.35rem] bg-[#191a28] p-5 text-left"><Icon className="size-7 text-[#8179ff]" /><strong className="mt-5 block text-lg">{title}</strong><span className="mt-2 block text-sm leading-5 text-white/40">{body}</span></button>)}</div></div>;
+    return (
+      <div data-testid="trust-discover" className="pb-4">
+        <h1 className="sr-only">Discover</h1>
+        <form data-testid="trust-discover-search" onSubmit={submitDiscoverSearch} className="flex h-12 items-center rounded-full bg-[#171824] px-3 text-white/45 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[#8179ff]">
+          <button type="submit" aria-label="Search dApps and web addresses" className="grid size-10 shrink-0 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Search aria-hidden="true" className="size-5 stroke-[2.5]" /></button>
+          <input
+            aria-label="Search dApps"
+            value={discoverQuery}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDiscoverQuery(next);
+              if (next.trim()) setDiscoverCategory("featured");
+            }}
+            placeholder="Search for a dApp URL or enter one"
+            autoCapitalize="none"
+            autoCorrect="off"
+            inputMode="url"
+            className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/24"
+          />
+          {discoverQuery ? <button type="button" aria-label="Clear dApp search" onClick={() => { setDiscoverQuery(""); setDiscoverCategory("featured"); }} className="grid size-10 shrink-0 place-items-center rounded-full text-white/55 focus-visible:outline-2 focus-visible:outline-[#8179ff]"><X aria-hidden="true" className="size-5" /></button> : null}
+        </form>
+
+        <button type="button" data-testid="trust-discover-banner" onClick={() => openDiscoverDapp(discoverCampaign)} className="mt-4 flex h-32 w-full items-center overflow-hidden rounded-[1.35rem] bg-[#171824] pl-5 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,.015)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8179ff]">
+          <strong className="min-w-0 flex-1 text-[20px]/[23px] font-black tracking-[-.025em] text-[#2bea7b]">Claim bStocks<br />campaign rewards<br />now</strong>
+          <span className="-mr-1 flex w-[7.5rem] shrink-0 items-center justify-center"><DiscoverCampaignArt /></span>
+          <ChevronRight aria-hidden="true" className="mr-3 size-6 shrink-0 text-white/70" />
+        </button>
+
+        <section className="mt-5" aria-labelledby="trust-discover-explore-heading">
+          <h2 id="trust-discover-explore-heading" className="flex items-center text-[21px]/[28px] font-extrabold tracking-[-.02em]">Explore dApps <ChevronRight aria-hidden="true" className="ml-1 size-5 text-white/55" /></h2>
+          <div data-testid="trust-discover-categories" aria-label="dApp categories" className="mt-3.5 flex h-10 w-full gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {discoverCategories.map((category) => <button key={category.id} type="button" data-testid={`trust-discover-category-${category.id}`} aria-pressed={discoverCategory === category.id && !needle} onClick={() => { setDiscoverCategory(category.id); setDiscoverQuery(""); }} className={`h-10 shrink-0 rounded-full px-2 text-[15px]/[20px] font-extrabold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8179ff] ${discoverCategory === category.id && !needle ? "bg-[#303144] text-white" : "bg-[#171824] text-white/48"}`}>{category.label}</button>)}
+            <span aria-hidden="true" className="w-3 shrink-0" />
+          </div>
+          <div data-testid="trust-discover-list" className="mt-2.5">
+            {filteredDapps.map((dapp) => (
+              <button key={dapp.id} type="button" data-testid={`trust-discover-row-${dapp.id}`} onClick={() => openDiscoverDapp(dapp)} className="flex h-[4.25rem] w-full items-center gap-3 text-left focus-visible:rounded-xl focus-visible:outline-2 focus-visible:outline-[#8179ff]">
+                <DiscoverDappIcon id={dapp.id} />
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate text-[18px]/[23px] font-extrabold tracking-[-.01em]">{dapp.name}</strong>
+                  <span className="mt-0.5 block truncate text-[14px]/[19px] font-semibold text-white/42">{dapp.description}</span>
+                </span>
+              </button>
+            ))}
+            {!filteredDapps.length ? <div role="status" className="flex h-[8.5rem] items-center justify-center rounded-[1.2rem] bg-[#171824] px-5 text-center text-sm font-bold text-white/42">No dApps found. Try another name or enter a web address.</div> : null}
+          </div>
+        </section>
+
+        <section className="mt-52 pb-3" aria-labelledby="trust-discover-tools-heading">
+          <h2 id="trust-discover-tools-heading" className="text-xl font-extrabold">Wallet tools</h2>
+          <div className="mt-3 space-y-2">
+            {tools.map(({ title, body, icon: Icon, action }) => <button key={title} type="button" onClick={action} className="flex min-h-[4.75rem] w-full scroll-mb-[7rem] items-center gap-3 rounded-[1.2rem] bg-[#191a28] px-4 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#303144] text-[#8179ff]"><Icon aria-hidden="true" className="size-5" /></span><span className="min-w-0"><strong className="block text-base">{title}</strong><span className="mt-0.5 block truncate text-sm text-white/42">{body}</span></span><ChevronRight aria-hidden="true" className="ml-auto size-5 shrink-0 text-white/35" /></button>)}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  function renderDapp() {
+    const dapp = activeDiscoverDapp ?? discoverDapps[0];
+    return (
+      <div data-testid="trust-dapp-view" className="pb-8">
+        <Header title={dapp.name} onBack={back} />
+        <section className="mt-7 rounded-[1.6rem] bg-[#191a28] p-6 text-center">
+          <span className="mx-auto block w-fit"><DiscoverDappIcon id={dapp.id} size={72} /></span>
+          <p className="mt-5 text-[28px]/[34px] font-black tracking-[-.035em]">{dapp.name}</p>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-white/48">{dapp.description}</p>
+          <div className="mt-6 flex min-h-14 items-center gap-2 rounded-[1rem] bg-[#10101b] px-4 text-left">
+            <Globe2 aria-hidden="true" className="size-5 shrink-0 text-[#8179ff]" />
+            <span className="min-w-0 flex-1 truncate text-sm font-bold text-white/62">{dapp.url}</span>
+            <button type="button" aria-label="Copy dApp address" onClick={() => void copyDiscoverUrl()} className="grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-[#8179ff]"><Copy aria-hidden="true" className="size-5" /></button>
+          </div>
+          <a href={dapp.url} target="_blank" rel="noopener noreferrer" className="mt-5 flex min-h-14 w-full items-center justify-center rounded-full bg-[#4437ff] text-lg font-extrabold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Open website <ArrowRight aria-hidden="true" className="ml-2 size-5" /></a>
+        </section>
+        <p className="mt-4 rounded-[1.2rem] border border-white/[.07] bg-[#171824] px-4 py-3 text-xs leading-5 text-white/42">Review the web address before continuing. This wallet never asks you to enter a recovery phrase in a dApp.</p>
+      </div>
+    );
   }
 
   function renderSearch() {
-    const normalizedQuery = query.trim().toLowerCase();
-    const filtered = normalizedQuery ? tokens.filter((token) => `${token.name} ${token.symbol}`.toLowerCase().includes(normalizedQuery)) : [];
-    const features: { label: string; description: string; keywords: string; icon: LucideIcon; action: () => void }[] = [
-      { label: "Buy and sell", description: "Add or sell internal assets", keywords: "purchase card apple pay", icon: CreditCard, action: () => open("buy") },
-      { label: "Swap", description: "Exchange tokens", keywords: "trade convert", icon: RefreshCw, action: () => openSwapFor(tokens[0]?.symbol ?? "SOL") },
-      { label: "Send", description: "Transfer to another account", keywords: "transfer address", icon: ArrowUp, action: () => runtime.openTransfer() },
-      { label: "Receive", description: "Show an account QR code", keywords: "deposit qr address", icon: ArrowDown, action: () => runtime.openReceive() },
-      { label: "Scan QR", description: "Open the rear-camera scanner", keywords: "camera send", icon: QrCode, action: runtime.openScanner },
-      { label: "Earn", description: "Manage internal Earn positions", keywords: "apy stake rewards", icon: Sparkles, action: () => { setEarnStage("list"); open("earn"); } },
-      { label: "Perpetuals", description: "Open practice positions", keywords: "leverage futures markets", icon: InfinityIcon, action: () => { setPerpetualStage("list"); open("perpetuals"); } },
-      { label: "Watchlist", description: "Manage followed assets", keywords: "favorites stars", icon: Star, action: () => open("watchlist") },
-      { label: "Transaction history", description: "Review shared transfers", keywords: "activity payments", icon: History, action: runtime.openHistory },
-      { label: "Accounts", description: "Choose a wallet account", keywords: "wallet selector", icon: WalletCards, action: runtime.openAccounts },
-      { label: "Settings", description: "Currency and preferences", keywords: "profile security", icon: Settings2, action: () => open("settings") },
-      { label: "Larpz Wallet AI", description: "Ask about this portfolio", keywords: "assistant help", icon: Sparkles, action: () => open("ai") },
-    ];
-    const matchingFeatures = normalizedQuery ? features.filter((feature) => `${feature.label} ${feature.description} ${feature.keywords}`.toLowerCase().includes(normalizedQuery)) : features.slice(0, 6);
-    return <div data-testid="trust-search" className="pb-8"><Header title="Search" onBack={back} /><label className="mt-5 flex min-h-14 items-center gap-3 rounded-[1.2rem] bg-[#191a28] px-4"><Search className="size-5 text-white/42" /><input autoFocus aria-label="Search wallet" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tokens and features" className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-white/28" /></label>{matchingFeatures.length ? <section className="mt-6"><h2 className="text-sm font-extrabold uppercase tracking-[.12em] text-white/35">Features</h2><div className="mt-3 grid grid-cols-2 gap-3">{matchingFeatures.map(({ label, description, icon: Icon, action }) => <button key={label} type="button" onClick={action} className="min-h-28 min-w-0 rounded-[1.2rem] bg-[#191a28] p-4 text-left focus-visible:outline-2 focus-visible:outline-[#665cff]"><Icon className="size-6 text-[#8179ff]" /><strong className="mt-3 block truncate">{label}</strong><span className="mt-1 block text-xs leading-5 text-white/38">{description}</span></button>)}</div></section> : null}{filtered.length ? <section className="mt-7"><h2 className="text-sm font-extrabold uppercase tracking-[.12em] text-white/35">Tokens</h2><div className="mt-2">{filtered.map((token) => <TokenRow key={token.id} token={token} currency={profile.currency} onClick={() => selectToken(token)} />)}</div></section> : null}{normalizedQuery && !filtered.length && !matchingFeatures.length ? <p className="py-16 text-center text-white/40">No results found.</p> : null}</div>;
+    return renderSearchSurface("wallet");
   }
 
   function renderSettings() {
@@ -1095,7 +1619,9 @@ export function TrustWallet() {
   else if (screen === "buy") content = renderBuy();
   else if (screen === "swap") content = renderSwap();
   else if (screen === "tokens") content = renderTokenList();
-  else if (screen === "market") content = renderTokenList("Market");
+  else if (screen === "market") content = renderMarket();
+  else if (screen === "market-search") content = renderMarketSearch();
+  else if (screen === "predictions") content = renderPredictions();
   else if (screen === "token") content = renderToken();
   else if (screen === "asset-receive") content = renderAssetReceive();
   else if (screen === "earn") content = renderEarn();
@@ -1103,11 +1629,13 @@ export function TrustWallet() {
   else if (screen === "watchlist") content = renderWatchlist();
   else if (screen === "ai") content = renderAi();
   else if (screen === "discover") content = renderDiscover();
+  else if (screen === "dapp") content = renderDapp();
   else if (screen === "search") content = renderSearch();
   else if (screen === "settings") content = renderSettings();
   else content = renderHome();
 
-  const showBottomNav = ["home", "market", "discover", "search"].includes(screen) || (screen === "earn" && earnStage === "list");
+  const showBottomNav = ["home", "market", "discover"].includes(screen) || (screen === "earn" && earnStage === "list");
+  const activeEarnMarket = earnMarkets.find((market) => market.id === earnMarketId) ?? earnMarkets[0];
 
   return (
     <main data-testid="trust-wallet" data-trust-color-scheme={profile.colorScheme} className="min-h-[100dvh] overflow-hidden bg-[#070811] text-white [font-family:-apple-system,BlinkMacSystemFont,'SF_Pro_Display','Inter',sans-serif]">
@@ -1115,7 +1643,7 @@ export function TrustWallet() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(68,55,255,.09),transparent_34%)]" />
         <div
           ref={scroll}
-          className={`relative h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pt-[max(1rem,env(safe-area-inset-top))] ${showBottomNav ? "pb-[calc(7.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(2rem+env(safe-area-inset-bottom))]"}`}
+          className={`relative h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pt-[max(1rem,env(safe-area-inset-top))] ${screen === "market" ? "pb-[calc(11rem+env(safe-area-inset-bottom))]" : screen === "earn" && earnStage === "list" ? "pb-[calc(12.5rem+env(safe-area-inset-bottom))]" : showBottomNav ? "pb-[calc(7.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(2rem+env(safe-area-inset-bottom))]"}`}
           onFocusCapture={(event) => {
             const target = event.target;
             if (target instanceof HTMLInputElement && ["Fiat amount", "Swap amount"].includes(target.getAttribute("aria-label") ?? "") && window.matchMedia("(pointer: coarse)").matches) target.blur();
@@ -1135,6 +1663,8 @@ export function TrustWallet() {
           {pull > 0 && !refreshing ? <div className="flex items-center justify-center text-xs font-bold text-white/45" style={{ height: pull }}><ArrowDown className="mr-2 size-4" />{pull > 68 ? "Release to refresh" : "Pull to refresh"}</div> : null}
           {content}
         </div>
+        {screen === "market" ? <button type="button" data-testid="trust-market-swap" onClick={() => openSwapFor(tokens.find((token) => token.balance > 0 && token.price > 0)?.symbol ?? tokens.find((token) => token.price > 0)?.symbol ?? "SOL")} className="absolute inset-x-4 z-40 flex h-[3.25rem] items-center justify-center rounded-full bg-[#4437ff] text-[20px]/[24px] font-extrabold shadow-[0_10px_30px_rgba(0,0,0,.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" style={{ bottom: "calc(max(.75rem, env(safe-area-inset-bottom)) + 4.875rem)" }}>Swap</button> : null}
+        {screen === "earn" && earnStage === "list" && activeEarnMarket ? <div data-testid="trust-earn-actions" className="absolute inset-x-4 z-40 grid h-14 grid-cols-2 gap-3" style={{ bottom: "calc(max(.75rem, env(safe-area-inset-bottom)) + 4.875rem)" }}><button type="button" data-testid="trust-earn-long" aria-label={`Open long ${activeEarnMarket.symbol} ${activeEarnMarket.leverage}x position`} onClick={() => openPerpetualMarket(activeEarnMarket.symbol, "long", activeEarnMarket.leverage)} className="rounded-full bg-[#2bb16b] text-[20px]/[24px] font-extrabold shadow-[0_10px_28px_rgba(0,0,0,.3)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Long ↗</button><button type="button" data-testid="trust-earn-short" aria-label={`Open short ${activeEarnMarket.symbol} ${activeEarnMarket.leverage}x position`} onClick={() => openPerpetualMarket(activeEarnMarket.symbol, "short", activeEarnMarket.leverage)} className="rounded-full bg-[#ef4444] text-[20px]/[24px] font-extrabold shadow-[0_10px_28px_rgba(0,0,0,.3)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Short ↘</button></div> : null}
         {showBottomNav ? <BottomNav active={screen} onOpen={open} /> : null}
         {picker ? <TokenPicker tokens={tokens} onChoose={chooseToken} onClose={() => setPicker(null)} /> : null}
         {notice ? <div role="status" className="absolute inset-x-5 top-[max(1rem,env(safe-area-inset-top))] z-[80] rounded-2xl border border-white/10 bg-[#242535]/95 px-4 py-3 text-center text-sm font-bold shadow-2xl backdrop-blur-xl">{notice}</div> : null}

@@ -780,6 +780,69 @@ await trustBottomNav.waitFor();
 for (const tab of ["Home", "Market", "Earn", "Discover", "Search"]) {
   await trustBottomNav.getByRole("button", { name: tab, exact: true }).waitFor();
 }
+const trustNavGeometry = await trustBottomNav.evaluate((nav) => {
+  const rail = nav.querySelector('[data-testid="trust-nav-rail"]');
+  const search = nav.querySelector('[data-testid="trust-nav-search"]');
+  if (!(rail instanceof HTMLElement) || !(search instanceof HTMLButtonElement)) throw new Error("Trust navigation rail or Search control is missing.");
+  const navRect = nav.getBoundingClientRect();
+  const railRect = rail.getBoundingClientRect();
+  const searchRect = search.getBoundingClientRect();
+  const tabs = [...rail.querySelectorAll(":scope > button")];
+  return {
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    nav: { left: navRect.left, right: navRect.right, bottom: navRect.bottom, height: navRect.height },
+    rail: { left: railRect.left, right: railRect.right, top: railRect.top, bottom: railRect.bottom, width: railRect.width, height: railRect.height, radius: Number.parseFloat(getComputedStyle(rail).borderRadius), background: getComputedStyle(rail).backgroundColor },
+    search: { left: searchRect.left, right: searchRect.right, top: searchRect.top, bottom: searchRect.bottom, width: searchRect.width, height: searchRect.height, radius: Number.parseFloat(getComputedStyle(search).borderRadius), background: getComputedStyle(search).backgroundColor, directChild: search.parentElement === nav },
+    tabs: tabs.map((button) => {
+      if (!(button instanceof HTMLButtonElement)) throw new Error("Trust navigation contains a non-button tab.");
+      const rect = button.getBoundingClientRect();
+      const icon = button.querySelector("svg");
+      if (!(icon instanceof SVGElement)) throw new Error(`Trust ${button.getAttribute("aria-label")} tab has no icon.`);
+      const iconRect = icon.getBoundingClientRect();
+      return {
+        name: button.getAttribute("aria-label"),
+        current: button.getAttribute("aria-current"),
+        visibleText: button.textContent?.trim() ?? "",
+        width: rect.width,
+        height: rect.height,
+        radius: Number.parseFloat(getComputedStyle(button).borderRadius),
+        background: getComputedStyle(button).backgroundColor,
+        iconWidth: iconRect.width,
+        iconHeight: iconRect.height,
+        iconCenterDelta: Math.max(
+          Math.abs((iconRect.left + iconRect.width / 2) - (rect.left + rect.width / 2)),
+          Math.abs((iconRect.top + iconRect.height / 2) - (rect.top + rect.height / 2)),
+        ),
+      };
+    }),
+  };
+});
+const trustNavNames = trustNavGeometry.tabs.map(({ name }) => name).join(",");
+const trustNavWidths = trustNavGeometry.tabs.map(({ width }) => width);
+const trustNavActive = trustNavGeometry.tabs.filter(({ current }) => current === "page");
+const trustNavInactiveBackground = trustNavGeometry.tabs.find(({ current }) => current !== "page")?.background;
+const trustNavMismatch = Math.abs(trustNavGeometry.nav.left - 16) > 0.5
+  || Math.abs(trustNavGeometry.viewport.width - trustNavGeometry.nav.right - 16) > 0.5
+  || Math.abs(trustNavGeometry.viewport.height - trustNavGeometry.nav.bottom - 12) > 0.5
+  || Math.abs(trustNavGeometry.nav.height - 68) > 0.5
+  || Math.abs(trustNavGeometry.rail.width - 288) > 0.5
+  || Math.abs(trustNavGeometry.rail.height - 68) > 0.5
+  || Math.abs(trustNavGeometry.search.width - 60) > 0.5
+  || Math.abs(trustNavGeometry.search.height - 68) > 0.5
+  || Math.abs(trustNavGeometry.search.left - trustNavGeometry.rail.right - 10) > 0.5
+  || Math.abs(trustNavGeometry.search.top - trustNavGeometry.rail.top) > 0.5
+  || Math.abs(trustNavGeometry.search.bottom - trustNavGeometry.rail.bottom) > 0.5
+  || !trustNavGeometry.search.directChild
+  || trustNavGeometry.rail.radius < 27
+  || trustNavGeometry.search.radius < 26
+  || trustNavNames !== "Home,Market,Earn,Discover"
+  || Math.max(...trustNavWidths) - Math.min(...trustNavWidths) > 0.5
+  || trustNavGeometry.tabs.some((tab) => tab.visibleText || tab.width < 44 || tab.height < 44 || tab.radius < 22 || tab.iconWidth < 27 || tab.iconWidth > 29 || tab.iconHeight < 27 || tab.iconHeight > 29 || tab.iconCenterDelta > 0.5)
+  || trustNavActive.length !== 1
+  || trustNavActive[0]?.name !== "Home"
+  || trustNavActive[0]?.background === trustNavInactiveBackground
+  || trustNavGeometry.rail.background !== trustNavGeometry.search.background;
+if (trustNavMismatch) throw new Error(`Trust bottom navigation does not match the icon-only reference: ${JSON.stringify(trustNavGeometry)}`);
 for (const action of ["Send", "Receive", "Swap", "Buy"]) {
   await page.locator('[data-testid="trust-home"]').getByRole("button", { name: action, exact: true }).waitFor();
 }
@@ -855,6 +918,7 @@ for (const action of trustActionLayout) {
 if (trustScreenshotDir) {
   await page.locator('[data-testid="trust-home"]').evaluate((home) => { if (home.parentElement) home.parentElement.scrollTop = 0; });
   await page.screenshot({ path: `${trustScreenshotDir}/trust-home.png` });
+  await trustBottomNav.screenshot({ path: `${trustScreenshotDir}/trust-bottom-nav.png` });
 }
 const originalTrustBalance = await page.locator('[data-testid="trust-portfolio-balance"]').textContent();
 await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((element) => { element.textContent = "$98,765,432,109,876.54"; });
@@ -876,6 +940,270 @@ if (process.env.WALLET_TEST_SCOPE === "trust-typography") {
   process.exit(0);
 }
 
+if (process.env.WALLET_TEST_SCOPE === "trust-earn") {
+  await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
+  const focusedTrustEarn = page.locator('[data-testid="trust-earn"]');
+  await focusedTrustEarn.getByRole("heading", { name: "Earn", exact: true }).waitFor();
+  await focusedTrustEarn.getByRole("heading", { name: "Deposit assets and open your first position.", exact: true }).waitFor();
+  if (await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).getAttribute("aria-current") !== "page") {
+    throw new Error("Trust Earn did not activate the infinity navigation tab.");
+  }
+  const focusedEarnText = await focusedTrustEarn.innerText();
+  if (/20% Batterie|Stromsparmodus|Zahle|Einzahlung|Beliebt/i.test(focusedEarnText)) {
+    throw new Error("Trust Earn contains source-language or iPhone notification text.");
+  }
+  const focusedEarnRows = focusedTrustEarn.locator('[data-testid="trust-earn-popular"] [data-testid^="trust-earn-market-"]');
+  if (await focusedEarnRows.count() !== 5) throw new Error("Trust Earn should show five live popular markets.");
+  if (!(await focusedEarnRows.evaluateAll((rows) => rows.every((row) => Number(row.getAttribute("data-price")) > 0 && Number.isFinite(Number(row.getAttribute("data-volume"))))))) {
+    throw new Error("Trust Earn popular markets are not backed by valid live market values.");
+  }
+  await page.evaluate(() => document.fonts.ready);
+  const focusedEarnGeometry = await page.evaluate(() => {
+    const requireElement = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Trust Earn is missing ${selector}.`);
+      return element;
+    };
+    const rect = (element) => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+    };
+    const root = requireElement('[data-testid="trust-earn"]');
+    const hero = requireElement('[data-testid="trust-earn-hero"]');
+    const title = requireElement('[data-testid="trust-earn-title"]');
+    const mark = hero.querySelector("svg");
+    const deposit = requireElement('[data-testid="trust-earn-deposit"]');
+    const popular = requireElement('[data-testid="trust-earn-popular"]');
+    const rows = [...popular.querySelectorAll('[data-testid^="trust-earn-market-"]')];
+    const firstIcon = rows[0]?.querySelector(':scope > span:first-of-type');
+    const actions = requireElement('[data-testid="trust-earn-actions"]');
+    const long = requireElement('[data-testid="trust-earn-long"]');
+    const short = requireElement('[data-testid="trust-earn-short"]');
+    const nav = requireElement('[data-testid="trust-bottom-nav"]');
+    if (!(mark instanceof SVGElement) || !(firstIcon instanceof HTMLElement)) throw new Error("Trust Earn hero or market icon is incomplete.");
+    return {
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      root: rect(root),
+      title: { ...rect(title), fontSize: Number.parseFloat(getComputedStyle(title).fontSize), lineHeight: Number.parseFloat(getComputedStyle(title).lineHeight) },
+      mark: rect(mark),
+      deposit: { ...rect(deposit), radius: Number.parseFloat(getComputedStyle(deposit).borderRadius) },
+      rows: rows.map((row) => rect(row)),
+      firstIcon: rect(firstIcon),
+      sparklines: rows.filter((row) => Boolean(row.querySelector("svg"))).length,
+      actions: rect(actions),
+      long: rect(long),
+      short: rect(short),
+      nav: rect(nav),
+    };
+  });
+  const focusedEarnLayoutMismatch = focusedEarnGeometry.viewportWidth !== 390
+    || focusedEarnGeometry.documentWidth > focusedEarnGeometry.viewportWidth
+    || Math.abs(focusedEarnGeometry.root.left - 16) > 0.5
+    || Math.abs(focusedEarnGeometry.viewportWidth - focusedEarnGeometry.root.right - 16) > 0.5
+    || focusedEarnGeometry.title.fontSize < 26 || focusedEarnGeometry.title.fontSize > 30
+    || focusedEarnGeometry.title.lineHeight < 32 || focusedEarnGeometry.title.lineHeight > 36
+    || focusedEarnGeometry.mark.width < 100 || focusedEarnGeometry.mark.width > 114
+    || focusedEarnGeometry.mark.height < 64 || focusedEarnGeometry.mark.height > 74
+    || Math.abs(focusedEarnGeometry.deposit.width - 358) > 0.5
+    || Math.abs(focusedEarnGeometry.deposit.height - 56) > 0.5
+    || focusedEarnGeometry.deposit.radius < 27
+    || focusedEarnGeometry.rows.length !== 5
+    || focusedEarnGeometry.rows.some(({ height }) => Math.abs(height - 68) > 0.5)
+    || Math.abs(focusedEarnGeometry.firstIcon.width - 42) > 0.5
+    || Math.abs(focusedEarnGeometry.firstIcon.height - 42) > 0.5
+    || focusedEarnGeometry.sparklines !== 5
+    || Math.abs(focusedEarnGeometry.actions.left - 16) > 0.5
+    || Math.abs(focusedEarnGeometry.viewportWidth - focusedEarnGeometry.actions.right - 16) > 0.5
+    || Math.abs(focusedEarnGeometry.actions.height - 56) > 0.5
+    || Math.abs(focusedEarnGeometry.long.width - focusedEarnGeometry.short.width) > 0.5
+    || Math.abs(focusedEarnGeometry.short.left - focusedEarnGeometry.long.right - 12) > 0.5
+    || Math.abs(focusedEarnGeometry.nav.top - focusedEarnGeometry.actions.bottom - 10) > 0.5;
+  if (focusedEarnLayoutMismatch) throw new Error(`Trust Earn does not match the mobile reference geometry: ${JSON.stringify(focusedEarnGeometry)}`);
+  if (trustScreenshotDir) await page.screenshot({ path: `${trustScreenshotDir}/trust-earn.png` });
+
+  await focusedTrustEarn.locator('[data-testid="trust-earn-deposit"]').click();
+  const focusedEarnReceive = page.locator("section[aria-label='Receive']");
+  await focusedEarnReceive.getByRole("heading", { name: "Receive", exact: true }).waitFor();
+  await focusedEarnReceive.getByRole("img", { name: "Wallet address QR code" }).waitFor();
+  await focusedEarnReceive.getByRole("button", { name: "Close", exact: true }).click();
+  await focusedEarnReceive.waitFor({ state: "hidden" });
+
+  const focusedSolMarket = focusedTrustEarn.locator('[data-testid="trust-earn-market-sol-25"]');
+  await focusedSolMarket.click();
+  if (await focusedSolMarket.getAttribute("aria-pressed") !== "true") throw new Error("Trust Earn did not select the SOL market.");
+  await page.locator('[data-testid="trust-earn-short"]').click();
+  const focusedEarnOrder = page.locator('[data-testid="trust-perpetual-order"]');
+  await focusedEarnOrder.getByRole("heading", { name: "SOL perpetual", exact: true }).waitFor();
+  await enterWalletKeypadAmount(focusedEarnOrder, "Perpetual collateral", "0.00001");
+  await focusedEarnOrder.getByRole("button", { name: "Review practice order", exact: true }).click();
+  const focusedEarnReview = page.locator('[data-testid="trust-perpetual-review"]');
+  await focusedEarnReview.getByText(/short SOL · 25x/i).waitFor();
+  await focusedEarnReview.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedEarnOrder.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedTrustEarn.getByRole("heading", { name: "Deposit assets and open your first position.", exact: true }).waitFor();
+  await page.locator('[data-testid="trust-earn-long"]').click();
+  await focusedEarnOrder.getByRole("heading", { name: "SOL perpetual", exact: true }).waitFor();
+  if (!((await focusedEarnOrder.getByRole("button", { name: "long", exact: true }).getAttribute("class")) ?? "").includes("bg-[#183927]")) {
+    throw new Error("Trust Earn Long action did not preselect the long side.");
+  }
+  await focusedEarnOrder.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedTrustEarn.getByRole("heading", { name: "Deposit assets and open your first position.", exact: true }).waitFor();
+  const focusedYieldOffer = focusedTrustEarn.getByRole("button", { name: "Allocate DOT to Earn", exact: true });
+  await focusedYieldOffer.evaluate((offer) => {
+    const scroller = offer.closest('[data-testid="trust-earn"]')?.parentElement;
+    if (!(scroller instanceof HTMLElement)) throw new Error("Trust Earn has no scroll container.");
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+  const focusedYieldClearance = await focusedYieldOffer.evaluate((offer) => {
+    const actions = document.querySelector('[data-testid="trust-earn-actions"]');
+    if (!(actions instanceof HTMLElement)) throw new Error("Trust Earn fixed actions are missing.");
+    return actions.getBoundingClientRect().top - offer.getBoundingClientRect().bottom;
+  });
+  if (focusedYieldClearance < 8) throw new Error(`Trust Earn below-fold tools are obscured by the fixed actions: ${focusedYieldClearance}px clearance.`);
+  await focusedYieldOffer.click();
+  await page.locator('[data-testid="trust-earn-amount"]').getByRole("heading", { name: "Earn DOT", exact: true }).waitFor();
+
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust Earn smoke test passed: reference layout, live markets, Deposit, selection, Long/Short routing, and navigation.");
+  process.exit(0);
+}
+
+if (process.env.WALLET_TEST_SCOPE === "trust-discover") {
+  await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
+  const focusedTrustDiscover = page.locator('[data-testid="trust-discover"]');
+  await focusedTrustDiscover.getByRole("heading", { name: "Discover", exact: true }).waitFor();
+  if (await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).getAttribute("aria-current") !== "page") {
+    throw new Error("Trust Discover did not activate the compass navigation tab.");
+  }
+  await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Discover");
+  const focusedDiscoverSearch = focusedTrustDiscover.getByLabel("Search dApps", { exact: true });
+  if (await focusedDiscoverSearch.getAttribute("placeholder") !== "Search for a dApp URL or enter one") {
+    throw new Error("Trust Discover does not use the English reference search placeholder.");
+  }
+  const focusedDiscoverText = await focusedTrustDiscover.innerText();
+  if (/20% Batterie|Stromsparmodus|Zum Aktivieren|Suche nach der dApp|gib sie ein|Entdecke dApps/i.test(focusedDiscoverText)) {
+    throw new Error("Trust Discover contains source-language or iPhone notification text.");
+  }
+  const focusedDiscoverRows = focusedTrustDiscover.locator('[data-testid="trust-discover-list"] > [data-testid^="trust-discover-row-"]');
+  if (await focusedDiscoverRows.count() !== 5) throw new Error("Trust Discover should show five featured dApps.");
+  for (const dapp of ["Lido", "Aave", "Uniswap", "PancakeSwap", "Pendle"]) {
+    await focusedTrustDiscover.getByText(dapp, { exact: true }).waitFor();
+  }
+
+  await page.evaluate(() => document.fonts.ready);
+  const focusedDiscoverGeometry = await page.evaluate(() => {
+    const requireElement = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Trust Discover is missing ${selector}.`);
+      return element;
+    };
+    const rect = (element) => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+    };
+    const root = requireElement('[data-testid="trust-discover"]');
+    const search = requireElement('[data-testid="trust-discover-search"]');
+    const input = root.querySelector('input[aria-label="Search dApps"]');
+    const banner = requireElement('[data-testid="trust-discover-banner"]');
+    const categories = requireElement('[data-testid="trust-discover-categories"]');
+    const list = requireElement('[data-testid="trust-discover-list"]');
+    const rows = [...list.querySelectorAll(':scope > [data-testid^="trust-discover-row-"]')];
+    const firstIcon = rows[0]?.firstElementChild;
+    const nav = requireElement('[data-testid="trust-bottom-nav"]');
+    if (!(input instanceof HTMLInputElement) || !(firstIcon instanceof HTMLElement)) throw new Error("Trust Discover search or dApp icon is incomplete.");
+    return {
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+      root: rect(root),
+      search: { ...rect(search), radius: Number.parseFloat(getComputedStyle(search).borderRadius) },
+      inputFontSize: Number.parseFloat(getComputedStyle(input).fontSize),
+      banner: { ...rect(banner), radius: Number.parseFloat(getComputedStyle(banner).borderRadius) },
+      categories: rect(categories),
+      categoriesScrollable: categories.scrollWidth > categories.clientWidth,
+      categoryCount: categories.querySelectorAll(':scope > button').length,
+      rows: rows.map((row) => rect(row)),
+      firstIcon: rect(firstIcon),
+      nav: rect(nav),
+    };
+  });
+  const focusedDiscoverLayoutMismatch = focusedDiscoverGeometry.viewportWidth !== 390
+    || focusedDiscoverGeometry.documentWidth > focusedDiscoverGeometry.viewportWidth
+    || focusedDiscoverGeometry.bodyWidth > focusedDiscoverGeometry.viewportWidth
+    || Math.abs(focusedDiscoverGeometry.root.left - 16) > 0.5
+    || Math.abs(focusedDiscoverGeometry.viewportWidth - focusedDiscoverGeometry.root.right - 16) > 0.5
+    || Math.abs(focusedDiscoverGeometry.search.width - 358) > 0.5
+    || Math.abs(focusedDiscoverGeometry.search.height - 48) > 0.5
+    || focusedDiscoverGeometry.search.radius < 20
+    || focusedDiscoverGeometry.inputFontSize < 16
+    || Math.abs(focusedDiscoverGeometry.banner.width - 358) > 0.5
+    || focusedDiscoverGeometry.banner.height < 104 || focusedDiscoverGeometry.banner.height > 160
+    || focusedDiscoverGeometry.banner.radius < 20
+    || focusedDiscoverGeometry.categoryCount !== 5
+    || !focusedDiscoverGeometry.categoriesScrollable
+    || focusedDiscoverGeometry.categories.height < 40
+    || focusedDiscoverGeometry.rows.length !== 5
+    || focusedDiscoverGeometry.rows.some(({ height }) => height < 64 || height > 76)
+    || focusedDiscoverGeometry.firstIcon.width < 40 || focusedDiscoverGeometry.firstIcon.width > 52
+    || focusedDiscoverGeometry.firstIcon.height < 40 || focusedDiscoverGeometry.firstIcon.height > 52
+    || focusedDiscoverGeometry.nav.top < 700;
+  if (focusedDiscoverLayoutMismatch) throw new Error(`Trust Discover does not match the mobile reference geometry: ${JSON.stringify(focusedDiscoverGeometry)}`);
+  if (trustScreenshotDir) await page.screenshot({ path: `${trustScreenshotDir}/trust-discover.png` });
+
+  await focusedTrustDiscover.locator('[data-testid="trust-discover-banner"]').click();
+  const focusedDappView = page.locator('[data-testid="trust-dapp-view"]');
+  await focusedDappView.waitFor();
+  await focusedDappView.getByText(/bStocks/i).first().waitFor();
+  await focusedDappView.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedTrustDiscover.waitFor();
+
+  await focusedTrustDiscover.locator('[data-testid="trust-discover-row-lido"]').click();
+  await focusedDappView.getByRole("heading", { name: "Lido", exact: true }).waitFor();
+  await focusedDappView.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedTrustDiscover.waitFor();
+
+  const focusedDexCategory = focusedTrustDiscover.locator('[data-testid="trust-discover-category-dex"]');
+  await focusedDexCategory.click();
+  if (await focusedDexCategory.getAttribute("aria-pressed") !== "true") throw new Error("Trust Discover did not activate the DEX category.");
+  const focusedDexRows = focusedTrustDiscover.locator('[data-testid="trust-discover-list"] > [data-testid^="trust-discover-row-"]');
+  if (await focusedDexRows.count() !== 2) throw new Error("Trust Discover DEX category should contain Uniswap and PancakeSwap.");
+  await focusedTrustDiscover.getByText("Uniswap", { exact: true }).waitFor();
+  await focusedTrustDiscover.getByText("PancakeSwap", { exact: true }).waitFor();
+
+  await focusedTrustDiscover.locator('[data-testid="trust-discover-category-featured"]').click();
+  await focusedDiscoverSearch.fill("Aave");
+  if (await focusedDiscoverRows.count() !== 1 || await focusedTrustDiscover.getByText("Aave", { exact: true }).count() !== 1) {
+    throw new Error("Trust Discover search did not filter the dApp list to Aave.");
+  }
+  await focusedDiscoverSearch.fill("not-a-real-dapp-xyz");
+  await focusedTrustDiscover.getByRole("status").filter({ hasText: /No dApps found/i }).waitFor();
+  await focusedDiscoverSearch.fill("");
+  if (await focusedDiscoverRows.count() !== 5) throw new Error("Trust Discover did not restore the featured dApp list after clearing search.");
+
+  const focusedWalletSettings = focusedTrustDiscover.getByRole("button").filter({ hasText: "Wallet settings" });
+  await focusedWalletSettings.scrollIntoViewIfNeeded();
+  const focusedSettingsClearance = await focusedWalletSettings.evaluate((button) => {
+    const nav = document.querySelector('[data-testid="trust-bottom-nav"]');
+    if (!(nav instanceof HTMLElement)) throw new Error("Trust Discover bottom navigation is missing.");
+    return nav.getBoundingClientRect().top - button.getBoundingClientRect().bottom;
+  });
+  if (focusedSettingsClearance < 8) throw new Error(`Trust Discover below-fold wallet tools are obscured by the bottom navigation: ${focusedSettingsClearance}px clearance.`);
+  await focusedWalletSettings.click();
+  await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Go back", exact: true }).click();
+  await focusedTrustDiscover.waitFor();
+
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust Discover smoke test passed: reference layout, English copy, dApp browsing, category/search filtering, wallet tools, and navigation.");
+  process.exit(0);
+}
+
+if (!["trust-market", "trust-earn", "trust-discover"].includes(process.env.WALLET_TEST_SCOPE ?? "")) {
 // Exercise the actual pull gesture, rather than only the refresh icon.
 await page.locator('[data-testid="trust-home"]').evaluate((home) => {
   const target = home.parentElement;
@@ -1022,12 +1350,225 @@ await page.getByRole("button", { name: "Open transaction history" }).click();
 const trustActivitySheet = page.locator("section[aria-label='Activity']");
 await trustActivitySheet.locator("article").filter({ hasText: "Sent SOL" }).filter({ hasText: "0.0001" }).first().waitFor();
 await trustActivitySheet.getByRole("button", { name: "Close", exact: true }).click();
+}
 
 await trustBottomNav.getByRole("button", { name: "Market", exact: true }).click();
-await page.getByRole("heading", { name: "Market", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Market");
-await page.getByLabel("Search tokens").fill("Bitcoin");
-await page.getByRole("button").filter({ hasText: "Bitcoin" }).first().click();
+const trustMarket = page.locator('[data-testid="trust-market"]');
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Markets");
+if (await trustBottomNav.getByRole("button", { name: "Market", exact: true }).getAttribute("aria-current") !== "page") {
+  throw new Error("Trust Markets did not activate the Market navigation tab.");
+}
+const trustMarketText = await trustMarket.innerText();
+if (/Meistgehandelt|Netzwerk|Volumen|Prognosen|Märkte/i.test(trustMarketText)) {
+  throw new Error("Trust Markets still contains German source-interface text.");
+}
+await page.evaluate(() => document.fonts.ready);
+const trustMarketGeometry = await page.evaluate(() => {
+  const requireElement = (selector) => {
+    const element = document.querySelector(selector);
+    if (!(element instanceof HTMLElement)) throw new Error(`Trust Markets is missing ${selector}.`);
+    return element;
+  };
+  const rect = (element) => {
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+  };
+  const market = requireElement('[data-testid="trust-market"]');
+  const header = requireElement('[data-testid="trust-market-header"]');
+  const title = header.querySelector("h1");
+  const search = requireElement('[data-testid="trust-market-search"]');
+  const shortcuts = requireElement('[data-testid="trust-market-shortcuts"]');
+  const cards = requireElement('[data-testid="trust-market-top-cards"]');
+  const categories = requireElement('[data-testid="trust-market-categories"]');
+  const filters = requireElement('[data-testid="trust-market-filters"]');
+  const list = requireElement('[data-testid="trust-market-list"]');
+  const swap = requireElement('[data-testid="trust-market-swap"]');
+  const nav = requireElement('[data-testid="trust-bottom-nav"]');
+  if (!(title instanceof HTMLElement)) throw new Error("Trust Markets title is missing.");
+  return {
+    viewportWidth: window.innerWidth,
+    market: rect(market),
+    title: rect(title),
+    search: rect(search),
+    shortcuts: [...shortcuts.children].map((element) => rect(element)),
+    cards: [...cards.children].map((element) => ({ ...rect(element), sparkline: Boolean(element.querySelector("svg")) })),
+    cardsScrollable: cards.scrollWidth > cards.clientWidth,
+    categoriesScrollable: categories.scrollWidth > categories.clientWidth,
+    filters: [...filters.children].map((element) => rect(element)),
+    rows: [...list.querySelectorAll(':scope > [data-testid^="trust-market-row-"]')].slice(0, 3).map((element) => rect(element)),
+    swap: rect(swap),
+    nav: rect(nav),
+  };
+});
+const shortcutWidths = trustMarketGeometry.shortcuts.map(({ width }) => width);
+const trustMarketLayoutMismatch = Math.abs(trustMarketGeometry.market.left - 16) > 0.5
+  || Math.abs(trustMarketGeometry.viewportWidth - trustMarketGeometry.market.right - 16) > 0.5
+  || Math.abs((trustMarketGeometry.title.left + trustMarketGeometry.title.width / 2) - trustMarketGeometry.viewportWidth / 2) > 0.5
+  || Math.abs(trustMarketGeometry.search.width - 48) > 0.5
+  || Math.abs(trustMarketGeometry.search.height - 48) > 0.5
+  || trustMarketGeometry.shortcuts.length !== 2
+  || Math.max(...shortcutWidths) - Math.min(...shortcutWidths) > 0.5
+  || trustMarketGeometry.shortcuts.some(({ height }) => height < 60)
+  || trustMarketGeometry.cards.length !== 3
+  || trustMarketGeometry.cards.some(({ width, height, sparkline }) => width < 115 || width > 117 || height < 140 || !sparkline)
+  || !trustMarketGeometry.cardsScrollable
+  || !trustMarketGeometry.categoriesScrollable
+  || trustMarketGeometry.filters.length !== 3
+  || trustMarketGeometry.filters.some(({ height }) => height < 40)
+  || trustMarketGeometry.rows.length < 3
+  || trustMarketGeometry.rows.some(({ height }) => height < 68)
+  || Math.abs(trustMarketGeometry.swap.left - 16) > 0.5
+  || Math.abs(trustMarketGeometry.viewportWidth - trustMarketGeometry.swap.right - 16) > 0.5
+  || Math.abs(trustMarketGeometry.swap.height - 52) > 0.5
+  || Math.abs(trustMarketGeometry.nav.top - trustMarketGeometry.swap.bottom - 10) > 0.5;
+if (trustMarketLayoutMismatch) throw new Error(`Trust Markets does not match the mobile reference geometry: ${JSON.stringify(trustMarketGeometry)}`);
+if (trustScreenshotDir) await page.screenshot({ path: `${trustScreenshotDir}/trust-market.png` });
+
+await trustMarket.getByRole("button", { name: "Search markets", exact: true }).click();
+const trustMarketSearch = page.locator('[data-testid="trust-market-search-screen"]');
+await trustMarketSearch.getByRole("heading", { name: "Search markets", exact: true }).waitFor();
+const trustMarketSearchInput = trustMarketSearch.getByLabel("Search markets", { exact: true });
+await trustMarketSearchInput.waitFor();
+if (await trustMarketSearchInput.getAttribute("placeholder") !== "Tokens, stocks, dApps, addresses") {
+  throw new Error("Trust search does not use the English reference placeholder.");
+}
+if (!(await trustMarketSearchInput.evaluate((input) => input === document.activeElement))) {
+  throw new Error("Trust search did not focus the search input when it opened.");
+}
+if (await page.locator('[data-testid="trust-bottom-nav"]').count()) {
+  throw new Error("Trust search should hide the bottom navigation while the search field is active.");
+}
+await trustMarketSearch.getByRole("heading", { name: "Trending", exact: true }).waitFor();
+const trustTrendingRows = trustMarketSearch.locator('[data-testid="trust-market-search-results"] > [data-testid^="trust-market-search-row-"]');
+if (await trustTrendingRows.count() !== 6) throw new Error("Trust search should show six live trending results.");
+const trustTrendingVolumes = await trustTrendingRows.evaluateAll((rows) => rows.map((row) => Number(row.getAttribute("data-volume"))));
+if (trustTrendingVolumes.some((volume, index) => index > 0 && trustTrendingVolumes[index - 1] < volume)) {
+  throw new Error(`Trust search trending results are not sorted by live volume: ${JSON.stringify(trustTrendingVolumes)}`);
+}
+const trustSearchText = await trustMarketSearch.innerText();
+if (/Aktien|Adressen|Suche|Trends auf Deutsch/i.test(trustSearchText)) {
+  throw new Error("Trust search still contains German source-interface text.");
+}
+const trustSearchGeometry = await page.evaluate(() => {
+  const requireElement = (selector) => {
+    const element = document.querySelector(selector);
+    if (!(element instanceof HTMLElement)) throw new Error(`Trust search is missing ${selector}.`);
+    return element;
+  };
+  const rect = (element) => {
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+  };
+  const screen = requireElement('[data-testid="trust-market-search-screen"]');
+  const header = requireElement('[data-testid="trust-market-search-header"]');
+  const field = requireElement('[data-testid="trust-market-search-field"]');
+  const input = requireElement('[data-testid="trust-market-search-input"]');
+  const close = requireElement('[data-testid="trust-market-search-close"]');
+  const results = requireElement('[data-testid="trust-market-search-results"]');
+  const rows = [...results.querySelectorAll(':scope > [data-testid^="trust-market-search-row-"]')];
+  const firstIcon = rows[0]?.querySelector('button:first-child > span');
+  const firstStar = rows[0]?.querySelector('[data-testid^="trust-market-search-star-"]');
+  if (!(firstIcon instanceof HTMLElement) || !(firstStar instanceof HTMLElement)) throw new Error("Trust search result controls are incomplete.");
+  return {
+    viewportWidth: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    screen: rect(screen),
+    header: rect(header),
+    field: rect(field),
+    inputFontSize: Number.parseFloat(getComputedStyle(input).fontSize),
+    close: rect(close),
+    rows: rows.map((row) => rect(row)),
+    firstIcon: rect(firstIcon),
+    firstStar: rect(firstStar),
+  };
+});
+const trustSearchLayoutMismatch = trustSearchGeometry.viewportWidth !== 390
+  || trustSearchGeometry.documentWidth > trustSearchGeometry.viewportWidth
+  || Math.abs(trustSearchGeometry.screen.left - 16) > 0.5
+  || Math.abs(trustSearchGeometry.viewportWidth - trustSearchGeometry.screen.right - 16) > 0.5
+  || Math.abs(trustSearchGeometry.field.height - 48) > 0.5
+  || Math.abs(trustSearchGeometry.close.width - 48) > 0.5
+  || Math.abs(trustSearchGeometry.close.height - 48) > 0.5
+  || Math.abs(trustSearchGeometry.close.left - trustSearchGeometry.field.right - 8) > 0.5
+  || trustSearchGeometry.inputFontSize < 16
+  || trustSearchGeometry.rows.length !== 6
+  || trustSearchGeometry.rows.some(({ height }) => Math.abs(height - 68) > 0.5)
+  || Math.abs(trustSearchGeometry.firstIcon.width - 40) > 0.5
+  || Math.abs(trustSearchGeometry.firstIcon.height - 40) > 0.5
+  || Math.abs(trustSearchGeometry.firstStar.width - 44) > 0.5
+  || Math.abs(trustSearchGeometry.firstStar.height - 44) > 0.5;
+if (trustSearchLayoutMismatch) throw new Error(`Trust search does not match the mobile reference geometry: ${JSON.stringify(trustSearchGeometry)}`);
+if (trustScreenshotDir) await page.screenshot({ path: `${trustScreenshotDir}/trust-search.png` });
+
+const trustUnstarredResult = trustMarketSearch.getByRole("button", { name: /^Add .* to watchlist$/ }).first();
+if (!await trustUnstarredResult.count()) throw new Error("Trust search needs at least one unstarred trending result.");
+const trustSearchStarTestId = await trustUnstarredResult.getAttribute("data-testid");
+if (!trustSearchStarTestId) throw new Error("Trust search favorite control is missing its test identifier.");
+const trustSearchStar = trustMarketSearch.locator(`[data-testid="${trustSearchStarTestId}"]`);
+await trustSearchStar.click();
+if (await trustSearchStar.getAttribute("aria-pressed") !== "true") throw new Error("Trust search could not add a trending token to the watchlist.");
+await trustSearchStar.click();
+if (await trustSearchStar.getAttribute("aria-pressed") !== "false") throw new Error("Trust search could not remove a trending token from the watchlist.");
+
+await trustMarketSearchInput.fill("Solana");
+await trustMarketSearch.getByRole("heading", { name: "Search results", exact: true }).waitFor();
+await trustMarketSearch.locator('[data-testid="trust-market-search-row-sol"]').waitFor();
+if (await trustMarketSearch.locator('[data-testid="trust-market-search-row-btc"]').count()) throw new Error("Trust search did not filter token results.");
+await trustMarketSearch.getByRole("button", { name: "Open Solana search result", exact: true }).click();
+await page.getByRole("heading", { name: "Solana", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarketSearch.getByRole("heading", { name: "Search markets", exact: true }).waitFor();
+if (await trustMarketSearchInput.inputValue() !== "Solana") throw new Error("Trust search did not preserve the query after returning from a token.");
+
+await trustMarketSearchInput.fill("not-a-real-result-xyz");
+await trustMarketSearch.getByRole("status").filter({ hasText: "No results found." }).waitFor();
+await trustMarketSearchInput.fill("swap");
+await trustMarketSearch.locator('[data-testid="trust-market-search-feature-swap"]').click();
+await page.locator('[data-testid="trust-swap-screen"]').getByRole("heading", { name: "Swap", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarketSearch.getByRole("heading", { name: "Search markets", exact: true }).waitFor();
+await trustMarketSearch.locator('[data-testid="trust-market-search-close"]').click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+
+await trustMarket.getByRole("button", { name: "Predictions", exact: true }).click();
+const trustPredictions = page.locator('[data-testid="trust-predictions"]');
+await trustPredictions.getByRole("heading", { name: "Predictions", exact: true }).waitFor();
+await trustPredictions.getByText("Practice predictions", { exact: true }).waitFor();
+await trustPredictions.getByRole("button", { name: "Predict BTC price movement", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+
+await trustMarket.getByRole("button", { name: "Meme Rush", exact: true }).click();
+const trustStockMemeCategory = page.locator('[data-testid="trust-market-category-stock-meme"]');
+if (await trustStockMemeCategory.getAttribute("aria-pressed") !== "true") throw new Error("Trust Meme Rush did not activate its market category.");
+await page.locator('[data-testid="trust-market-row-doge"]').waitFor();
+await page.locator('[data-testid="trust-market-category-hot"]').click();
+if (await page.locator('[data-testid="trust-market-category-hot"]').getAttribute("aria-pressed") !== "true") throw new Error("Trust Hot tokens category did not activate.");
+
+const trustMarketNetwork = page.locator('[data-testid="trust-market-network-filter"]');
+await trustMarketNetwork.selectOption("solana");
+const solanaMarketRows = page.locator('[data-testid="trust-market-list"] > [data-testid^="trust-market-row-"]');
+if (await solanaMarketRows.count() < 1 || (await solanaMarketRows.evaluateAll((rows) => rows.every((row) => row.getAttribute("data-network") === "solana"))) !== true) {
+  throw new Error("Trust Markets network filter did not limit results to Solana.");
+}
+await trustMarketNetwork.selectOption("all");
+const trustMarketPeriod = page.locator('[data-testid="trust-market-period-filter"]');
+await trustMarketPeriod.selectOption("7d");
+if (await trustMarketPeriod.inputValue() !== "7d") throw new Error("Trust Markets period filter did not update.");
+await trustMarketPeriod.selectOption("24h");
+const trustMarketSort = page.locator('[data-testid="trust-market-sort"]');
+await trustMarketSort.selectOption("price-desc");
+const marketPrices = await page.locator('[data-testid="trust-market-list"] > [data-testid^="trust-market-row-"]').evaluateAll((rows) => rows.slice(0, 3).map((row) => Number(row.getAttribute("data-price"))));
+if (marketPrices.some((price, index) => index > 0 && marketPrices[index - 1] < price)) throw new Error(`Trust Markets price sort is not descending: ${JSON.stringify(marketPrices)}`);
+await trustMarketSort.selectOption("volume-desc");
+
+await page.locator('[data-testid="trust-market-swap"]').click();
+await page.locator('[data-testid="trust-swap-screen"]').getByRole("heading", { name: "Swap", exact: true }).waitFor();
+await page.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+
+await page.locator('[data-testid="trust-market-row-btc"]').click();
 await page.getByRole("heading", { name: "Bitcoin", exact: true }).waitFor();
 await page.getByRole("img", { name: "BTC 1D market price chart" }).waitFor({ timeout: 10_000 });
 for (const period of ["1W", "1M", "1Y", "ALL"]) {
@@ -1044,15 +1585,24 @@ const trustRemoveWatchNotice = page.getByRole("status").filter({ hasText: "BTC r
 await trustRemoveWatchNotice.waitFor();
 await trustRemoveWatchNotice.waitFor({ state: "hidden", timeout: 5_000 });
 await page.getByRole("button", { name: "Go back", exact: true }).click();
-await page.getByLabel("Search tokens").fill("BNB");
-await page.getByRole("button").filter({ hasText: "BNB" }).first().click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+await page.locator('[data-testid="trust-market-card-bnb"]').click();
 await page.getByRole("button", { name: "Add to watchlist" }).click();
 const trustAddWatchNotice = page.getByRole("status").filter({ hasText: "BNB added to your watchlist" });
 await trustAddWatchNotice.waitFor();
 await trustAddWatchNotice.waitFor({ state: "hidden", timeout: 5_000 });
 await page.getByRole("button", { name: "Go back", exact: true }).click();
-await page.getByRole("button", { name: "Go back", exact: true }).click();
+await trustMarket.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 await page.locator('[data-testid="trust-home"]').waitFor();
+
+if (process.env.WALLET_TEST_SCOPE === "trust-market") {
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust Markets smoke test passed: responsive layout, live data, search, shortcuts, filters, token details, watchlist, Swap, and bottom navigation.");
+  process.exit(0);
+}
 
 await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Perpetuals/ }).first().click();
 const trustPerpetuals = page.locator('[data-testid="trust-perpetuals"]');
@@ -1108,7 +1658,7 @@ await trustBottomNav.getByRole("button", { name: "Search", exact: true }).click(
 await page.getByRole("heading", { name: "Search", exact: true }).waitFor();
 await page.getByLabel("Search wallet").fill("Solana");
 await page.getByRole("button").filter({ hasText: "Solana" }).first().waitFor();
-await page.getByRole("button", { name: "Go back", exact: true }).click();
+await page.locator('[data-testid="trust-search-close"]').click();
 
 await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Watchlist/ }).click();
