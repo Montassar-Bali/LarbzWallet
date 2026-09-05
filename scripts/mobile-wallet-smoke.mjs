@@ -3,6 +3,7 @@ import { chromium } from "playwright-core";
 const baseUrl = process.env.WALLET_TEST_URL || "http://localhost:3000";
 const phantomScreenshotDir = process.env.PHANTOM_SCREENSHOT_DIR || "";
 const ledgerScreenshotDir = process.env.LEDGER_SCREENSHOT_DIR || "";
+const trustScreenshotDir = process.env.TRUST_SCREENSHOT_DIR || "";
 const executablePath = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
 const mobileContextOptions = {
@@ -782,7 +783,45 @@ for (const tab of ["Home", "Market", "Earn", "Discover", "Search"]) {
 for (const action of ["Send", "Receive", "Swap", "Buy"]) {
   await page.locator('[data-testid="trust-home"]').getByRole("button", { name: action, exact: true }).waitFor();
 }
-
+await page.evaluate(() => document.fonts.ready);
+const trustTypography = await page.locator('[data-testid="trust-home"]').evaluate((home) => {
+  const styleOf = (element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Trust typography anchor is missing.");
+    const style = getComputedStyle(element);
+    return { fontSize: style.fontSize, fontWeight: style.fontWeight, lineHeight: style.lineHeight, letterSpacing: style.letterSpacing };
+  };
+  const buttonWithText = (label) => [...home.querySelectorAll("button")].find((button) => button.textContent?.trim().startsWith(label));
+  const send = [...home.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Send");
+  const solana = [...home.querySelectorAll("strong")].find((element) => element.textContent?.trim() === "Solana");
+  return {
+    account: styleOf(home.querySelector('[data-testid="trust-account-name"]')),
+    balance: styleOf(home.querySelector('[data-testid="trust-portfolio-balance"]')),
+    change: styleOf(home.querySelector('[data-testid="trust-portfolio-change"]')),
+    action: styleOf(send),
+    section: styleOf(buttonWithText("Tokens")),
+    token: styleOf(solana),
+  };
+});
+const expectedTrustTypography = {
+  account: { fontSize: "17px", lineHeight: "22px" },
+  balance: { fontSize: "48px", lineHeight: "48px" },
+  change: { fontSize: "18px", lineHeight: "24px" },
+  action: { fontSize: "16px", lineHeight: "20px" },
+  section: { fontSize: "22px", lineHeight: "28px" },
+  token: { fontSize: "18px", lineHeight: "23px" },
+};
+for (const [anchor, expected] of Object.entries(expectedTrustTypography)) {
+  const actual = trustTypography[anchor];
+  const fontSizeDelta = Math.abs(Number.parseFloat(actual.fontSize) - Number.parseFloat(expected.fontSize));
+  const lineHeightDelta = Math.abs(Number.parseFloat(actual.lineHeight) - Number.parseFloat(expected.lineHeight));
+  if (fontSizeDelta > 0.1 || lineHeightDelta > 0.1) {
+    throw new Error(`Trust ${anchor} typography does not match the reference: ${JSON.stringify(actual)}`);
+  }
+}
+if (trustScreenshotDir) {
+  await page.locator('[data-testid="trust-home"]').evaluate((home) => { if (home.parentElement) home.parentElement.scrollTop = 0; });
+  await page.screenshot({ path: `${trustScreenshotDir}/trust-home.png` });
+}
 const originalTrustBalance = await page.locator('[data-testid="trust-portfolio-balance"]').textContent();
 await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((element) => { element.textContent = "$98,765,432,109,876.54"; });
 for (const viewport of [
@@ -795,6 +834,13 @@ for (const viewport of [
 }
 await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((element, original) => { element.textContent = original; }, originalTrustBalance);
 await page.setViewportSize({ width: 390, height: 844 });
+if (process.env.WALLET_TEST_SCOPE === "trust-typography") {
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust typography smoke test passed: home text scale, line heights, and responsive bounds match the mobile reference.");
+  process.exit(0);
+}
 
 // Exercise the actual pull gesture, rather than only the refresh icon.
 await page.locator('[data-testid="trust-home"]').evaluate((home) => {
