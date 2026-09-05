@@ -1476,12 +1476,6 @@ export function TrustWallet() {
       if (needle) return `${dapp.name} ${dapp.description} ${dapp.categories.join(" ")}`.toLowerCase().includes(needle);
       return discoverCategory === "featured" || dapp.categories.includes(discoverCategory);
     });
-    const tools: { title: string; body: string; icon: LucideIcon; action: () => void }[] = [
-      { title: "Wallet security", body: "Review access and device protection.", icon: ShieldCheck, action: runtime.openSecurity },
-      { title: "Explore markets", body: "Browse live token prices.", icon: Globe2, action: () => open("market") },
-      { title: "Practice perpetuals", body: "View internal simulations.", icon: InfinityIcon, action: () => open("perpetuals") },
-      { title: "Wallet settings", body: "Choose currency and preferences.", icon: Settings2, action: () => open("settings") },
-    ];
     return (
       <div data-testid="trust-discover" className="pb-4">
         <h1 className="sr-only">Discover</h1>
@@ -1530,12 +1524,6 @@ export function TrustWallet() {
           </div>
         </section>
 
-        <section className="mt-52 pb-3" aria-labelledby="trust-discover-tools-heading">
-          <h2 id="trust-discover-tools-heading" className="text-xl font-extrabold">Wallet tools</h2>
-          <div className="mt-3 space-y-2">
-            {tools.map(({ title, body, icon: Icon, action }) => <button key={title} type="button" onClick={action} className="flex min-h-[4.75rem] w-full scroll-mb-[7rem] items-center gap-3 rounded-[1.2rem] bg-[#191a28] px-4 text-left focus-visible:outline-2 focus-visible:outline-[#8179ff]"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#303144] text-[#8179ff]"><Icon aria-hidden="true" className="size-5" /></span><span className="min-w-0"><strong className="block text-base">{title}</strong><span className="mt-0.5 block truncate text-sm text-white/42">{body}</span></span><ChevronRight aria-hidden="true" className="ml-auto size-5 shrink-0 text-white/35" /></button>)}
-          </div>
-        </section>
       </div>
     );
   }

@@ -1087,6 +1087,9 @@ if (process.env.WALLET_TEST_SCOPE === "trust-discover") {
   if (/20% Batterie|Stromsparmodus|Zum Aktivieren|Suche nach der dApp|gib sie ein|Entdecke dApps/i.test(focusedDiscoverText)) {
     throw new Error("Trust Discover contains source-language or iPhone notification text.");
   }
+  if (/Wallet tools|Wallet security|Explore markets|Practice perpetuals|Wallet settings/i.test(focusedDiscoverText)) {
+    throw new Error("Trust Discover still renders the removed wallet-tools section.");
+  }
   const focusedDiscoverRows = focusedTrustDiscover.locator('[data-testid="trust-discover-list"] > [data-testid^="trust-discover-row-"]');
   if (await focusedDiscoverRows.count() !== 5) throw new Error("Trust Discover should show five featured dApps.");
   for (const dapp of ["Lido", "Aave", "Uniswap", "PancakeSwap", "Pendle"]) {
@@ -1182,28 +1185,162 @@ if (process.env.WALLET_TEST_SCOPE === "trust-discover") {
   await focusedTrustDiscover.getByRole("status").filter({ hasText: /No dApps found/i }).waitFor();
   await focusedDiscoverSearch.fill("");
   if (await focusedDiscoverRows.count() !== 5) throw new Error("Trust Discover did not restore the featured dApp list after clearing search.");
-
-  const focusedWalletSettings = focusedTrustDiscover.getByRole("button").filter({ hasText: "Wallet settings" });
-  await focusedWalletSettings.scrollIntoViewIfNeeded();
-  const focusedSettingsClearance = await focusedWalletSettings.evaluate((button) => {
+  const focusedLastDapp = focusedTrustDiscover.locator('[data-testid="trust-discover-row-pendle"]');
+  await focusedLastDapp.scrollIntoViewIfNeeded();
+  const focusedLastDappClearance = await focusedLastDapp.evaluate((row) => {
     const nav = document.querySelector('[data-testid="trust-bottom-nav"]');
     if (!(nav instanceof HTMLElement)) throw new Error("Trust Discover bottom navigation is missing.");
-    return nav.getBoundingClientRect().top - button.getBoundingClientRect().bottom;
+    return nav.getBoundingClientRect().top - row.getBoundingClientRect().bottom;
   });
-  if (focusedSettingsClearance < 8) throw new Error(`Trust Discover below-fold wallet tools are obscured by the bottom navigation: ${focusedSettingsClearance}px clearance.`);
-  await focusedWalletSettings.click();
-  await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Go back", exact: true }).click();
-  await focusedTrustDiscover.waitFor();
+  if (focusedLastDappClearance < 8) throw new Error(`Trust Discover's final dApp is obscured by the bottom navigation: ${focusedLastDappClearance}px clearance.`);
 
   if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
   await context.close();
   await browser.close();
-  console.log("Trust Discover smoke test passed: reference layout, English copy, dApp browsing, category/search filtering, wallet tools, and navigation.");
+  console.log("Trust Discover smoke test passed: reference layout, English copy, dApp browsing, category/search filtering, removed wallet tools, and navigation.");
   process.exit(0);
 }
 
-if (!["trust-market", "trust-earn", "trust-discover"].includes(process.env.WALLET_TEST_SCOPE ?? "")) {
+if (process.env.WALLET_TEST_SCOPE === "trust-accounts") {
+  const homeWalletName = (await page.locator('[data-testid="trust-account-name"]').textContent())?.trim();
+  await page.getByRole("button", { name: "Open wallet accounts", exact: true }).click();
+  const trustWallets = page.getByRole("dialog", { name: "Wallets", exact: true });
+  await trustWallets.getByRole("heading", { name: "Wallets", exact: true }).waitFor();
+  await trustWallets.getByText("Multi-Chain Wallets", { exact: true }).waitFor();
+  await trustWallets.getByText("Multi-Chain Wallet", { exact: true }).first().waitFor();
+  await trustWallets.getByText("Back up manually", { exact: true }).first().waitFor();
+  await trustWallets.getByRole("button", { name: "Add wallet", exact: true }).waitFor();
+  await trustWallets.getByRole("button", { name: "Sync with extension", exact: true }).waitFor();
+  const trustWalletsText = await trustWallets.innerText();
+  if (/Haupt-Wallet|Manuell sichern|Wallet hinzufügen|Mit der Erweiterung|20% Batterie|Stromsparmodus|00:38|\b5G\b/i.test(trustWalletsText)) {
+    throw new Error("Trust Wallets contains source-language, iPhone, or capture-overlay text.");
+  }
+  const currentCards = trustWallets.locator('[data-testid^="trust-wallet-card-"][data-current="true"]');
+  if (await currentCards.count() !== 1) throw new Error("Trust Wallets must show exactly one current wallet.");
+  if (homeWalletName && !(await currentCards.first().innerText()).includes(homeWalletName)) {
+    throw new Error("Trust Wallets current card does not match the wallet shown on Home.");
+  }
+  await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Wallets");
+  await page.evaluate(() => document.fonts.ready);
+  const trustWalletsGeometry = await trustWallets.evaluate((dialog) => {
+    const requireElement = (selector) => {
+      const element = dialog.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Trust Wallets is missing ${selector}.`);
+      return element;
+    };
+    const rect = (element) => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
+    };
+    const header = requireElement('[data-testid="trust-wallets-header"]');
+    const title = header.querySelector("h1");
+    const close = requireElement('[data-testid="trust-wallets-close"]');
+    const settings = requireElement('[data-testid="trust-wallets-settings"]');
+    const list = requireElement('[data-testid="trust-wallets-list"]');
+    const cards = [...list.querySelectorAll('[data-testid^="trust-wallet-card-"]')];
+    const footer = requireElement('[data-testid="trust-wallets-footer"]');
+    const add = requireElement('[data-testid="trust-wallets-add"]');
+    const sync = requireElement('[data-testid="trust-wallets-sync"]');
+    const firstBackup = cards[0]?.querySelector('[data-testid^="trust-wallets-backup-"]');
+    if (!(title instanceof HTMLElement) || !(firstBackup instanceof HTMLElement)) throw new Error("Trust Wallets header or backup action is incomplete.");
+    const titleBounds = title.getBoundingClientRect();
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      documentWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+      dialog: rect(dialog),
+      titleCenterDelta: Math.abs(titleBounds.left + titleBounds.width / 2 - window.innerWidth / 2),
+      close: { ...rect(close), radius: Number.parseFloat(getComputedStyle(close).borderRadius) },
+      settings: { ...rect(settings), radius: Number.parseFloat(getComputedStyle(settings).borderRadius) },
+      cards: cards.map((card) => rect(card)),
+      firstBackup: rect(firstBackup),
+      footer: rect(footer),
+      add: { ...rect(add), radius: Number.parseFloat(getComputedStyle(add).borderRadius) },
+      sync: { ...rect(sync), radius: Number.parseFloat(getComputedStyle(sync).borderRadius) },
+    };
+  });
+  const walletsLayoutMismatch = trustWalletsGeometry.viewport.width !== 390
+    || trustWalletsGeometry.viewport.height !== 844
+    || trustWalletsGeometry.documentWidth > 390
+    || trustWalletsGeometry.bodyWidth > 390
+    || Math.abs(trustWalletsGeometry.dialog.left) > 0.5
+    || Math.abs(trustWalletsGeometry.dialog.top) > 0.5
+    || Math.abs(trustWalletsGeometry.dialog.width - 390) > 0.5
+    || Math.abs(trustWalletsGeometry.dialog.height - 844) > 0.5
+    || trustWalletsGeometry.titleCenterDelta > 0.5
+    || Math.abs(trustWalletsGeometry.close.width - 48) > 0.5
+    || Math.abs(trustWalletsGeometry.close.height - 48) > 0.5
+    || trustWalletsGeometry.close.radius < 23
+    || Math.abs(trustWalletsGeometry.settings.width - 48) > 0.5
+    || Math.abs(trustWalletsGeometry.settings.height - 48) > 0.5
+    || trustWalletsGeometry.settings.radius < 23
+    || trustWalletsGeometry.cards.length < 1
+    || trustWalletsGeometry.cards.some((card) => Math.abs(card.left - 16) > 0.5 || Math.abs(card.right - 374) > 0.5 || card.height < 104 || card.height > 132)
+    || trustWalletsGeometry.firstBackup.height < 44
+    || Math.abs(trustWalletsGeometry.footer.left) > 0.5
+    || Math.abs(trustWalletsGeometry.footer.right - 390) > 0.5
+    || Math.abs(trustWalletsGeometry.footer.bottom - 844) > 0.5
+    || Math.abs(trustWalletsGeometry.add.left - 16) > 0.5
+    || Math.abs(trustWalletsGeometry.add.right - 374) > 0.5
+    || Math.abs(trustWalletsGeometry.add.height - 52) > 0.5
+    || trustWalletsGeometry.add.radius < 25
+    || Math.abs(trustWalletsGeometry.sync.left - 16) > 0.5
+    || Math.abs(trustWalletsGeometry.sync.right - 374) > 0.5
+    || Math.abs(trustWalletsGeometry.sync.height - 52) > 0.5
+    || trustWalletsGeometry.sync.radius < 25
+    || Math.abs(trustWalletsGeometry.sync.top - trustWalletsGeometry.add.bottom - 8) > 0.5;
+  if (walletsLayoutMismatch) throw new Error(`Trust Wallets does not match the mobile reference geometry: ${JSON.stringify(trustWalletsGeometry)}`);
+  if (trustScreenshotDir) await page.screenshot({ path: `${trustScreenshotDir}/trust-wallets.png` });
+
+  const activeCard = currentCards.first();
+  await activeCard.getByText("Back up manually", { exact: true }).click();
+  const backupView = page.locator('[data-testid="trust-wallet-backup-view"]');
+  await backupView.getByRole("heading", { name: /Protect / }).waitFor();
+  await backupView.getByText(/never reveals or requests a recovery phrase or private key/i).waitFor();
+  await page.getByRole("button", { name: "Back to wallets", exact: true }).click();
+
+  await currentCards.first().getByRole("button", { name: /Open .* wallet menu/ }).click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).waitFor();
+  await page.getByRole("menuitem", { name: "Backup details", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close wallet menu", exact: true }).click();
+
+  await trustWallets.getByRole("button", { name: "Sync with extension", exact: true }).click();
+  const syncView = page.locator('[data-testid="trust-wallet-sync-view"]');
+  await syncView.getByRole("img", { name: "Wallet address QR code" }).waitFor();
+  await syncView.getByRole("button", { name: "Refresh sync code", exact: true }).click();
+  await page.getByRole("button", { name: "Back to wallets", exact: true }).click();
+
+  await trustWallets.getByRole("button", { name: "Add wallet", exact: true }).click();
+  const addForm = page.locator('[data-testid="trust-wallet-add-form"]');
+  await addForm.getByLabel("New account name").fill("Trust Accounts Smoke");
+  await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Add wallet");
+  await addForm.getByRole("button", { name: "Add account", exact: true }).click();
+  const createdCard = trustWallets.locator('[data-testid^="trust-wallet-card-"]').filter({ hasText: "Trust Accounts Smoke" });
+  await createdCard.waitFor();
+  if (await createdCard.getAttribute("data-current") !== "true") {
+    await createdCard.getByRole("button", { name: "Switch to wallet Trust Accounts Smoke", exact: true }).click();
+  }
+  await page.waitForFunction(() => document.querySelector('[data-testid^="trust-wallet-card-"][data-current="true"]')?.textContent?.includes("Trust Accounts Smoke"));
+  await trustWallets.getByRole("button", { name: "Close", exact: true }).click();
+  await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Open wallet accounts", exact: true }).filter({ hasText: "Trust Accounts Smoke" }).waitFor();
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator('[data-testid="trust-home"]').waitFor({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Open wallet accounts", exact: true }).filter({ hasText: "Trust Accounts Smoke" }).click();
+  const persistedWallets = page.getByRole("dialog", { name: "Wallets", exact: true });
+  await persistedWallets.locator('[data-testid^="trust-wallet-card-"][data-current="true"]').filter({ hasText: "Trust Accounts Smoke" }).waitFor();
+  await persistedWallets.getByRole("button", { name: "Open wallet security settings", exact: true }).click();
+  await page.getByRole("heading", { name: "Security", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
+  await context.close();
+  await browser.close();
+  console.log("Trust Wallets smoke test passed: reference layout, English copy, backup, menu, extension sync, add-wallet persistence, and settings routing.");
+  process.exit(0);
+}
+
+if (!["trust-market", "trust-earn", "trust-discover", "trust-accounts"].includes(process.env.WALLET_TEST_SCOPE ?? "")) {
 // Exercise the actual pull gesture, rather than only the refresh icon.
 await page.locator('[data-testid="trust-home"]').evaluate((home) => {
   const target = home.parentElement;
@@ -1669,59 +1806,13 @@ await page.getByRole("button", { name: "Go back", exact: true }).click();
 
 await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
 await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
-await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
-await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
-const darkThemeOption = page.getByRole("radio", { name: "Dark theme", exact: true });
-const lightThemeOption = page.getByRole("radio", { name: "Light theme", exact: true });
-if (await darkThemeOption.getAttribute("aria-checked") !== "true") {
-  throw new Error("Trust wallet did not start with its saved dark appearance.");
+if (await page.getByText("Wallet tools", { exact: true }).count() !== 0 || await page.getByRole("button").filter({ hasText: "Wallet settings" }).count() !== 0) {
+  throw new Error("Trust Discover still exposes the removed wallet-tools section.");
 }
-await lightThemeOption.click();
-await page.locator('html[data-trust-color-scheme="light"]').waitFor();
-if (await lightThemeOption.getAttribute("aria-checked") !== "true") {
-  throw new Error("Trust wallet Light appearance control did not become selected.");
-}
-const trustLightPalette = await page.locator('[data-testid="trust-wallet"]').evaluate((wallet) => {
-  const style = window.getComputedStyle(wallet);
-  return { background: style.backgroundColor, foreground: style.color, colorScheme: style.colorScheme };
-});
-if (trustLightPalette.background !== "rgb(245, 247, 251)" || trustLightPalette.foreground !== "rgb(18, 19, 29)" || trustLightPalette.colorScheme !== "light") {
-  throw new Error(`Trust wallet Light appearance was selected but not rendered: ${JSON.stringify(trustLightPalette)}`);
-}
-await page.getByRole("button", { name: "Accounts", exact: true }).click();
-const trustLightAccountsSheet = page.getByRole("dialog", { name: "Accounts", exact: true });
-await trustLightAccountsSheet.waitFor();
-const trustLightSheetPalette = await trustLightAccountsSheet.evaluate((sheet) => {
-  const style = window.getComputedStyle(sheet);
-  return { background: style.backgroundColor, foreground: style.color, colorScheme: style.colorScheme };
-});
-if (trustLightSheetPalette.background !== "rgb(245, 247, 251)" || trustLightSheetPalette.foreground !== "rgb(18, 19, 29)" || trustLightSheetPalette.colorScheme !== "light") {
-  throw new Error(`Trust runtime sheets did not inherit Light appearance: ${JSON.stringify(trustLightSheetPalette)}`);
-}
-await trustLightAccountsSheet.getByRole("button", { name: "Close", exact: true }).click();
-await page.getByRole("heading", { name: "Wallet settings", exact: true }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Settings");
-await page.getByLabel("Wallet name").fill("Smoke Trust Account");
-await page.getByLabel("Currency").selectOption("EUR");
-await page.getByRole("button", { name: "Toggle portfolio notifications" }).click();
-await page.getByRole("button", { name: "Save settings", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "Wallet settings saved" }).waitFor();
-await page.locator('[data-testid="trust-home"]').waitFor();
-await page.getByRole("button", { name: "Open wallet accounts" }).filter({ hasText: "Smoke Trust Account" }).waitFor();
+await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.locator('[data-testid="trust-home"]').waitFor({ timeout: 20_000 });
-await page.getByRole("button", { name: "Open wallet accounts" }).filter({ hasText: "Smoke Trust Account" }).waitFor();
-await trustBottomNav.getByRole("button", { name: "Discover", exact: true }).click();
-await page.getByRole("button").filter({ hasText: "Wallet settings" }).click();
-if (await page.getByLabel("Wallet name").inputValue() !== "Smoke Trust Account" || await page.getByLabel("Currency").inputValue() !== "EUR") {
-  throw new Error("Trust wallet name and currency settings did not persist after reload.");
-}
-if (await page.getByRole("radio", { name: "Light theme", exact: true }).getAttribute("aria-checked") !== "true" || await page.locator("html").getAttribute("data-trust-color-scheme") !== "light") {
-  throw new Error("Trust wallet Light appearance did not persist after reload.");
-}
-await page.getByRole("button", { name: "Go back", exact: true }).click();
-await page.getByRole("heading", { name: "Discover", exact: true }).waitFor();
 await trustBottomNav.getByRole("button", { name: "Earn", exact: true }).click();
 // Both staged positions must survive a full reload before they are closed.
 await trustEarn.getByRole("heading", { name: "Your positions", exact: true }).waitFor();
@@ -1775,16 +1866,18 @@ await page.getByRole("button", { name: "Go back", exact: true }).click();
 await page.locator('[data-testid="trust-home"]').waitFor();
 
 await page.getByRole("button", { name: "Open wallet accounts" }).click();
-const trustAccountsSheet = page.locator("section[aria-label='Accounts']");
-await trustAccountsSheet.getByRole("heading", { name: "Accounts", exact: true }).waitFor();
+const trustAccountsSheet = page.locator("section[aria-label='Wallets']");
+await trustAccountsSheet.getByRole("heading", { name: "Wallets", exact: true }).waitFor();
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Accounts");
+await trustAccountsSheet.getByRole("button", { name: "Add wallet", exact: true }).click();
 await trustAccountsSheet.getByLabel("New account name").fill("Trust Smoke Savings");
 await trustAccountsSheet.getByRole("button", { name: "Add account", exact: true }).click();
 const trustSavingsAccount = trustAccountsSheet.locator("article").filter({ hasText: "Trust Smoke Savings" });
 await trustSavingsAccount.getByText("Trust Smoke Savings", { exact: true }).waitFor();
-const trustSavingsSwitch = trustSavingsAccount.getByRole("button", { name: "Switch to account", exact: true });
-if (await trustSavingsSwitch.isVisible().catch(() => false)) await trustSavingsSwitch.click();
-await trustSavingsAccount.getByRole("button", { name: "Current account", exact: true }).waitFor();
+if (await trustSavingsAccount.getAttribute("data-current") !== "true") {
+  await trustSavingsAccount.getByRole("button", { name: /Switch to wallet Trust Smoke Savings/ }).click();
+}
+await page.waitForFunction(() => document.querySelector('[data-testid^="trust-wallet-card-"][data-current="true"]')?.textContent?.includes("Trust Smoke Savings"));
 await trustAccountsSheet.getByRole("button", { name: "Close", exact: true }).click();
 await page.locator('[data-testid="trust-home"]').waitFor();
 const trustZeroBalance = await page.locator('[data-testid="trust-portfolio-balance"]').evaluate((balance) => {
@@ -1816,8 +1909,8 @@ if (!/0\.00$/.test(await page.locator('[data-testid="trust-portfolio-balance"]')
   throw new Error("Trust zero balance did not persist after reload.");
 }
 await page.getByRole("button", { name: "Open wallet accounts" }).click();
-await page.locator("section[aria-label='Accounts']").getByText("Trust Smoke Savings", { exact: true }).waitFor();
-await page.locator("section[aria-label='Accounts']").getByRole("button", { name: "Close", exact: true }).click();
+await page.locator("section[aria-label='Wallets']").getByText("Trust Smoke Savings", { exact: true }).waitFor();
+await page.locator("section[aria-label='Wallets']").getByRole("button", { name: "Close", exact: true }).click();
 
 function createInMemoryWalletLedger(ownerId) {
   let snapshot = null;

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   CircleHelp,
   Copy,
+  EllipsisVertical,
   Fingerprint,
   History,
   KeyRound,
@@ -913,6 +914,31 @@ function WalletRuntimeSheet({ walletId, initialPanel, startWithScanner, preferre
 
   if (walletId === "trust") {
     const title = panel === "transfer" ? "Send" : panel === "receive" ? "Receive" : panel === "accounts" ? "Accounts" : panel === "history" ? "Activity" : "Security";
+    if (panel === "accounts") {
+      return (
+        <div className="fixed inset-0 z-[120] flex justify-center bg-[#070812] text-white" role="presentation">
+          <section
+            ref={sheetRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Wallets"
+            data-testid="trust-wallets"
+            className="relative flex h-[100dvh] w-full max-w-[560px] flex-col overflow-hidden bg-[#090a14] text-white outline-none sm:h-[94dvh] sm:self-center sm:rounded-[2.4rem] sm:border sm:border-white/[0.08]"
+            style={containerStyle}
+          >
+            <TrustWalletsPanel
+              state={state}
+              repository={repository}
+              sharedError={sharedError}
+              onCommit={onCommit}
+              onClose={onClose}
+              onOpenSettings={() => setPanel("security")}
+            />
+          </section>
+        </div>
+      );
+    }
     return (
       <div className="fixed inset-0 z-[120] flex justify-center bg-[#070812] text-white" role="presentation">
         {scannerOpen ? <CameraQrScanner onClose={() => setScannerOpen(false)} onScan={(address) => { setScannedAddress(address); setPanel("transfer"); setScannerOpen(false); }} /> : null}
@@ -943,7 +969,6 @@ function WalletRuntimeSheet({ walletId, initialPanel, startWithScanner, preferre
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5 [scrollbar-width:none]">
             {panel === "transfer" ? <TransferPanel key={scannedAddress || "manual"} walletId={walletId} preferredSymbol={preferredSymbol} initialDestinationAddress={scannedAddress} state={state} sharedStatus={sharedStatus} sharedError={sharedError} executeTransfer={executeTransfer} /> : null}
             {panel === "receive" ? <TrustReceivePanel state={state} /> : null}
-            {panel === "accounts" ? <AccountsPanel activeWalletId={walletId} state={state} repository={repository} sharedError={sharedError} onCommit={onCommit} trustStyle /> : null}
             {panel === "history" ? <HistoryPanel walletId={walletId} state={state} trustStyle /> : null}
             {panel === "security" ? <SecurityPanel security={security} trustStyle /> : null}
           </div>
@@ -1539,6 +1564,307 @@ function ReceivePanel({ walletId, state }: { walletId: WalletThemeId; state: Wal
   const [copied, setCopied] = useState(false);
   const copy = async () => { await navigator.clipboard?.writeText(account.address); setCopied(true); window.setTimeout(() => setCopied(false), 1800); };
   return <div className="py-5 text-center"><AddressQrCode value={account.address} className="mx-auto w-full max-w-[280px] border border-white/[0.1] shadow-[0_18px_70px_rgba(0,0,0,.55)]" /><h2 className="mt-6 text-2xl font-semibold">Receive in {account.name}</h2><p className="mt-2 text-white/45">Use this address as the destination in any of the three wallets.</p><button type="button" onClick={() => void copy()} className="mt-6 w-full rounded-[1.4rem] bg-[#202022] p-5 text-left"><span className="block text-xs font-bold uppercase tracking-[.1em] text-white/35">{walletLabels[walletId]} address</span><span className="mt-2 flex items-center justify-between gap-3 font-mono text-sm"><span className="break-all">{account.address}</span><Copy className="h-5 w-5 shrink-0 text-[#a99bf7]" /></span></button><p className="mt-4 text-sm text-[#00e676]">{copied ? "Address copied" : walletDisclosures[walletId]}</p></div>;
+}
+
+type TrustWalletsView =
+  | { kind: "add" }
+  | { kind: "backup" | "rename"; accountId: string }
+  | { kind: "sync"; accountId: string; nonce: string }
+  | null;
+
+function TrustAccountMark({ current }: { current: boolean }) {
+  return (
+    <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#4437ff] shadow-[0_4px_16px_rgba(0,0,0,.18)]">
+      <svg aria-hidden="true" viewBox="0 0 28 32" className="h-6 w-6" fill="none">
+        <path d="M14 2.7 24 6v7.8c0 6.7-4 12.1-10 15.5C8 25.9 4 20.5 4 13.8V6l10-3.3Z" fill="currentColor" />
+        <path d="M14 7.2v16.6c3.4-2.6 5.6-5.9 5.6-10V9L14 7.2Z" fill="white" />
+      </svg>
+      {current ? (
+        <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full border-2 border-[#191a28] bg-[#4437ff] text-white">
+          <Check aria-hidden="true" className="h-2.5 w-2.5 stroke-[3]" />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function TrustWalletsPanel({ state, repository, sharedError, onCommit, onClose, onOpenSettings }: {
+  state: WalletLedgerState;
+  repository: WalletLedgerRepository;
+  sharedError: string;
+  onCommit: (state: WalletLedgerState, syncMetadata?: boolean) => Promise<boolean>;
+  onClose: () => void;
+  onOpenSettings: () => void;
+}) {
+  const wallet = state.wallets.trust;
+  const [view, setView] = useState<TrustWalletsView>(null);
+  const [menuAccountId, setMenuAccountId] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [editName, setEditName] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "idle" | "saving" | "success" | "error"; message: string }>({ kind: "idle", message: "" });
+  const busy = feedback.kind === "saving";
+  const viewAccount = view && "accountId" in view
+    ? wallet.accounts.find((account) => account.id === view.accountId) ?? selectedAccount(state, "trust")
+    : selectedAccount(state, "trust");
+
+  const persist = (next: WalletLedgerState, successMessage: string) => {
+    setFeedback({ kind: "saving", message: "Saving wallet changes…" });
+    void onCommit(next).then((saved) => {
+      setFeedback(saved
+        ? { kind: "success", message: successMessage }
+        : { kind: "error", message: "Saved on this device, but shared wallet sync could not finish." });
+    }).catch((caught) => {
+      setFeedback({ kind: "error", message: caught instanceof Error ? caught.message : "Could not save wallet changes." });
+    });
+  };
+
+  const createWallet = () => {
+    const trimmed = newName.trim();
+    if (!trimmed || busy) return;
+    try {
+      repository.createAccount("trust", trimmed);
+      persist(repository.getState(), "Wallet added.");
+      setNewName("");
+      setView(null);
+    } catch (caught) {
+      setFeedback({ kind: "error", message: caught instanceof Error ? caught.message : "Could not add the wallet." });
+    }
+  };
+
+  const renameWallet = () => {
+    const trimmed = editName.trim();
+    if (!trimmed || !view || view.kind !== "rename" || busy) return;
+    try {
+      persist(repository.renameAccount("trust", view.accountId, trimmed), "Wallet renamed.");
+      setView(null);
+      setEditName("");
+    } catch (caught) {
+      setFeedback({ kind: "error", message: caught instanceof Error ? caught.message : "Could not rename the wallet." });
+    }
+  };
+
+  const switchWallet = (accountId: string) => {
+    if (wallet.selectedAccountId === accountId || busy) return;
+    try {
+      persist(repository.selectAccount("trust", accountId), "Current wallet changed.");
+      setMenuAccountId(null);
+    } catch (caught) {
+      setFeedback({ kind: "error", message: caught instanceof Error ? caught.message : "Could not switch wallets." });
+    }
+  };
+
+  const copyValue = async (value: string, message = "Public address copied.") => {
+    try {
+      await writeClipboard(value);
+      setCopied(true);
+      setFeedback({ kind: "success", message });
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setFeedback({ kind: "error", message: "Clipboard access is unavailable. Select and copy the value instead." });
+    }
+  };
+
+  const openBackup = (accountId: string) => {
+    setMenuAccountId(null);
+    setCopied(false);
+    setView({ kind: "backup", accountId });
+  };
+
+  const openRename = (account: WalletAccount) => {
+    setMenuAccountId(null);
+    setEditName(account.name);
+    setView({ kind: "rename", accountId: account.id });
+  };
+
+  const syncPayload = view?.kind === "sync"
+    ? JSON.stringify({ version: 1, type: "public-wallet-sync", wallet: "trust", accountId: viewAccount.id, address: viewAccount.address, nonce: view.nonce })
+    : "";
+
+  const subviewTitle = view?.kind === "add"
+    ? "Add wallet"
+    : view?.kind === "backup"
+      ? "Manual backup"
+      : view?.kind === "rename"
+        ? "Rename wallet"
+        : "Sync with extension";
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="trust-wallets-screen">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[linear-gradient(270deg,rgba(70,28,62,.10),transparent)]" />
+      <header data-testid="trust-wallets-header" className="relative z-10 shrink-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="grid h-12 grid-cols-[3rem_1fr_3rem] items-center">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            data-testid="trust-wallets-close"
+            className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#151621] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"
+          >
+            <X aria-hidden="true" className="h-6 w-6" />
+          </button>
+          <h1 className="text-center text-[22px]/[26px] font-extrabold tracking-[-.025em]">Wallets</h1>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="Open wallet security settings"
+            data-testid="trust-wallets-settings"
+            className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#151621] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"
+          >
+            <Settings aria-hidden="true" className="h-6 w-6" />
+          </button>
+        </div>
+      </header>
+
+      <main className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 [scrollbar-width:none]">
+        <h2 className="mb-3 mt-6 text-[16px]/[21px] font-semibold text-white/55">Multi-Chain Wallets</h2>
+        <div className="space-y-3" data-testid="trust-wallets-list">
+          {wallet.accounts.map((account) => {
+            const current = wallet.selectedAccountId === account.id;
+            const menuOpen = menuAccountId === account.id;
+            return (
+              <article
+                key={account.id}
+                data-testid={`trust-wallet-card-${account.id}`}
+                data-current={current ? "true" : "false"}
+                className="relative min-h-[7rem] rounded-[.9rem] border border-white/[0.025] bg-[#191a28] px-4 pb-2.5 pt-3 shadow-[0_8px_32px_rgba(0,0,0,.09)]"
+              >
+                <button
+                  type="button"
+                  onClick={() => switchWallet(account.id)}
+                  aria-label={current ? `Current wallet ${account.name}` : `Switch to wallet ${account.name}`}
+                  className="flex min-h-12 w-[calc(100%-2.75rem)] items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"
+                >
+                  <TrustAccountMark current={current} />
+                  <span className="min-w-0 flex-1">
+                    <strong className="block truncate text-[18px]/[23px] font-extrabold tracking-[-.01em]">{account.name}</strong>
+                    <span className="mt-0.5 block text-[14px]/[19px] font-medium text-white/52">Multi-Chain Wallet</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Open ${account.name} wallet menu`}
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuAccountId((currentId) => currentId === account.id ? null : account.id)}
+                  data-testid={`trust-wallets-more-${account.id}`}
+                  className="absolute right-1.5 top-3 grid h-12 w-12 place-items-center rounded-full text-white/75 focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[#8580ff]"
+                >
+                  <EllipsisVertical aria-hidden="true" className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openBackup(account.id)}
+                  data-testid={`trust-wallets-backup-${account.id}`}
+                  className="mt-0.5 flex min-h-11 items-center rounded-lg pr-4 text-[15px]/[20px] font-semibold text-[#8580ff] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#8580ff]"
+                >
+                  Back up manually
+                </button>
+
+                {menuOpen ? (
+                  <>
+                    <button type="button" aria-label="Close wallet menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuAccountId(null)} />
+                    <div role="menu" className="absolute right-3 top-13 z-20 w-48 rounded-[1rem] border border-white/[0.08] bg-[#242535] p-1.5 shadow-[0_18px_50px_rgba(0,0,0,.45)]">
+                      {!current ? <button type="button" role="menuitem" onClick={() => switchWallet(account.id)} className="min-h-11 w-full rounded-xl px-3 text-left text-sm font-semibold hover:bg-white/[.06]">Set as current</button> : null}
+                      <button type="button" role="menuitem" onClick={() => openRename(account)} className="min-h-11 w-full rounded-xl px-3 text-left text-sm font-semibold hover:bg-white/[.06]">Rename</button>
+                      <button type="button" role="menuitem" onClick={() => openBackup(account.id)} className="min-h-11 w-full rounded-xl px-3 text-left text-sm font-semibold hover:bg-white/[.06]">Backup details</button>
+                      <button type="button" role="menuitem" onClick={() => { setMenuAccountId(null); void copyValue(account.address); }} className="min-h-11 w-full rounded-xl px-3 text-left text-sm font-semibold hover:bg-white/[.06]">Copy public address</button>
+                    </div>
+                  </>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </main>
+
+      <footer data-testid="trust-wallets-footer" className="relative z-10 shrink-0 border-t border-white/[0.04] bg-[#090a14] px-4 pb-[max(1.125rem,env(safe-area-inset-bottom))] pt-2.5">
+        <button
+          type="button"
+          onClick={() => { setNewName(""); setView({ kind: "add" }); }}
+          data-testid="trust-wallets-add"
+          className="flex h-[3.25rem] w-full items-center justify-center rounded-full bg-[#1b1b1d] text-[17px]/[22px] font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"
+        >
+          Add wallet
+        </button>
+        <button
+          type="button"
+          onClick={() => setView({ kind: "sync", accountId: wallet.selectedAccountId, nonce: randomClientId("sync") })}
+          data-testid="trust-wallets-sync"
+          className="mt-2 flex h-[3.25rem] w-full items-center justify-center gap-2.5 rounded-full bg-[#1b1b1d] px-4 text-[16px]/[21px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"
+        >
+          <QrCode aria-hidden="true" className="h-[18px] w-[18px]" />
+          Sync with extension
+        </button>
+      </footer>
+
+      {(feedback.message || sharedError) && !view ? (
+        <div className="pointer-events-none absolute inset-x-4 z-30 flex justify-center" style={{ bottom: "calc(max(1.125rem, env(safe-area-inset-bottom)) + 7.75rem)" }}>
+          <p role={feedback.kind === "error" || (feedback.kind === "idle" && sharedError) ? "alert" : "status"} className={`pointer-events-auto flex min-h-11 max-w-full items-center gap-2 rounded-full border px-4 py-2 text-sm shadow-xl ${feedback.kind === "error" || (feedback.kind === "idle" && sharedError) ? "border-red-300/20 bg-[#431d29] text-red-100" : "border-white/[0.08] bg-[#242535] text-white/75"}`}>
+            <span className="truncate">{feedback.message || sharedError}</span>
+            {feedback.kind === "error" || (feedback.kind === "idle" && sharedError) ? <button type="button" onClick={() => persist(repository.getState(), "Wallets synchronized.")} className="min-h-9 shrink-0 rounded-full bg-white/10 px-3 font-bold">Retry</button> : null}
+          </p>
+        </div>
+      ) : null}
+
+      {view ? (
+        <div className="absolute inset-0 z-40 flex flex-col bg-[#090a14]" data-testid={`trust-wallet-${view.kind}-view`}>
+          <header className="shrink-0 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
+            <div className="grid h-12 grid-cols-[3rem_1fr_3rem] items-center">
+              <button type="button" onClick={() => setView(null)} aria-label="Back to wallets" className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.07] bg-[#151621] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8580ff]"><ArrowLeft aria-hidden="true" className="h-6 w-6" /></button>
+              <h2 className="px-2 text-center text-[20px]/[25px] font-extrabold tracking-[-.025em]">{subviewTitle}</h2>
+              <span aria-hidden="true" className="h-12 w-12" />
+            </div>
+          </header>
+
+          {view.kind === "add" ? (
+            <form onSubmit={(event) => { event.preventDefault(); createWallet(); }} className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.125rem,env(safe-area-inset-bottom))] pt-6" data-testid="trust-wallet-add-form">
+              <div className="rounded-[1.35rem] bg-[#191a28] p-5">
+                <label htmlFor="trust-new-wallet-name" className="text-sm font-bold text-white/58">Wallet name</label>
+                <input id="trust-new-wallet-name" autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={40} aria-label="New account name" placeholder={`Wallet ${wallet.accounts.length + 1}`} className="mt-3 h-14 w-full rounded-[1rem] border border-white/[0.07] bg-[#242535] px-4 text-[16px] font-semibold outline-none placeholder:text-white/30 focus:ring-2 focus:ring-[#4437ff]" />
+                <p className="mt-3 text-sm leading-6 text-white/42">Create another internal multi-chain wallet. It will become your current wallet.</p>
+              </div>
+              <button type="submit" aria-label="Add account" disabled={!newName.trim() || busy} className="mt-auto flex min-h-14 w-full items-center justify-center rounded-full bg-[#4437ff] text-[17px] font-extrabold text-white disabled:opacity-40">{busy ? "Adding wallet…" : "Add wallet"}</button>
+            </form>
+          ) : null}
+
+          {view.kind === "rename" ? (
+            <form onSubmit={(event) => { event.preventDefault(); renameWallet(); }} className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.125rem,env(safe-area-inset-bottom))] pt-6">
+              <div className="rounded-[1.35rem] bg-[#191a28] p-5">
+                <label htmlFor="trust-rename-wallet" className="text-sm font-bold text-white/58">Wallet name</label>
+                <input id="trust-rename-wallet" autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} maxLength={40} aria-label="Wallet name" className="mt-3 h-14 w-full rounded-[1rem] border border-white/[0.07] bg-[#242535] px-4 text-[16px] font-semibold outline-none focus:ring-2 focus:ring-[#4437ff]" />
+              </div>
+              <button type="submit" disabled={!editName.trim() || busy} className="mt-auto min-h-14 w-full rounded-full bg-[#4437ff] text-[17px] font-extrabold text-white disabled:opacity-40">Save name</button>
+            </form>
+          ) : null}
+
+          {view.kind === "backup" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1.125rem,env(safe-area-inset-bottom))] pt-6" data-testid="trust-wallet-backup-view">
+              <div className="rounded-[1.35rem] bg-[#191a28] p-5 text-center">
+                <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#242535] text-[#8580ff]"><ShieldCheck aria-hidden="true" className="h-8 w-8" /></span>
+                <h3 className="mt-5 text-xl font-extrabold">Protect {viewAccount.name}</h3>
+                <p className="mt-3 text-sm leading-6 text-white/52">This internal wallet never reveals or requests a recovery phrase or private key. Keep access to your signed-in device secure.</p>
+              </div>
+              <button type="button" onClick={() => void copyValue(viewAccount.address)} className="mt-4 w-full rounded-[1.2rem] bg-[#191a28] p-4 text-left focus-visible:outline-2 focus-visible:outline-[#8580ff]">
+                <span className="block text-xs font-bold uppercase tracking-[.12em] text-white/40">Public address</span>
+                <span className="mt-2 flex items-center gap-3"><span className="min-w-0 flex-1 break-all font-mono text-sm text-white/72">{viewAccount.address}</span><Copy aria-hidden="true" className="h-5 w-5 shrink-0 text-[#8580ff]" /></span>
+              </button>
+              <p aria-live="polite" className="mt-3 text-center text-sm text-[#8580ff]">{copied ? "Public address copied." : "Only public account information is shown."}</p>
+            </div>
+          ) : null}
+
+          {view.kind === "sync" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1.125rem,env(safe-area-inset-bottom))] pt-5 text-center" data-testid="trust-wallet-sync-view">
+              <AddressQrCode value={syncPayload} className="mx-auto w-full max-w-[220px] border border-white/[0.08] shadow-[0_18px_60px_rgba(0,0,0,.35)]" />
+              <h3 className="mt-5 text-xl font-extrabold">Pair {viewAccount.name}</h3>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-white/50">Scan or copy this public pairing code in a compatible extension. It cannot authorize transfers and contains no private key.</p>
+              <button type="button" onClick={() => void copyValue(syncPayload, "Sync code copied.")} className="mt-6 min-h-14 w-full rounded-full bg-[#1b1b1d] px-5 text-[16px] font-bold">{copied ? "Sync code copied" : "Copy sync code"}</button>
+              <button type="button" onClick={() => setView({ kind: "sync", accountId: viewAccount.id, nonce: randomClientId("sync") })} className="mt-3 min-h-14 w-full rounded-full bg-[#4437ff] px-5 text-[16px] font-extrabold text-white">Refresh sync code</button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function AccountsPanel({
