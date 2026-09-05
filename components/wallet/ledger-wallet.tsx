@@ -2,7 +2,7 @@
 
 import {
   ArrowLeft,
-  ArrowLeftRight,
+  ArrowRightLeft,
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
@@ -296,9 +296,29 @@ function BottomNav({ active, onChange, onTransfer }: { active: BottomTab; onChan
 
   return (
     <nav aria-label="Ledger Wallet navigation" data-testid="ledger-bottom-nav" className={styles.bottomNav}>
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        data-testid="ledger-nav-surface"
+        className={styles.navSurface}
+        viewBox="0 0 430 81"
+        preserveAspectRatio="none"
+      >
+        <defs>
+          <linearGradient id="ledger-nav-surface-gradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="var(--ledger-nav-highlight)" />
+            <stop offset="0.62" stopColor="var(--ledger-nav-surface)" />
+            <stop offset="1" stopColor="var(--ledger-nav-surface)" />
+          </linearGradient>
+        </defs>
+        <path
+          vectorEffect="non-scaling-stroke"
+          d="M34 1H153C171 1 173 46 215 46C257 46 259 1 277 1H396C409 1 419 11 419 24V57C419 70 409 80 396 80H34C21 80 11 70 11 57V24C11 11 21 1 34 1Z"
+        />
+      </svg>
       <button type="button" aria-current={active === tabs[0] ? "page" : undefined} onClick={() => onChange(tabs[0])} className={`${styles.navItem} ${active === tabs[0] ? styles.navItemActive : ""}`}><LedgerWalletNavIcon /><span>Wallet</span></button>
       <button type="button" aria-current={active === tabs[1] ? "page" : undefined} onClick={() => onChange(tabs[1])} className={`${styles.navItem} ${active === tabs[1] ? styles.navItemActive : ""}`}><LedgerEarnNavIcon /><span>Earn</span></button>
-      <button type="button" aria-label="Transfer" onClick={onTransfer} className={styles.centerNav}><span><ArrowLeftRight size={28} strokeWidth={1.8} /></span></button>
+      <button type="button" aria-label="Transfer" onClick={onTransfer} className={styles.centerNav}><span data-testid="ledger-transfer-orb"><ArrowRightLeft size={27} strokeWidth={1.9} /></span></button>
       <button type="button" aria-current={active === tabs[2] ? "page" : undefined} onClick={() => onChange(tabs[2])} className={`${styles.navItem} ${active === tabs[2] ? styles.navItemActive : ""}`}><LedgerDiscoverNavIcon /><span>Discover</span></button>
       <button type="button" aria-current={active === tabs[3] ? "page" : undefined} onClick={() => onChange(tabs[3])} className={`${styles.navItem} ${active === tabs[3] ? styles.navItemActive : ""}`}><LedgerDeviceNavIcon /><span>My Ledger</span></button>
     </nav>

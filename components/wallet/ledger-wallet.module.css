@@ -699,47 +699,73 @@
 
 .bottomNav {
   --ledger-nav-surface: color-mix(in srgb, var(--ledger-surface) 96%, var(--ledger-bg));
+  --ledger-nav-highlight: color-mix(in srgb, var(--ledger-surface-strong) 97%, var(--ledger-text) 3%);
+  --ledger-nav-edge: color-mix(in srgb, var(--ledger-text) 13%, transparent);
   position: fixed;
   z-index: 30;
   bottom: 0;
   left: 50%;
   display: grid;
   width: min(100%, 430px);
-  min-height: calc(68px + env(safe-area-inset-bottom));
+  height: calc(81px + env(safe-area-inset-bottom));
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: start;
-  padding: 4px 8px env(safe-area-inset-bottom);
-  border-top: 1px solid color-mix(in srgb, var(--ledger-text) 5%, transparent);
-  background: var(--ledger-nav-surface);
-  box-shadow: 0 -14px 34px rgb(0 0 0 / 30%);
+  isolation: isolate;
+  overflow: visible;
+  padding: 0 8px env(safe-area-inset-bottom);
   transform: translateX(-50%);
-  backdrop-filter: blur(24px) saturate(1.08);
+}
+
+.navSurface {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom);
+  left: 0;
+  width: 100%;
+  height: 81px;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 -12px 22px rgb(0 0 0 / 28%));
+}
+
+.navSurface path {
+  fill: url("#ledger-nav-surface-gradient");
+  stroke: var(--ledger-nav-edge);
+  stroke-width: 1.25;
 }
 
 .navItem {
+  position: relative;
+  z-index: 1;
   display: flex;
   min-width: 0;
-  min-height: 60px;
+  min-height: 80px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 3px 0 0;
-  color: color-mix(in srgb, var(--ledger-text) 66%, transparent);
+  gap: 8px;
+  padding: 16px 0 3px;
+  color: color-mix(in srgb, var(--ledger-text) 94%, transparent);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1;
   border: 0;
   background: transparent;
 }
 
 .navItemActive {
+  color: var(--ledger-text);
+}
+
+.navItemActive .navIcon {
   color: var(--ledger-primary);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--ledger-primary) 48%, transparent));
 }
 
 .navIcon {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   flex: none;
   overflow: visible;
   fill: none;
@@ -756,24 +782,25 @@
 
 .centerNav {
   position: relative;
-  min-height: 60px;
+  z-index: 2;
+  min-height: 80px;
   border: 0;
   background: transparent;
 }
 
 .centerNav span {
   position: absolute;
-  top: -28px;
+  top: -21px;
   left: 50%;
   display: grid;
-  width: 70px;
-  height: 70px;
+  width: 60px;
+  height: 60px;
   place-items: center;
   color: #1b1423;
-  border: 4px solid var(--ledger-nav-surface);
+  border: 1px solid color-mix(in srgb, white 32%, transparent);
   border-radius: 50%;
-  background: var(--ledger-primary);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 38%);
+  background: linear-gradient(145deg, #c9baff 0%, var(--ledger-primary) 58%, #9e8df0 100%);
+  box-shadow: 0 9px 22px rgb(0 0 0 / 42%), 0 0 15px color-mix(in srgb, var(--ledger-primary) 22%, transparent);
   transform: translateX(-50%);
   transition: transform 150ms ease;
 }

@@ -549,16 +549,40 @@ if (ledgerScreenshotDir) await ledgerBottomNav.screenshot({ path: `${ledgerScree
 const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
   const bounds = nav.getBoundingClientRect();
   const buttons = [...nav.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
-  const center = nav.querySelector('button[aria-label="Transfer"] span')?.getBoundingClientRect();
+  const transfer = nav.querySelector('button[aria-label="Transfer"]');
+  const center = nav.querySelector('[data-testid="ledger-transfer-orb"]')?.getBoundingClientRect();
+  const surface = nav.querySelector('[data-testid="ledger-nav-surface"]')?.getBoundingClientRect();
+  const currentTabs = [...nav.querySelectorAll('button[aria-current="page"]')].map((button) => button.textContent?.trim());
+  const centerHit = center
+    ? document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)
+    : null;
   return {
     bottomGap: window.innerHeight - bounds.bottom,
+    height: bounds.height,
     centerOffset: center ? Math.abs(center.left + center.width / 2 - window.innerWidth / 2) : Number.POSITIVE_INFINITY,
     centerIsRound: center ? Math.abs(center.width - center.height) < 1 : false,
     centerProtrudes: center ? center.top < bounds.top && center.bottom > bounds.top : false,
+    centerDiameter: center?.width ?? 0,
+    centerRise: center ? bounds.top - center.top : 0,
+    centerIsClickable: Boolean(transfer && centerHit && (centerHit === transfer || transfer.contains(centerHit))),
+    surfaceMatchesRail: surface ? Math.abs(surface.top - bounds.top) < 1 && Math.abs(surface.width - bounds.width) < 1 : false,
+    surfaceAllowsCurve: surface ? surface.height >= 80 : false,
+    currentTabs,
     equalColumns: buttons.length === 5 && Math.max(...buttons.map(({ width }) => width)) - Math.min(...buttons.map(({ width }) => width)) < 1,
   };
 });
-if (Math.abs(ledgerNavGeometry.bottomGap) > 1 || ledgerNavGeometry.centerOffset > 1 || !ledgerNavGeometry.centerIsRound || !ledgerNavGeometry.centerProtrudes || !ledgerNavGeometry.equalColumns) {
+if (Math.abs(ledgerNavGeometry.bottomGap) > 1
+  || ledgerNavGeometry.height < 80
+  || ledgerNavGeometry.centerOffset > 1
+  || !ledgerNavGeometry.centerIsRound
+  || !ledgerNavGeometry.centerProtrudes
+  || ledgerNavGeometry.centerDiameter < 58 || ledgerNavGeometry.centerDiameter > 62
+  || ledgerNavGeometry.centerRise < 20 || ledgerNavGeometry.centerRise > 22
+  || !ledgerNavGeometry.centerIsClickable
+  || !ledgerNavGeometry.surfaceMatchesRail
+  || !ledgerNavGeometry.surfaceAllowsCurve
+  || ledgerNavGeometry.currentTabs.join(",") !== "Wallet"
+  || !ledgerNavGeometry.equalColumns) {
   throw new Error(`Ledger bottom navigation geometry does not match the reference: ${JSON.stringify(ledgerNavGeometry)}`);
 }
 
@@ -795,6 +819,7 @@ if (/TikTok|@northlarp|recording indicator|\b(?:Kaufen|Verkaufen|Tausch|Senden|E
   throw new Error("The Larpz Trust-style wallet still contains source-video, watermark, or German interface text.");
 }
 
+const trustNewsAssetVersion = "20260905";
 const expectedTrustAnnouncements = [
   { id: "security", title: "Secure your wallet", subtitle: "Secure your recovery phrase", image: "trust-news-security.png" },
   { id: "stable-swap", title: "0% swap fees on selected stables", subtitle: "Applicable to same-chain swaps only", image: "trust-news-stable.png" },
@@ -833,6 +858,14 @@ async function advanceTrustAnnouncement() {
   await trustAnnouncementNext.evaluate((button) => button.click());
   await page.waitForFunction((prior) => document.querySelector('[data-testid="trust-announcement-carousel"]')?.getAttribute("data-active-announcement") !== prior, previousId);
 }
+await page.evaluate(async ({ announcements, version }) => {
+  await Promise.all(announcements.map(({ image }) => new Promise((resolve, reject) => {
+    const artwork = new Image();
+    artwork.onload = () => resolve();
+    artwork.onerror = () => reject(new Error(`Could not preload ${image}.`));
+    artwork.src = `/assets/${image}?v=${version}`;
+  })));
+}, { announcements: expectedTrustAnnouncements, version: trustNewsAssetVersion });
 for (let attempt = 0; attempt < expectedTrustAnnouncements.length && await trustAnnouncementCarousel.getAttribute("data-active-announcement") !== "security"; attempt += 1) {
   await advanceTrustAnnouncement();
 }
@@ -849,11 +882,70 @@ for (const expected of expectedTrustAnnouncements) {
   await slide.getByText(expected.title, { exact: true }).waitFor();
   await slide.getByText(expected.subtitle, { exact: true }).waitFor();
   const image = slide.locator('[data-testid="trust-announcement-image"]');
-  const imageDetails = await image.evaluate((element) => ({
-    basename: decodeURIComponent(new URL(element.getAttribute("src") ?? "", window.location.href).pathname).split("/").pop(),
-    alt: element.getAttribute("alt"),
-  }));
-  if (imageDetails.basename !== expected.image || !imageDetails.alt || germanAnnouncementCopy.test(await slide.innerText())) {
+  const imageDetails = await image.evaluate(async (element) => {
+    if (!(element instanceof HTMLImageElement)) throw new Error("Trust announcement artwork is not an image.");
+    await element.decode();
+    const source = new URL(element.currentSrc || element.src, window.location.href);
+    const bounds = element.getBoundingClientRect();
+    const frameBounds = element.parentElement?.getBoundingClientRect();
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Could not inspect Trust announcement artwork.");
+    context.drawImage(element, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const alpha = [];
+    const edgeAlpha = [];
+    for (let index = 3; index < pixels.length; index += 4) alpha.push(pixels[index]);
+    for (let offset = 0; offset < canvas.width; offset += 1) {
+      edgeAlpha.push(pixels[(offset * 4) + 3]);
+      edgeAlpha.push(pixels[(((canvas.height - 1) * canvas.width + offset) * 4) + 3]);
+    }
+    for (let offset = 1; offset < canvas.height - 1; offset += 1) {
+      edgeAlpha.push(pixels[((offset * canvas.width) * 4) + 3]);
+      edgeAlpha.push(pixels[((offset * canvas.width + canvas.width - 1) * 4) + 3]);
+    }
+    const cornerAlpha = [
+      pixels[3],
+      pixels[((canvas.width - 1) * 4) + 3],
+      pixels[(((canvas.height - 1) * canvas.width) * 4) + 3],
+      pixels[((canvas.width * canvas.height - 1) * 4) + 3],
+    ];
+    return {
+      basename: decodeURIComponent(source.pathname).split("/").pop(),
+      version: source.searchParams.get("v"),
+      alt: element.alt,
+      complete: element.complete,
+      naturalWidth: element.naturalWidth,
+      naturalHeight: element.naturalHeight,
+      renderedWidth: bounds.width,
+      renderedHeight: bounds.height,
+      frameWidth: frameBounds?.width ?? 0,
+      frameHeight: frameBounds?.height ?? 0,
+      objectFit: window.getComputedStyle(element).objectFit,
+      cornerAlpha,
+      transparentRatio: alpha.filter((value) => value <= 4).length / alpha.length,
+      opaqueRatio: alpha.filter((value) => value >= 200).length / alpha.length,
+      transparentEdgeRatio: edgeAlpha.filter((value) => value <= 4).length / edgeAlpha.length,
+    };
+  });
+  if (imageDetails.basename !== expected.image
+    || imageDetails.version !== trustNewsAssetVersion
+    || !imageDetails.alt
+    || !imageDetails.complete
+    || imageDetails.naturalWidth !== 256
+    || imageDetails.naturalHeight !== 256
+    || Math.abs(imageDetails.renderedWidth - 36) > 0.75
+    || Math.abs(imageDetails.renderedHeight - 36) > 0.75
+    || Math.abs(imageDetails.frameWidth - 36) > 0.75
+    || Math.abs(imageDetails.frameHeight - 36) > 0.75
+    || imageDetails.objectFit !== "contain"
+    || imageDetails.cornerAlpha.some((value) => value > 4)
+    || imageDetails.transparentRatio < 0.2
+    || imageDetails.opaqueRatio < 0.02
+    || imageDetails.transparentEdgeRatio < 0.95
+    || germanAnnouncementCopy.test(await slide.innerText())) {
     throw new Error(`Trust ${expected.id} announcement has incorrect English copy or artwork: ${JSON.stringify(imageDetails)}`);
   }
   await advanceTrustAnnouncement();
@@ -881,7 +973,7 @@ if (process.env.WALLET_TEST_SCOPE === "trust-announcements") {
   if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
   await context.close();
   await browser.close();
-  console.log("Trust announcements smoke test passed: four ordered English slides, exact artwork, upward transitions, placement, deterministic cycling, and dismissal.");
+  console.log("Trust announcements smoke test passed: four ordered English slides, normalized transparent artwork, upward transitions, placement, deterministic cycling, and dismissal.");
   process.exit(0);
 }
 
