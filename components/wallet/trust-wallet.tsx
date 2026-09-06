@@ -1817,13 +1817,7 @@ export function TrustWallet() {
             aria-hidden={!refreshing}
             className={`grid w-full shrink-0 place-items-center overflow-hidden ${pulling ? "" : "transition-[height] duration-[260ms] ease-[cubic-bezier(.22,.8,.24,1)]"}`}
             style={{ height: refreshing ? PULL_REFRESH_HOLD : pull }}
-          >
-            <LoaderCircle
-              aria-hidden="true"
-              className={`size-5 text-[#8179ff] ${refreshing ? "animate-spin" : ""}`}
-              style={{ opacity: refreshing ? 1 : Math.min(1, pull / 24), transform: refreshing ? undefined : `rotate(${pull * 4}deg)` }}
-            />
-          </div>
+          />
           {content}
         </div>
         {screen === "market" ? <button type="button" data-testid="trust-market-swap" onClick={() => openSwapFor(tokens.find((token) => token.balance > 0 && token.price > 0)?.symbol ?? tokens.find((token) => token.price > 0)?.symbol ?? "SOL")} className="absolute inset-x-4 z-40 flex h-[3.25rem] items-center justify-center rounded-full bg-[#4437ff] text-[20px]/[24px] font-extrabold shadow-[0_10px_30px_rgba(0,0,0,.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" style={{ bottom: "calc(max(.75rem, env(safe-area-inset-bottom)) + 4.875rem)" }}>Swap</button> : null}

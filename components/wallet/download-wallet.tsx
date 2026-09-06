@@ -29,7 +29,6 @@ import {
   Plus,
   QrCode,
   Radio,
-  RefreshCw,
   Repeat2,
   Search,
   Send,
@@ -673,13 +672,7 @@ function HomeView({
         aria-hidden={!isRefreshing}
         className="grid w-full place-items-center overflow-hidden text-white/55"
         style={pulledContentStyle}
-      >
-        <RefreshCw
-          aria-hidden="true"
-          className={`h-5 w-5 ${isRefreshing ? "animate-spin" : ""}`}
-          style={{ opacity: Math.min(1, refreshOffset / 24), transform: isDraggingRefresh ? `rotate(${Math.min(270, refreshOffset * 5)}deg)` : undefined }}
-        />
-      </div>
+      />
 
       {tab === "Home" ? (
         <section data-testid="phantom-pull-content" className="phantom-home-content px-4 pb-40 pt-[13px] sm:px-5">

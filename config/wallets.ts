@@ -1,5 +1,11 @@
 export type WalletThemeId = "ghost" | "ledger" | "trust";
 
+export const walletDisplayNames: Record<WalletThemeId, string> = {
+  ghost: "Phantom Wallet",
+  ledger: "Ledger Wallet",
+  trust: "Trust Wallet",
+};
+
 export type WalletTheme = {
   id: WalletThemeId;
   name: string;
@@ -26,8 +32,8 @@ export const walletThemes: WalletTheme[] = [
   },
   {
     id: "ledger",
-    name: "Larpz Wallet",
-    description: "Larpz's mobile portfolio experience with live markets and shared demo accounts.",
+    name: "Ledger Wallet",
+    description: "Ledger-style mobile portfolio experience with live markets and shared demo accounts.",
     palette: {
       background: "#000000",
       card: "#171717",
@@ -37,8 +43,8 @@ export const walletThemes: WalletTheme[] = [
   },
   {
     id: "trust",
-    name: "Larpz Trust Style",
-    description: "Larpz Wallet's dark mobile-first Trust-style demo interface.",
+    name: "Trust Wallet",
+    description: "Dark mobile-first Trust Wallet-style demo interface.",
     palette: {
       background: "#05060f",
       card: "#171824",

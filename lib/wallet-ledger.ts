@@ -1,5 +1,5 @@
 import { canonicalWalletTokens, defaultTokens, isRetiredWalletTokenSymbol } from "@/config/tokens";
-import type { WalletThemeId } from "@/config/wallets";
+import { walletDisplayNames, type WalletThemeId } from "@/config/wallets";
 import type { ActivityStatus, WalletActivity, WalletToken } from "@/lib/types";
 
 export const walletLedgerStorageKey = "larpz_wallet_ledger_v1";
@@ -17,12 +17,6 @@ const legacyTransactionKeys: Record<WalletThemeId, string> = {
   ghost: "larpz_transactions",
   ledger: "larpz_ledger_transactions",
   trust: "larpz_trust_wallet_transactions",
-};
-
-const walletNames: Record<WalletThemeId, string> = {
-  ghost: "Phantom",
-  ledger: "Larpz Wallet",
-  trust: "Larpz Trust-style Wallet",
 };
 
 export type WalletAsset = {
@@ -425,7 +419,7 @@ export function createInitialWalletLedger(
     const secondary = createAccount(walletId, "Account 2", {}, now);
     wallets[walletId] = {
       id: walletId,
-      name: walletNames[walletId],
+      name: walletDisplayNames[walletId],
       selectedAccountId: primary.id,
       accounts: [primary, secondary],
     };
@@ -813,7 +807,7 @@ export function walletActivityFromTransfer(transaction: SimulatedTransaction, ac
     type: outgoing ? "send" : "receive",
     tokenSymbol: transaction.tokenSymbol,
     amount: transaction.amount,
-    counterpartyLabel: outgoing ? `${walletNames[transaction.destinationWalletId]} account` : `${walletNames[transaction.sourceWalletId]} account`,
+    counterpartyLabel: outgoing ? `${walletDisplayNames[transaction.destinationWalletId]} account` : `${walletDisplayNames[transaction.sourceWalletId]} account`,
     date: transaction.timestamp,
     status: transaction.status,
     note: `${transaction.note} · Fee ${transaction.fee} ${transaction.feeSymbol}`,

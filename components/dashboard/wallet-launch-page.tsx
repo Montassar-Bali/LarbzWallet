@@ -5,23 +5,23 @@ import { useEffect, useState } from "react";
 import { Check, Download, Menu, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
 
 import { WalletAppRoute } from "@/components/wallet/wallet-app-route";
-import { getWalletTheme, setWalletTheme } from "@/lib/wallet";
-import { walletInstallPaths, type WalletThemeId } from "@/config/wallets";
+import { defaultWalletTheme, walletInstallPaths, type WalletThemeId } from "@/config/wallets";
+import { setWalletTheme } from "@/lib/wallet";
 
 const walletOptions: { id: WalletThemeId; label: string; icon: LucideIcon; featured?: boolean }[] = [
   { id: "ghost", label: "Download Now", icon: Download, featured: true },
-  { id: "ledger", label: "Get Larpz Wallet", icon: RefreshCw },
-  { id: "trust", label: "Get Larpz Trust Style", icon: ShieldCheck },
+  { id: "ledger", label: "Get Ledger Wallet", icon: RefreshCw },
+  { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
 ];
 
 const homeScreenNames: Record<WalletThemeId, string> = {
   ghost: "Phantom",
-  ledger: "Larpz Wallet",
-  trust: "Larpz Wallet",
+  ledger: "Ledger Wallet",
+  trust: "Trust Wallet",
 };
 
 export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThemeId }) {
-  const [activeWallet, setActiveWallet] = useState<WalletThemeId>(() => initialWallet ?? getWalletTheme());
+  const [activeWallet, setActiveWallet] = useState<WalletThemeId>(initialWallet ?? defaultWalletTheme);
   const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
@@ -37,11 +37,7 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
     }
 
     const selectedLabel = homeScreenNames[activeWallet];
-    document.title = activeWallet === "ghost"
-      ? selectedLabel
-      : activeWallet === "trust"
-        ? "Larpz Wallet · Trust Style"
-        : selectedLabel;
+    document.title = selectedLabel;
     const appleTitle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"]');
     if (appleTitle) {
       appleTitle.content = selectedLabel;
@@ -52,8 +48,8 @@ export function WalletLaunchPage({ initialWallet }: { initialWallet?: WalletThem
       appleIcon.href = activeWallet === "ghost"
         ? "/icons/phantom-pwa-180.png"
         : activeWallet === "ledger"
-          ? "/assets/logo_m.png"
-          : "/assets/logo_m.png";
+          ? "/icons/wallets/ledger.png"
+          : "/icons/wallets/trust.png";
     }
   }, [activeWallet]);
 

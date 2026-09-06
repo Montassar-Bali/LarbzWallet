@@ -109,6 +109,15 @@ function capturePageErrors(targetPage, label = "wallet") {
 }
 capturePageErrors(page);
 
+const allSendWalletNames = ["Phantom Wallet", "Ledger Wallet", "Trust Wallet"];
+
+async function assertSelectOptions(select, expected, label) {
+  const actual = await select.locator("option").allTextContents();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label} options were ${JSON.stringify(actual)} instead of ${JSON.stringify(expected)}.`);
+  }
+}
+
 async function assertMobileLayout(route, readyText, timeout = 15_000, navigate = true) {
   if (navigate) await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction((text) => document.body.innerText.includes(text) || [...document.querySelectorAll("input")].some((input) => input.placeholder.includes(text)), readyText, { timeout });
@@ -122,6 +131,91 @@ async function assertMobileLayout(route, readyText, timeout = 15_000, navigate =
     throw new Error(`${route} overflows the 390px mobile viewport: ${JSON.stringify(layout)}`);
   }
   if (layout.language !== "en") throw new Error(`${route} is not marked as English.`);
+}
+
+async function assertWalletInstallBranding() {
+  const installContext = await browser.newContext(mobileContextOptions);
+  const installPage = await installContext.newPage();
+  capturePageErrors(installPage, "wallet install branding");
+
+  const wallets = [
+    {
+      button: "Get Ledger Wallet",
+      name: "Ledger Wallet",
+      route: "/ledger-wallet",
+      manifestPath: "/manifests/ledger.webmanifest",
+      iconPath: "/icons/wallets/ledger.png",
+    },
+    {
+      button: "Get Trust Wallet",
+      name: "Trust Wallet",
+      route: "/trust-wallet",
+      manifestPath: "/manifests/trust.webmanifest",
+      iconPath: "/icons/wallets/trust.png",
+    },
+  ];
+
+  try {
+    await installPage.goto(`${baseUrl}/wallet-launch`, { waitUntil: "domcontentloaded" });
+    await installPage.getByRole("button", { name: "Get Ledger Wallet", exact: true }).waitFor();
+    await installPage.getByRole("button", { name: "Get Trust Wallet", exact: true }).waitFor();
+    if (await installPage.getByText(/Get Larpz Wallet|Get Larpz Trust Style/).count()) {
+      throw new Error("Wallet launcher still exposes retired Larpz install labels.");
+    }
+
+    for (const expected of wallets) {
+      await installPage.getByRole("button", { name: expected.button, exact: true }).click();
+      await installPage.waitForURL((url) => url.pathname === expected.route);
+      await installPage.waitForFunction(({ name, manifestPath, iconPath }) => {
+        const manifest = document.querySelector('link[rel="manifest"]');
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+        return document.title === name
+          && appleTitle?.getAttribute("content") === name
+          && manifest instanceof HTMLLinkElement
+          && new URL(manifest.href).pathname === manifestPath
+          && appleIcon instanceof HTMLLinkElement
+          && new URL(appleIcon.href).pathname === iconPath;
+      }, expected);
+
+      const branding = await installPage.evaluate(async () => {
+        const manifestLink = document.querySelector('link[rel="manifest"]');
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+        if (!(manifestLink instanceof HTMLLinkElement) || !(appleIcon instanceof HTMLLinkElement)) return null;
+        const response = await fetch(manifestLink.href, { cache: "no-store" });
+        return {
+          title: document.title,
+          appleTitle: appleTitle?.getAttribute("content"),
+          manifestPath: new URL(manifestLink.href).pathname,
+          iconPath: new URL(appleIcon.href).pathname,
+          manifest: response.ok ? await response.json() : null,
+        };
+      });
+
+      const expectedManifest = {
+        id: expected.route,
+        name: expected.name,
+        short_name: expected.name,
+        start_url: expected.route,
+        scope: expected.route,
+        icons: [{ src: expected.iconPath, sizes: "280x280", type: "image/png" }],
+      };
+      const manifestMatches = branding?.manifest
+        && Object.entries(expectedManifest).every(([key, value]) => JSON.stringify(branding.manifest[key]) === JSON.stringify(value));
+      if (branding?.title !== expected.name
+        || branding.appleTitle !== expected.name
+        || branding.manifestPath !== expected.manifestPath
+        || branding.iconPath !== expected.iconPath
+        || !manifestMatches) {
+        throw new Error(`${expected.name} install branding is incorrect: ${JSON.stringify(branding)}`);
+      }
+
+      await installPage.goto(`${baseUrl}/wallet-launch`, { waitUntil: "domcontentloaded" });
+    }
+  } finally {
+    await installContext.close();
+  }
 }
 
 async function assertWritingFieldsAvoidIosZoom(targetPage, screen) {
@@ -173,6 +267,16 @@ async function endPullToRefresh(target) {
     Object.defineProperty(end, "changedTouches", { value: [] });
     element.dispatchEvent(end);
   });
+}
+
+async function assertBlankPullRefreshIndicator(indicator, label) {
+  const content = await indicator.evaluate((element) => ({
+    text: element.textContent?.trim() ?? "",
+    graphics: element.querySelectorAll("svg, img, canvas, [role='img']").length,
+  }));
+  if (content.text !== "" || content.graphics !== 0) {
+    throw new Error(`${label} displayed refresh content: ${JSON.stringify(content)}.`);
+  }
 }
 
 async function enterWalletKeypadAmount(targetPage, inputLabel, value) {
@@ -266,6 +370,8 @@ async function openPhantomProfile(targetPage) {
   await profile.waitFor();
   return profile;
 }
+
+await assertWalletInstallBranding();
 
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 await page.getByRole("heading", { name: "Link this installed wallet" }).waitFor({ timeout: 15_000 });
@@ -493,15 +599,17 @@ await page.locator(".phantom-home-nav").evaluate(async (nav) => {
 const phantomPullBaseline = await phantomPullContent.evaluate((content) => content.getBoundingClientRect().top);
 await beginPullToRefresh(phantomPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="phantom-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+await assertBlankPullRefreshIndicator(phantomPullIndicator, "Phantom pull gap");
 const phantomPulledState = await phantomPullIndicator.evaluate((indicator) => ({
   gap: indicator.getBoundingClientRect().height,
   indicatorText: indicator.textContent?.trim() ?? "",
 }));
 if (phantomPulledState.gap < 30 || phantomPulledState.gap > 54 || phantomPulledState.indicatorText !== "") {
-  throw new Error(`Phantom pull refresh is not a small icon-only gap: ${JSON.stringify(phantomPulledState)}`);
+  throw new Error(`Phantom pull refresh is not a small blank gap: ${JSON.stringify(phantomPulledState)}`);
 }
 await endPullToRefresh(phantomPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="phantom-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await assertBlankPullRefreshIndicator(phantomPullIndicator, "Phantom refreshing gap");
 await page.waitForFunction(() => {
   const indicator = document.querySelector('[data-testid="phantom-pull-refresh"]');
   return Boolean(indicator
@@ -550,7 +658,8 @@ if (!JSON.stringify(cameraState?.constraints).includes("environment")) throw new
 await phantomSendSheet.getByRole("button", { name: "Send to this address" }).waitFor();
 await phantomRecipientInput.fill("");
 await page.getByRole("button", { name: "Choose one of my accounts" }).click();
-await page.getByRole("button", { name: "Use Larpz Wallet Account 1" }).click();
+await page.getByRole("button", { name: "Use Ledger Wallet Account 1" }).click();
+await assertSelectOptions(phantomSendSheet.getByLabel("Source wallet"), allSendWalletNames, "Phantom Send source wallet");
 await assertWritingFieldsAvoidIosZoom(page, "Phantom transfer form");
 await page.getByLabel("Transfer amount").fill("0.01");
 await page.waitForFunction(() => [...document.querySelectorAll("button")]
@@ -864,15 +973,17 @@ await ledgerPullIndicator.waitFor({ state: "attached" });
 const ledgerPullBaseline = await ledgerPullContent.evaluate((content) => content.getBoundingClientRect().top);
 await beginPullToRefresh(ledgerPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="ledger-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+await assertBlankPullRefreshIndicator(ledgerPullIndicator, "Ledger pull gap");
 const ledgerPulledState = await ledgerPullContent.evaluate((content, baseline) => ({
   gap: content.getBoundingClientRect().top - baseline,
   indicatorText: document.querySelector('[data-testid="ledger-pull-refresh"]')?.textContent?.trim() ?? "",
 }), ledgerPullBaseline);
 if (ledgerPulledState.gap < 30 || ledgerPulledState.gap > 54 || ledgerPulledState.indicatorText !== "") {
-  throw new Error(`Larpz Wallet pull refresh is not a small icon-only gap: ${JSON.stringify(ledgerPulledState)}`);
+  throw new Error(`Ledger Wallet pull refresh is not a small blank gap: ${JSON.stringify(ledgerPulledState)}`);
 }
 await endPullToRefresh(ledgerPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="ledger-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await assertBlankPullRefreshIndicator(ledgerPullIndicator, "Ledger refreshing gap");
 await page.waitForFunction((baseline) => {
   const content = document.querySelector('[data-testid="ledger-pull-content"]');
   const indicator = document.querySelector('[data-testid="ledger-pull-refresh"]');
@@ -999,7 +1110,7 @@ await ledgerReceiveSheet.getByRole("heading", { name: "Receive", exact: true }).
 const ledgerReceiveQr = ledgerReceiveSheet.getByRole("img", { name: "Wallet address QR code" });
 await ledgerReceiveQr.waitFor();
 if (await ledgerReceiveQr.locator("circle").count() < 20) throw new Error("Larpz Wallet Receive did not generate an address QR code.");
-await ledgerReceiveSheet.getByRole("button", { name: /Larpz Wallet address/i }).click();
+await ledgerReceiveSheet.getByRole("button", { name: /Ledger Wallet address/i }).click();
 await ledgerReceiveSheet.getByText("Address copied", { exact: true }).waitFor();
 await ledgerReceiveSheet.getByRole("button", { name: "Close", exact: true }).click();
 await ledgerReceiveSheet.waitFor({ state: "hidden" });
@@ -1018,6 +1129,8 @@ await assertWritingFieldsAvoidIosZoom(page, "Larpz Wallet transfer");
 if (await ledgerTransferSheet.getByLabel("Source wallet").inputValue() !== "ledger") {
   throw new Error("Larpz Wallet Send did not default to its own source account.");
 }
+await assertSelectOptions(ledgerTransferSheet.getByLabel("Source wallet"), ["Ledger Wallet"], "Ledger Send source wallet");
+await assertSelectOptions(ledgerTransferSheet.getByLabel("Destination wallet"), allSendWalletNames, "Ledger Send destination wallet");
 await ledgerTransferSheet.getByRole("button", { name: "Scan recipient QR code" }).click();
 const ledgerCameraScanner = page.getByRole("dialog", { name: "QR code scanner" });
 await ledgerCameraScanner.waitFor();
@@ -1951,15 +2064,17 @@ const trustPullIndicator = page.locator('[data-testid="trust-pull-refresh"]');
 await trustPullSurface.evaluate((surface) => { surface.scrollTop = 0; });
 await beginPullToRefresh(trustPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="trust-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+await assertBlankPullRefreshIndicator(trustPullIndicator, "Trust pull gap");
 const trustPulledState = await trustPullIndicator.evaluate((indicator) => ({
   gap: indicator.getBoundingClientRect().height,
   indicatorText: indicator.textContent?.trim() ?? "",
 }));
 if (trustPulledState.gap < 30 || trustPulledState.gap > 54 || trustPulledState.indicatorText !== "") {
-  throw new Error(`Trust-style pull refresh is not a small icon-only gap: ${JSON.stringify(trustPulledState)}`);
+  throw new Error(`Trust Wallet pull refresh is not a small blank gap: ${JSON.stringify(trustPulledState)}`);
 }
 await endPullToRefresh(trustPullSurface);
 await page.waitForFunction(() => document.querySelector('[data-testid="trust-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await assertBlankPullRefreshIndicator(trustPullIndicator, "Trust refreshing gap");
 await page.waitForFunction(() => {
   const indicator = document.querySelector('[data-testid="trust-pull-refresh"]');
   return Boolean(indicator
@@ -2076,6 +2191,8 @@ await page.locator('[data-testid="trust-home"]').waitFor();
 // Complete a real same-wallet Account 1 -> Account 2 transfer and verify Activity.
 await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Send", exact: true }).click();
 await trustSendSheet.getByText("Shared network connected:", { exact: false }).waitFor({ timeout: 10_000 });
+await assertSelectOptions(trustSendSheet.getByLabel("Source wallet"), allSendWalletNames, "Trust Send source wallet");
+await assertSelectOptions(trustSendSheet.getByLabel("Destination wallet"), allSendWalletNames, "Trust Send destination wallet");
 await trustSendSheet.getByLabel("Source wallet").selectOption("trust");
 await trustSendSheet.getByLabel("Currency").selectOption("SOL");
 const trustTransferSelects = trustSendSheet.locator("select");
@@ -2754,7 +2871,7 @@ await phantomPage.getByLabel("Search Phantom").waitFor({ timeout: 20_000 });
 await phantomPage.getByRole("button", { name: "Open wallet actions" }).click();
 await phantomPage.getByRole("button", { name: "Send", exact: true }).click();
 await phantomPage.getByRole("button", { name: "Choose one of my accounts" }).click();
-await phantomPage.getByRole("button", { name: "Use Larpz Wallet Account 1" }).click();
+await phantomPage.getByRole("button", { name: "Use Ledger Wallet Account 1" }).click();
 await phantomPage.waitForFunction(() => [...document.querySelectorAll("button")]
   .some((button) => button.textContent?.includes("Review transfer") && !button.disabled), undefined, { timeout: 20_000 });
 await phantomPage.getByRole("button", { name: "Close Send" }).click();

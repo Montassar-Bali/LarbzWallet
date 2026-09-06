@@ -18,7 +18,6 @@ import {
   MoreHorizontal,
   Plus,
   QrCode,
-  RefreshCw,
   Repeat2,
   Search,
   Settings,
@@ -1712,9 +1711,7 @@ export function LedgerWallet() {
               role={refreshing ? "status" : undefined}
               aria-label={refreshing ? "Refreshing wallet" : undefined}
               aria-hidden={!refreshing}
-            >
-              <RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : ""} size={18} style={!refreshing ? { transform: `rotate(${Math.min(240, pullDistance * 4)}deg)` } : undefined} />
-            </div>
+            />
             <div data-testid="ledger-pull-content" className={`${styles.pullContent} ${pulling ? styles.pullContentDragging : ""}`} style={{ transform: `translate3d(0, ${pullDistance}px, 0)` }}>
               <HomeScreen tokens={tokens} records={activityRecords} accounts={runtime.state?.wallets.ledger.accounts ?? []} currentAccountId={runtime.currentAccount?.id} currency={currency} rate={selectedCurrency.rate} total={total} earnPositions={features.earnPositions} actionPreference={settings.actionPreference} marketApiKey={settings.marketApiKey} onSettings={() => setSettingsOpen(true)} onReceive={() => runtime.openReceive()} onSend={() => runtime.openTransfer()} onBuy={() => openBuy()} onExplore={() => { setView("market"); setActiveTab("Discover"); }} onSwap={() => openSwap()} onEarn={() => { setView("earn"); setActiveTab("Earn"); }} onCard={() => { setView("card"); setActiveTab("Wallet"); }} onNotifications={() => setView("notifications")} onAddTransaction={() => setTransactionOpen(true)} onAssets={() => { setSelectedSymbol(null); setView("assets"); }} onHistory={() => setView("history")} onAllocation={() => setView("allocation")} onAccounts={runtime.openAccounts} onToken={openAsset} />
             </div>

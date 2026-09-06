@@ -48,6 +48,12 @@ describe("shared wallet transfer repository", () => {
     }
   });
 
+  it("uses the exact product names for all three wallets", () => {
+    expect(state.wallets.ghost.name).toBe("Phantom Wallet");
+    expect(state.wallets.ledger.name).toBe("Ledger Wallet");
+    expect(state.wallets.trust.name).toBe("Trust Wallet");
+  });
+
   function transfer(sourceWalletId: "ghost" | "ledger" | "trust", destinationWalletId: "ghost" | "ledger" | "trust", clientRequestId: string) {
     const before = repository.getState();
     return repository.executeTransfer({

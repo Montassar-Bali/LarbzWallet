@@ -17,8 +17,8 @@ type WalletLauncherProps = {
 };
 
 const launchOptions: { id: WalletThemeId; label: string; icon: typeof Sparkles }[] = [
-  { id: "ledger", label: "Get Larpz Wallet", icon: Laptop },
-  { id: "trust", label: "Get Larpz Trust Style", icon: ShieldCheck },
+  { id: "ledger", label: "Get Ledger Wallet", icon: Laptop },
+  { id: "trust", label: "Get Trust Wallet", icon: ShieldCheck },
 ];
 
 export function WalletLauncher({ value, onChange }: WalletLauncherProps) {

@@ -33,7 +33,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { AddressQrCode } from "@/components/wallet/address-qr-code";
 import { CameraQrScanner } from "@/components/wallet/camera-qr-scanner";
 import { useSwipeDismiss } from "@/components/wallet/use-swipe-dismiss";
-import type { WalletThemeId } from "@/config/wallets";
+import { walletDisplayNames, type WalletThemeId } from "@/config/wallets";
 import {
   getWalletOwnerIdFromCookie,
   isLicenseWalletOwnerId,
@@ -88,7 +88,7 @@ type WalletRuntimeValue = {
 
 const WalletRuntimeContext = createContext<WalletRuntimeValue | null>(null);
 
-const walletLabels: Record<WalletThemeId, string> = { ghost: "Phantom", ledger: "Larpz Wallet", trust: "Larpz Trust-style Wallet" };
+const walletLabels = walletDisplayNames;
 const walletDisclosures: Record<WalletThemeId, string> = {
   ghost: "",
   ledger: "",
@@ -632,7 +632,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
         || !activeRepository.getState().wallets.ledger.accounts.some((account) => account.id === input.sourceAccountId)
       )
     ) {
-      throw new Error("Larpz Wallet transfers must use a Larpz Wallet source account.");
+      throw new Error("Ledger Wallet transfers must use a Ledger Wallet source account.");
     }
     if (sharedStatusRef.current === "connecting") throw new Error("Shared wallet network is still connecting. Try again in a moment.");
     if (sharedStatusRef.current === "error") throw new Error(sharedError || "Shared wallet network is unavailable.");
