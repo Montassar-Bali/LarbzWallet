@@ -1058,7 +1058,7 @@ function PerpMarketScreen({ token, cashBalance, positions, onBack, onOpenPositio
 
   return (
     <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+32px)]">
-      <ScreenHeader title={`${token.symbol}-PERP`} onBack={onBack} />
+      <ScreenHeader title={`${token.symbol}-PERP`} onBack={onBack} safeAreaHandled />
       <section className="px-4 pb-12">
         <div className="flex items-center gap-4 pt-3"><TokenIcon token={token} size="large" /><div className="min-w-0 flex-1"><p className="flex items-center gap-2 text-sm font-bold uppercase tracking-[.1em] text-white/45"><span className="h-2 w-2 rounded-full bg-[#00e676]" /> Live market</p><h1 className="mt-1 truncate text-[38px] font-semibold leading-none tracking-[-.06em]">{formatPrice(token.price)}</h1><p className={`mt-2 text-lg font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>{positive ? "+" : ""}{token.change24h.toFixed(2)}% today</p></div></div>
 

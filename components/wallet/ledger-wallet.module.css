@@ -717,32 +717,20 @@
   left: 50%;
   display: grid;
   width: min(100%, 430px);
-  height: calc(81px + env(safe-area-inset-bottom));
+  height: 81px;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: start;
   isolation: isolate;
   overflow: visible;
-  padding: 0 8px env(safe-area-inset-bottom);
+  padding: 0 8px;
   transform: translateX(-50%);
-}
-
-.bottomNav::after {
-  position: absolute;
-  z-index: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: calc(env(safe-area-inset-bottom) + 2px);
-  background: var(--ledger-nav-surface);
-  content: "";
-  pointer-events: none;
 }
 
 .navSurface {
   position: absolute;
   z-index: 0;
   right: 0;
-  bottom: env(safe-area-inset-bottom);
+  bottom: 0;
   left: 0;
   width: 100%;
   height: 81px;

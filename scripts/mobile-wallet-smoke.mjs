@@ -409,6 +409,34 @@ if (phantomHomeReferenceLayout.accountGap === null
   || phantomHomeReferenceLayout.changeFont !== "18px") {
   throw new Error(`Phantom home spacing or token sizing does not match the reference: ${JSON.stringify(phantomHomeReferenceLayout)}`);
 }
+const phantomWalletTabs = page.locator('[data-testid="phantom-wallet-tabs"]');
+await phantomWalletTabs.getByRole("button", { name: "Trade", exact: true }).click();
+await page.getByRole("button", { name: "Perps", exact: true }).click();
+await page.getByRole("button").filter({ hasText: /BTC-PERP/ }).first().click();
+const phantomPerpHeading = page.getByRole("heading", { name: "BTC-PERP", exact: true });
+await phantomPerpHeading.waitFor();
+const phantomPerpHeaderLayout = await phantomPerpHeading.evaluate((heading) => {
+  const header = heading.closest("header");
+  const panel = header?.parentElement?.parentElement;
+  const backButton = header?.querySelector('button[aria-label="Go back"]');
+  const swipeHandle = panel?.querySelector('[data-swipe-dismiss-handle="true"]');
+  const backBounds = backButton?.getBoundingClientRect();
+  const handleBounds = swipeHandle?.getBoundingClientRect();
+  return {
+    backToHandleGap: backBounds && handleBounds ? backBounds.top - handleBounds.bottom : null,
+    className: header?.className ?? "",
+  };
+});
+if (phantomPerpHeaderLayout.backToHandleGap === null
+  || phantomPerpHeaderLayout.backToHandleGap < 17
+  || phantomPerpHeaderLayout.backToHandleGap > 19
+  || !phantomPerpHeaderLayout.className.includes("pt-[18px]")
+  || phantomPerpHeaderLayout.className.includes("safe-area-inset-top")) {
+  throw new Error(`Phantom perpetual market header duplicates the top safe area: ${JSON.stringify(phantomPerpHeaderLayout)}`);
+}
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-perp-market-layout.png` });
+await phantomPerpHeading.locator("xpath=parent::header").getByRole("button", { name: "Go back" }).click();
+await phantomWalletTabs.getByRole("button", { name: "Home", exact: true }).click();
 const phantomTokenHeading = page.getByRole("button", { name: "Token", exact: true });
 if (!await phantomTokenHeading.locator("svg").count()) throw new Error("Phantom Token heading is missing its forward chevron.");
 if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-home-token-layout.png` });
@@ -865,7 +893,8 @@ const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
   const transfer = nav.querySelector('button[aria-label="Transfer"]');
   const center = nav.querySelector('[data-testid="ledger-transfer-orb"]')?.getBoundingClientRect();
   const surface = nav.querySelector('[data-testid="ledger-nav-surface"]')?.getBoundingClientRect();
-  const safeAreaFill = getComputedStyle(nav, "::after");
+  const navStyle = getComputedStyle(nav);
+  const afterStyle = getComputedStyle(nav, "::after");
   const currentTabs = [...nav.querySelectorAll('button[aria-current="page"]')].map((button) => button.textContent?.trim());
   const centerHit = center
     ? document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)
@@ -880,19 +909,16 @@ const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
     centerRise: center ? bounds.top - center.top : 0,
     centerIsClickable: Boolean(transfer && centerHit && (centerHit === transfer || transfer.contains(centerHit))),
     surfaceMatchesRail: surface ? Math.abs(surface.top - bounds.top) < 1 && Math.abs(surface.width - bounds.width) < 1 : false,
+    surfaceBottomGap: surface ? window.innerHeight - surface.bottom : null,
     surfaceAllowsCurve: surface ? surface.height >= 80 : false,
-    safeAreaFill: {
-      bottom: Number.parseFloat(safeAreaFill.bottom),
-      height: Number.parseFloat(safeAreaFill.height),
-      background: safeAreaFill.backgroundColor,
-      content: safeAreaFill.content,
-    },
+    paddingBottom: Number.parseFloat(navStyle.paddingBottom),
+    afterContent: afterStyle.content,
     currentTabs,
     equalColumns: buttons.length === 5 && Math.max(...buttons.map(({ width }) => width)) - Math.min(...buttons.map(({ width }) => width)) < 1,
   };
 });
 if (Math.abs(ledgerNavGeometry.bottomGap) > 1
-  || ledgerNavGeometry.height < 80
+  || Math.abs(ledgerNavGeometry.height - 81) > 1
   || ledgerNavGeometry.centerOffset > 1
   || !ledgerNavGeometry.centerIsRound
   || !ledgerNavGeometry.centerProtrudes
@@ -900,11 +926,11 @@ if (Math.abs(ledgerNavGeometry.bottomGap) > 1
   || ledgerNavGeometry.centerRise < 20 || ledgerNavGeometry.centerRise > 22
   || !ledgerNavGeometry.centerIsClickable
   || !ledgerNavGeometry.surfaceMatchesRail
+  || ledgerNavGeometry.surfaceBottomGap === null
+  || Math.abs(ledgerNavGeometry.surfaceBottomGap) > 1
   || !ledgerNavGeometry.surfaceAllowsCurve
-  || Math.abs(ledgerNavGeometry.safeAreaFill.bottom) > 0.5
-  || ledgerNavGeometry.safeAreaFill.height < 1
-  || ledgerNavGeometry.safeAreaFill.background === "rgba(0, 0, 0, 0)"
-  || ledgerNavGeometry.safeAreaFill.content === "none"
+  || Math.abs(ledgerNavGeometry.paddingBottom) > 0.5
+  || ledgerNavGeometry.afterContent !== "none"
   || ledgerNavGeometry.currentTabs.join(",") !== "Wallet"
   || !ledgerNavGeometry.equalColumns) {
   throw new Error(`Ledger bottom navigation geometry does not match the reference: ${JSON.stringify(ledgerNavGeometry)}`);
