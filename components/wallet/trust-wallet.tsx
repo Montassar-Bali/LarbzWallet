@@ -85,6 +85,10 @@ type MarketSort = "volume-desc" | "volume-asc" | "market-cap-desc" | "price-desc
 type MarketPeriod = "1h" | "24h" | "7d";
 type EarnMarket = { id: string; symbol: string; leverage: number };
 type DiscoverCategory = "featured" | "dex" | "lending" | "yield" | "staking";
+const PULL_REFRESH_THRESHOLD = 80;
+const PULL_REFRESH_MAX_GAP = 52;
+const PULL_REFRESH_HOLD = 42;
+const PULL_REFRESH_MS = 700;
 type DiscoverDapp = {
   id: string;
   name: string;
@@ -533,7 +537,11 @@ export function TrustWallet() {
   const [refreshing, setRefreshing] = useState(false);
   const [marketStatus, setMarketStatus] = useState<MarketStatus>("loading");
   const [pull, setPull] = useState(0);
-  const pullStart = useRef<number | null>(null);
+  const [pulling, setPulling] = useState(false);
+  const pullStart = useRef<{ x: number; y: number } | null>(null);
+  const rawPullDistance = useRef(0);
+  const refreshReturnTimer = useRef<number | null>(null);
+  const manualRefreshPending = useRef(false);
   const latest = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
   const scroll = useRef<HTMLDivElement>(null);
   const marketListAnchor = useRef<HTMLDivElement>(null);
@@ -596,12 +604,14 @@ export function TrustWallet() {
     setTokens((current) => applyLiveMarketSnapshot(mergeCanonicalWalletCatalogue(current), snapshot));
     runtime.updateMarketAssets(applyLiveMarketSnapshot(mergeCanonicalWalletCatalogue([]), snapshot));
   }, refreshKey, (success) => {
-    setMarketStatus(success ? "ready" : "error");
-    if (!refreshing) return;
-    setRefreshing(false);
-    setPull(0);
-    show(success ? "Wallet and live prices refreshed." : "Wallet refreshed. Live prices are temporarily unavailable.");
+    if (success) setMarketStatus("ready");
+    else if (!manualRefreshPending.current) setMarketStatus("error");
+    manualRefreshPending.current = false;
   });
+
+  useEffect(() => () => {
+    if (refreshReturnTimer.current !== null) window.clearTimeout(refreshReturnTimer.current);
+  }, []);
 
   const needsOndoMarkets = screen === "market-search" || (
     screen === "market" && (marketCategory === "ondo" || marketCategory === "favorites")
@@ -786,10 +796,20 @@ export function TrustWallet() {
 
   function refreshWallet() {
     if (refreshing) return;
+    if (refreshReturnTimer.current !== null) window.clearTimeout(refreshReturnTimer.current);
+    pullStart.current = null;
+    rawPullDistance.current = 0;
+    setPulling(false);
+    setPull(PULL_REFRESH_HOLD);
     setRefreshing(true);
-    setMarketStatus("loading");
+    manualRefreshPending.current = true;
     runtime.refresh();
     setRefreshKey((value) => value + 1);
+    refreshReturnTimer.current = window.setTimeout(() => {
+      setRefreshing(false);
+      setPull(0);
+      refreshReturnTimer.current = null;
+    }, PULL_REFRESH_MS);
   }
 
   function retryMarketData() {
@@ -1123,9 +1143,8 @@ export function TrustWallet() {
           <span className="min-w-0"><strong data-testid="trust-account-name" className="block truncate text-[17px]/[22px] font-extrabold">{activeProfile.walletName}</strong><span className="block truncate text-[10px]/[12px] font-bold uppercase tracking-[.045em] text-white/38">Trust Wallet</span></span>
           <ChevronDown className="size-4 shrink-0 text-white/45" />
         </button>
-        <div className="flex shrink-0 gap-1.5"><IconButton label="Refresh wallet" icon={refreshing ? LoaderCircle : RefreshCw} onClick={refreshWallet} /><IconButton label="Open transaction history" icon={History} onClick={runtime.openHistory} /><IconButton label="Open QR scanner" icon={QrCode} onClick={runtime.openScanner} /></div>
+        <div className="flex shrink-0 gap-1.5"><IconButton label="Open transaction history" icon={History} onClick={runtime.openHistory} /><IconButton label="Open QR scanner" icon={QrCode} onClick={runtime.openScanner} /></div>
       </header>
-      {refreshing ? <div data-testid="trust-refresh-status" role="status" className="mt-6 flex justify-center gap-2 text-sm font-bold text-white/50"><LoaderCircle className="size-4 animate-spin" />Refreshing wallet…</div> : null}
       {renderMarketStatus()}
       <TrustNewsCarousel
         onSecurity={runtime.openSecurity}
@@ -1751,24 +1770,60 @@ export function TrustWallet() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(68,55,255,.09),transparent_34%)]" />
         <div
           ref={scroll}
+          data-testid="trust-pull-surface"
           className={`relative h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pt-[max(1rem,env(safe-area-inset-top))] ${screen === "market" ? "pb-[calc(11rem+env(safe-area-inset-bottom))]" : screen === "earn" && earnStage === "list" ? "pb-[calc(12.5rem+env(safe-area-inset-bottom))]" : showBottomNav ? "pb-[calc(7.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(2rem+env(safe-area-inset-bottom))]"}`}
           onFocusCapture={(event) => {
             const target = event.target;
             if (target instanceof HTMLInputElement && ["Fiat amount", "Swap amount"].includes(target.getAttribute("aria-label") ?? "") && window.matchMedia("(pointer: coarse)").matches) target.blur();
           }}
           onTouchStart={(event) => {
-            if (screen === "home" && event.currentTarget.scrollTop <= 0) pullStart.current = event.touches[0]?.clientY ?? null;
+            if (screen !== "home" || event.currentTarget.scrollTop > 0 || refreshing) return;
+            const touch = event.touches[0];
+            pullStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+            rawPullDistance.current = 0;
+            setPulling(pullStart.current !== null);
           }}
           onTouchMove={(event) => {
-            if (pullStart.current !== null) setPull(Math.max(0, Math.min(88, (event.touches[0]?.clientY ?? pullStart.current) - pullStart.current)));
+            const start = pullStart.current;
+            const touch = event.touches[0];
+            if (!start || !touch || event.currentTarget.scrollTop > 0) return;
+            const deltaX = touch.clientX - start.x;
+            const deltaY = touch.clientY - start.y;
+            if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) return;
+            rawPullDistance.current = deltaY;
+            setPull(Math.min(PULL_REFRESH_MAX_GAP, deltaY * .5));
           }}
           onTouchEnd={() => {
-            if (pull > 68) refreshWallet();
-            else setPull(0);
+            if (!pullStart.current) return;
+            const shouldRefresh = rawPullDistance.current >= PULL_REFRESH_THRESHOLD;
             pullStart.current = null;
+            rawPullDistance.current = 0;
+            setPulling(false);
+            if (shouldRefresh) refreshWallet();
+            else setPull(0);
+          }}
+          onTouchCancel={() => {
+            pullStart.current = null;
+            rawPullDistance.current = 0;
+            setPulling(false);
+            setPull(0);
           }}
         >
-          {pull > 0 && !refreshing ? <div className="flex items-center justify-center text-xs font-bold text-white/45" style={{ height: pull }}><ArrowDown className="mr-2 size-4" />{pull > 68 ? "Release to refresh" : "Pull to refresh"}</div> : null}
+          <div
+            data-testid="trust-pull-refresh"
+            data-state={refreshing ? "refreshing" : pulling ? "pulling" : "idle"}
+            role={refreshing ? "status" : undefined}
+            aria-label={refreshing ? "Refreshing wallet data" : undefined}
+            aria-hidden={!refreshing}
+            className={`grid w-full shrink-0 place-items-center overflow-hidden ${pulling ? "" : "transition-[height] duration-[260ms] ease-[cubic-bezier(.22,.8,.24,1)]"}`}
+            style={{ height: refreshing ? PULL_REFRESH_HOLD : pull }}
+          >
+            <LoaderCircle
+              aria-hidden="true"
+              className={`size-5 text-[#8179ff] ${refreshing ? "animate-spin" : ""}`}
+              style={{ opacity: refreshing ? 1 : Math.min(1, pull / 24), transform: refreshing ? undefined : `rotate(${pull * 4}deg)` }}
+            />
+          </div>
           {content}
         </div>
         {screen === "market" ? <button type="button" data-testid="trust-market-swap" onClick={() => openSwapFor(tokens.find((token) => token.balance > 0 && token.price > 0)?.symbol ?? tokens.find((token) => token.price > 0)?.symbol ?? "SOL")} className="absolute inset-x-4 z-40 flex h-[3.25rem] items-center justify-center rounded-full bg-[#4437ff] text-[20px]/[24px] font-extrabold shadow-[0_10px_30px_rgba(0,0,0,.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" style={{ bottom: "calc(max(.75rem, env(safe-area-inset-bottom)) + 4.875rem)" }}>Swap</button> : null}

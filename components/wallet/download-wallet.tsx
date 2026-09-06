@@ -66,7 +66,11 @@ import { AddressQrCode } from "@/components/wallet/address-qr-code";
 
 type Tab = "Home" | "Trade" | "Predictions" | "Explore";
 type Action = "Send" | "Receive" | "Add Cash" | "Trade";
-type HomeRefreshStatus = "idle" | "pulling" | "ready" | "refreshing" | "complete";
+type HomeRefreshStatus = "idle" | "pulling" | "refreshing";
+const HOME_PULL_THRESHOLD = 80;
+const HOME_PULL_MAX_GAP = 52;
+const HOME_PULL_REFRESH_GAP = 42;
+const HOME_PULL_REFRESH_MS = 700;
 type TokenFlow = "send" | "buy";
 type View =
   | "home"
@@ -586,7 +590,6 @@ function HomeView({
   onCommunity,
   onSupport,
   onDisclosures,
-  onRefresh,
 }: {
   tokens: WalletToken[];
   profile: ProfileRecord;
@@ -613,7 +616,6 @@ function HomeView({
   onCommunity: () => void;
   onSupport: () => void;
   onDisclosures: () => void;
-  onRefresh: () => void;
 }) {
   const referenceTokens = useMemo(() => referenceHomeTokens(tokens), [tokens]);
   const displayTokens = useMemo(
@@ -650,43 +652,38 @@ function HomeView({
     displayTotal === 0 ? 0 : (displayChangeValue / displayTotal) * 100;
   const showingReference = tokenQuery.trim().length === 0;
   const accountName = profile.accountName;
-  const isDraggingRefresh = refreshStatus === "pulling" || refreshStatus === "ready";
+  const isDraggingRefresh = refreshStatus === "pulling";
   const isRefreshing = refreshStatus === "refreshing";
-  const refreshStatusText = refreshStatus === "refreshing"
-    ? "Refreshing wallet"
-    : refreshStatus === "complete"
-      ? "Wallet updated"
-      : refreshStatus === "ready"
-        ? "Release to refresh"
-        : "Pull to refresh";
   const pulledContentStyle = {
-    transform: `translate3d(0, ${refreshOffset}px, 0)`,
-    transition: isDraggingRefresh ? "none" : "transform 260ms cubic-bezier(.22,.8,.24,1)",
+    height: refreshOffset,
+    transition: isDraggingRefresh ? "none" : "height 260ms cubic-bezier(.22,.8,.24,1)",
   };
 
   return (
     <>
-      {refreshStatus !== "idle" ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="phantom-refresh-status pointer-events-none absolute left-1/2 top-[calc(env(safe-area-inset-top)+13px)] z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/[0.06] bg-[#19191b] py-1.5 pl-2 pr-3 text-xs font-semibold text-white/65 shadow-[0_10px_35px_rgba(0,0,0,.55)]"
-          style={{ opacity: Math.min(1, refreshOffset / 28) }}
-        >
-          <span className={`grid h-7 w-7 place-items-center rounded-full ${refreshStatus === "complete" ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#a295f3]/15 text-[#a99bf7]"}`}>
-            {refreshStatus === "complete" ? <Check className="h-4 w-4" /> : <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} style={isDraggingRefresh ? { transform: `rotate(${Math.min(240, refreshOffset * 4)}deg)` } : undefined} />}
-          </span>
-          <span>{refreshStatusText}</span>
-        </div>
-      ) : null}
-
-      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl min-[400px]:px-4 sm:px-5" style={pulledContentStyle}>
+      <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl min-[400px]:px-4 sm:px-5">
         <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onProfile={onProfile} />
       </div>
 
+      <div
+        data-testid="phantom-pull-refresh"
+        data-state={refreshStatus}
+        role={isRefreshing ? "status" : undefined}
+        aria-label={isRefreshing ? "Refreshing wallet data" : undefined}
+        aria-hidden={!isRefreshing}
+        className="grid w-full place-items-center overflow-hidden text-white/55"
+        style={pulledContentStyle}
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={`h-5 w-5 ${isRefreshing ? "animate-spin" : ""}`}
+          style={{ opacity: Math.min(1, refreshOffset / 24), transform: isDraggingRefresh ? `rotate(${Math.min(270, refreshOffset * 5)}deg)` : undefined }}
+        />
+      </div>
+
       {tab === "Home" ? (
-        <section className="phantom-home-content px-4 pb-40 pt-3 sm:px-5" style={pulledContentStyle}>
-          <div className="flex items-center justify-between gap-4"><button data-testid="phantom-account-selector" type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button></span></div>
+        <section data-testid="phantom-pull-content" className="phantom-home-content px-4 pb-40 pt-[13px] sm:px-5">
+          <div className="flex items-center gap-4"><button data-testid="phantom-account-selector" type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button></div>
           <h1 data-testid="phantom-total-balance" className="mt-2 max-w-full whitespace-nowrap text-[clamp(2rem,10vw,3rem)] font-semibold leading-none tracking-[-0.065em] tabular-nums text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex min-w-0 items-center gap-2 text-[clamp(.9rem,4.2vw,1.125rem)] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="min-w-0 truncate tabular-nums">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 tabular-nums text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -2264,18 +2261,15 @@ export function DownloadWallet() {
     clearHomeRefreshTimers();
     homePullStart.current = null;
     homeRawPull.current = 0;
-    setHomePullOffset(56);
+    setHomePullOffset(HOME_PULL_REFRESH_GAP);
     setHomeRefreshStatus("refreshing");
     runtime.refresh();
     setHomeRefreshKey((current) => current + 1);
     homeRefreshTimers.current = [
       window.setTimeout(() => {
-        setHomeRefreshStatus("complete");
-      }, 700),
-      window.setTimeout(() => {
         setHomePullOffset(0);
         setHomeRefreshStatus("idle");
-      }, 1_120),
+      }, HOME_PULL_REFRESH_MS),
     ];
   };
 
@@ -2304,16 +2298,15 @@ export function DownloadWallet() {
     const deltaX = touch.clientX - start.x;
     const deltaY = touch.clientY - start.y;
     if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) return;
-    event.preventDefault();
-    const nextOffset = Math.min(64, deltaY * 0.52);
+    const nextOffset = Math.min(HOME_PULL_MAX_GAP, deltaY * 0.5);
     homeRawPull.current = deltaY;
     setHomePullOffset(nextOffset);
-    setHomeRefreshStatus(deltaY >= 82 ? "ready" : "pulling");
+    setHomeRefreshStatus("pulling");
   };
 
   const handleHomeTouchEnd = () => {
     if (!homePullStart.current) return;
-    const shouldRefresh = homeRawPull.current >= 82;
+    const shouldRefresh = homeRawPull.current >= HOME_PULL_THRESHOLD;
     homePullStart.current = null;
     homeRawPull.current = 0;
     if (shouldRefresh) {
@@ -2337,7 +2330,7 @@ export function DownloadWallet() {
         {drawerOpen ? <SideDrawer profile={profile} onClose={closeDrawer} onAccounts={() => { closeDrawer(); runtime.openAccounts(); }} onProfile={() => { closeDrawer(); setView("profile-overview"); }} onConnectX={() => { closeDrawer(); setXEditorReturnView("home"); setView("x-editor"); }} onCommunity={() => { closeDrawer(); setView("community"); }} onWatchlist={() => { closeDrawer(); setView("watchlist"); }} onHistory={() => { closeDrawer(); runtime.openHistory(); }} onSettings={() => { closeDrawer(); runtime.openSecurity(); }} onSupport={() => { closeDrawer(); setView("support"); }} onNotice={notify} /> : null}
         <div data-testid="phantom-wallet-surface" inert={drawerOpen} aria-hidden={drawerOpen} className={`relative z-40 h-full overflow-hidden bg-black transition-[transform,filter,border-radius] duration-[260ms] ease-[cubic-bezier(.22,.8,.24,1)] ${drawerOpen ? "rounded-l-[2rem] brightness-[.32] shadow-[-22px_0_60px_rgba(0,0,0,.88)]" : ""}`} style={drawerOpen ? { transform: "translateX(min(78%, 390px))" } : undefined}>
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onProfile={() => { setActionsOpen(false); setDrawerOpen(true); }} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onOpenTokens={() => setView("tokens")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onTab={setActiveTab} onProfile={() => { setActionsOpen(false); setDrawerOpen(true); }} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onOpenTokens={() => setView("tokens")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "tokens" ? <TokensScreen tokens={tokens} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "tokens")} /> : null}
           {view === "profile-overview" ? <ProfileOverviewScreen profile={profile} records={records} transactions={runtime.state?.transactions ?? []} currentAccountId={runtime.currentAccount?.id} onClose={() => setView("home")} onManage={() => setView("manage-profile")} onShare={() => { void shareProfile(); }} /> : null}
           {view === "manage-profile" ? <ManageProfileScreen profile={profile} onBack={() => setView("profile-overview")} onAvatar={() => setView("avatar-picker")} onUsername={() => setView("username-editor")} onBio={() => setView("bio-editor")} onX={() => { setXEditorReturnView("manage-profile"); setView("x-editor"); }} onFollowing={() => notify("You are not following any profiles yet.")} onAuthFactors={runtime.openSecurity} onPrivacy={() => saveProfileFields({ privacy: profile.privacy === "Public" ? "Private" : "Public" }, "manage-profile", `Profile is now ${profile.privacy === "Public" ? "private" : "public"}.`)} onVerify={() => saveProfileFields({ verified: true }, "manage-profile", profile.verified ? "Profile is already verified." : "Profile verified.")} /> : null}

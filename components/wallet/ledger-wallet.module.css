@@ -14,6 +14,7 @@
   --ledger-negative: #c65d69;
   min-height: 100dvh;
   overflow-x: clip;
+  overscroll-behavior-y: contain;
   color: var(--ledger-text);
   color-scheme: dark;
   background: var(--ledger-bg);
@@ -72,19 +73,28 @@
   padding: calc(env(safe-area-inset-top) + 17px) 18px calc(112px + env(safe-area-inset-bottom));
 }
 
-.pullStatus {
+.pullIndicator {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 2px);
+  top: calc(env(safe-area-inset-top) + 16px);
   left: 50%;
   z-index: 3;
-  display: flex;
-  min-height: 22px;
-  align-items: center;
-  gap: 7px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  transform: translateX(-50%);
   color: var(--ledger-muted);
-  font-size: 12px;
-  white-space: nowrap;
-  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.pullContent {
+  will-change: transform;
+  transition: transform 260ms cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+
+.pullContentDragging {
+  transition: none;
 }
 
 .header {
@@ -1262,12 +1272,17 @@
     animation: none;
   }
 
-  .pullStatus,
+  .pullIndicator,
+  .pullContent,
   .action,
   .headerIcon,
   .visibilityButton,
   .closeButton,
   .centerNav span {
     transition: none;
+  }
+
+  .pullIndicator svg {
+    animation: none !important;
   }
 }

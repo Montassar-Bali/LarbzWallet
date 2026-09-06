@@ -70,6 +70,10 @@ const LEDGER_TOKENS_KEY = "larpz_ledger_tokens";
 const LEDGER_TRANSACTIONS_KEY = "larpz_ledger_transactions";
 const LEDGER_FEATURES_KEY = "larpz_ledger_features";
 const LEDGER_SETTINGS_KEY = "larpz_ledger_settings_v2";
+const PULL_REFRESH_THRESHOLD = 80;
+const PULL_REFRESH_MAX_GAP = 52;
+const PULL_REFRESH_HOLD = 42;
+const PULL_REFRESH_MS = 700;
 
 const portfolioSymbols = walletMarketSymbols;
 
@@ -300,7 +304,7 @@ function BottomNav({ active, onChange, onTransfer }: { active: BottomTab; onChan
   const tabs: BottomTab[] = ["Wallet", "Earn", "Discover", "My Ledger"];
 
   return (
-    <nav aria-label="Ledger Wallet navigation" data-testid="ledger-bottom-nav" className={styles.bottomNav}>
+    <nav aria-label="Ledger Wallet navigation" data-testid="ledger-bottom-nav" data-no-pull-refresh className={styles.bottomNav}>
       <svg
         aria-hidden="true"
         focusable="false"
@@ -341,10 +345,7 @@ function HomeScreen({
   earnPositions,
   actionPreference,
   marketApiKey,
-  refreshing,
-  pullDistance,
   onSettings,
-  onRefresh,
   onReceive,
   onSend,
   onBuy,
@@ -370,10 +371,7 @@ function HomeScreen({
   earnPositions: Record<string, number>;
   actionPreference: LedgerWalletSettings["actionPreference"];
   marketApiKey: string;
-  refreshing: boolean;
-  pullDistance: number;
   onSettings: () => void;
-  onRefresh: () => void;
   onReceive: () => void;
   onSend: () => void;
   onBuy: () => void;
@@ -433,11 +431,6 @@ function HomeScreen({
 
   return (
     <main data-testid="ledger-home" className={styles.home}>
-      <div data-testid="ledger-refresh-status" className={styles.pullStatus} style={{ transform: `translate(-50%, ${Math.min(42, pullDistance / 2)}px)`, opacity: refreshing || pullDistance > 12 ? 1 : 0 }} aria-hidden={!refreshing && pullDistance <= 12}>
-        <RefreshCw className={refreshing ? "animate-spin" : ""} size={14} />
-        <span role="status">{refreshing ? "Refreshing portfolio…" : pullDistance >= 72 ? "Release to refresh" : "Pull to refresh"}</span>
-      </div>
-
       <header className={styles.header}>
         <div className={styles.walletHeading}>
           <h1>Wallet</h1>
@@ -462,9 +455,9 @@ function HomeScreen({
         {balanceVisible
           ? <SplitMoney fit testId="ledger-portfolio-balance" amount={total} currency={currency} className={`${styles.heroValue} ${heroSizeClass}`} />
           : <span data-testid="ledger-portfolio-balance" className={styles.heroValue}>••••••</span>}
-        <button type="button" onClick={onRefresh} aria-label="Refresh portfolio" className={`${styles.heroChange} ${zeroBalance ? styles.neutral : change >= 0 ? styles.positive : styles.negative}`}>
+        <p data-testid="ledger-portfolio-change" className={`${styles.heroChange} ${zeroBalance ? styles.neutral : change >= 0 ? styles.positive : styles.negative}`}>
           {balanceVisible ? zeroBalance ? `→ 0.00% (${formatMoney(0, currency)})` : `${change >= 0 ? "↗ +" : "↘ "}${change.toFixed(2)}% (${dailyValue >= 0 ? "+" : ""}${formatMoney(dailyValue, currency)})` : "Balance hidden"}
-        </button>
+        </p>
         <LedgerPortfolioChart key={period} tokens={tokens} period={period} currency={currency} rate={rate} total={total} zeroBalance={zeroBalance} marketApiKey={marketApiKey} additionalBalances={earnPositions} />
         <div className={styles.periods} role="tablist" aria-label="Portfolio chart period">
           {["1D", "1W", "1M", "1Y", "ALL"].map((timeframe) => <button key={timeframe} type="button" role="tab" aria-selected={period === timeframe} onClick={() => setPeriod(timeframe)} className={`${styles.period} ${period === timeframe ? styles.periodActive : ""}`}>{timeframe}</button>)}
@@ -1256,7 +1249,10 @@ export function LedgerWallet() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
-  const pullStart = useRef<number | null>(null);
+  const [pulling, setPulling] = useState(false);
+  const pullStart = useRef<{ x: number; y: number } | null>(null);
+  const rawPullDistance = useRef(0);
+  const refreshReturnTimer = useRef<number | null>(null);
   const balanceOperationPending = useRef(false);
 
   useLivePrices(liveMarketSymbols, (prices, changes, images, marketCaps, changes1h, changes7d, volumes24h) => {
@@ -1269,11 +1265,11 @@ export function LedgerWallet() {
     tokensRef.current = next;
     setTokens(next);
     runtime.updateMarketAssets(next);
-  }, refreshKey, (success) => {
-    if (!refreshing) return;
-    setRefreshing(false);
-    notify(success ? "Portfolio refreshed" : "Live prices are unavailable; saved quotes are still shown");
-  }, settings.marketApiKey);
+  }, refreshKey, undefined, settings.marketApiKey);
+
+  useEffect(() => () => {
+    if (refreshReturnTimer.current !== null) window.clearTimeout(refreshReturnTimer.current);
+  }, []);
 
   useEffect(() => {
     const previousWalletTheme = document.documentElement.dataset.walletTheme;
@@ -1456,28 +1452,56 @@ export function LedgerWallet() {
 
   function triggerRefresh() {
     if (refreshing) return;
+    if (refreshReturnTimer.current !== null) window.clearTimeout(refreshReturnTimer.current);
+    pullStart.current = null;
+    rawPullDistance.current = 0;
+    setPulling(false);
     setRefreshing(true);
-    setPullDistance(0);
+    setPullDistance(PULL_REFRESH_HOLD);
     runtime.refresh();
     setRefreshKey((value) => value + 1);
+    refreshReturnTimer.current = window.setTimeout(() => {
+      setRefreshing(false);
+      setPullDistance(0);
+      refreshReturnTimer.current = null;
+    }, PULL_REFRESH_MS);
   }
 
   function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
     if (view !== "home" || window.scrollY > 0 || refreshing) return;
-    if (event.target instanceof Element && event.target.closest("[data-testid='ledger-portfolio-chart']")) return;
-    pullStart.current = event.touches[0]?.clientY ?? null;
+    if (event.target instanceof Element && event.target.closest("[data-no-pull-refresh]")) return;
+    const touch = event.touches[0];
+    pullStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    rawPullDistance.current = 0;
+    setPulling(pullStart.current !== null);
   }
 
   function handleTouchMove(event: TouchEvent<HTMLDivElement>) {
-    if (pullStart.current === null) return;
-    const distance = Math.max(0, (event.touches[0]?.clientY ?? pullStart.current) - pullStart.current);
-    setPullDistance(Math.min(96, distance * 0.55));
+    const start = pullStart.current;
+    const touch = event.touches[0];
+    if (!start || !touch || window.scrollY > 0) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) return;
+    rawPullDistance.current = deltaY;
+    setPullDistance(Math.min(PULL_REFRESH_MAX_GAP, deltaY * 0.5));
   }
 
   function handleTouchEnd() {
-    if (pullDistance >= 72) triggerRefresh();
-    else setPullDistance(0);
+    if (!pullStart.current) return;
+    const shouldRefresh = rawPullDistance.current >= PULL_REFRESH_THRESHOLD;
     pullStart.current = null;
+    rawPullDistance.current = 0;
+    setPulling(false);
+    if (shouldRefresh) triggerRefresh();
+    else setPullDistance(0);
+  }
+
+  function handleTouchCancel() {
+    pullStart.current = null;
+    rawPullDistance.current = 0;
+    setPulling(false);
+    setPullDistance(0);
   }
 
   async function saveSettings(nextSettings: LedgerWalletSettings, balances: Record<string, number>) {
@@ -1670,15 +1694,31 @@ export function LedgerWallet() {
   return (
     <div data-testid="ledger-wallet" data-ledger-color-scheme={settings.colorScheme} className={`${styles.shell} ledger-wallet-font font-sans`}>
       <div
+        data-testid="ledger-pull-surface"
         className={styles.frame}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
       >
         <div className={styles.ambient} />
         <div className="relative">
-          {view === "home" ? <HomeScreen tokens={tokens} records={activityRecords} accounts={runtime.state?.wallets.ledger.accounts ?? []} currentAccountId={runtime.currentAccount?.id} currency={currency} rate={selectedCurrency.rate} total={total} earnPositions={features.earnPositions} actionPreference={settings.actionPreference} marketApiKey={settings.marketApiKey} refreshing={refreshing} pullDistance={pullDistance} onSettings={() => setSettingsOpen(true)} onRefresh={triggerRefresh} onReceive={() => runtime.openReceive()} onSend={() => runtime.openTransfer()} onBuy={() => openBuy()} onExplore={() => { setView("market"); setActiveTab("Discover"); }} onSwap={() => openSwap()} onEarn={() => { setView("earn"); setActiveTab("Earn"); }} onCard={() => { setView("card"); setActiveTab("Wallet"); }} onNotifications={() => setView("notifications")} onAddTransaction={() => setTransactionOpen(true)} onAssets={() => { setSelectedSymbol(null); setView("assets"); }} onHistory={() => setView("history")} onAllocation={() => setView("allocation")} onAccounts={runtime.openAccounts} onToken={openAsset} /> : null}
+          {view === "home" ? <>
+            <div
+              data-testid="ledger-pull-refresh"
+              data-state={refreshing ? "refreshing" : pulling ? "pulling" : "idle"}
+              className={styles.pullIndicator}
+              style={{ opacity: refreshing ? 1 : Math.max(0, Math.min(1, (pullDistance - 8) / 24)) }}
+              role={refreshing ? "status" : undefined}
+              aria-label={refreshing ? "Refreshing wallet" : undefined}
+              aria-hidden={!refreshing}
+            >
+              <RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : ""} size={18} style={!refreshing ? { transform: `rotate(${Math.min(240, pullDistance * 4)}deg)` } : undefined} />
+            </div>
+            <div data-testid="ledger-pull-content" className={`${styles.pullContent} ${pulling ? styles.pullContentDragging : ""}`} style={{ transform: `translate3d(0, ${pullDistance}px, 0)` }}>
+              <HomeScreen tokens={tokens} records={activityRecords} accounts={runtime.state?.wallets.ledger.accounts ?? []} currentAccountId={runtime.currentAccount?.id} currency={currency} rate={selectedCurrency.rate} total={total} earnPositions={features.earnPositions} actionPreference={settings.actionPreference} marketApiKey={settings.marketApiKey} onSettings={() => setSettingsOpen(true)} onReceive={() => runtime.openReceive()} onSend={() => runtime.openTransfer()} onBuy={() => openBuy()} onExplore={() => { setView("market"); setActiveTab("Discover"); }} onSwap={() => openSwap()} onEarn={() => { setView("earn"); setActiveTab("Earn"); }} onCard={() => { setView("card"); setActiveTab("Wallet"); }} onNotifications={() => setView("notifications")} onAddTransaction={() => setTransactionOpen(true)} onAssets={() => { setSelectedSymbol(null); setView("assets"); }} onHistory={() => setView("history")} onAllocation={() => setView("allocation")} onAccounts={runtime.openAccounts} onToken={openAsset} />
+            </div>
+          </> : null}
           {view === "assets" && !selectedToken ? <AssetsScreen tokens={tokens} currency={currency} rate={selectedCurrency.rate} onToken={openAsset} onHome={goHome} /> : null}
           {view === "assets" && selectedToken ? <AssetDetailScreen token={selectedToken} tokens={tokens} accounts={runtime.state?.wallets.ledger.accounts ?? []} currentAccountId={runtime.currentAccount?.id} currency={currency} rate={selectedCurrency.rate} marketApiKey={settings.marketApiKey} onSelectToken={setSelectedSymbol} onBack={() => { setSelectedSymbol(null); goHome(); }} onTransfer={() => runtime.openTransfer(selectedToken.symbol)} onReceive={() => runtime.openReceive()} onSwap={() => openSwap(selectedToken.symbol)} onBuy={() => openBuy(selectedToken.symbol)} onAccounts={runtime.openAccounts} onSettings={() => setSettingsOpen(true)} /> : null}
           {view === "allocation" ? <AllocationScreen tokens={tokens} positions={features.earnPositions} currency={currency} rate={selectedCurrency.rate} onToken={openAsset} onHome={goHome} /> : null}

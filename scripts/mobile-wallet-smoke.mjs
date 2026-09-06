@@ -140,6 +140,41 @@ async function assertWritingFieldsAvoidIosZoom(targetPage, screen) {
   }
 }
 
+async function beginPullToRefresh(target, distance = 92) {
+  await target.evaluate((element, pullDistance) => {
+    const createTouch = (clientY) => ({
+      identifier: 1,
+      target: element,
+      clientX: 195,
+      clientY,
+      pageX: 195,
+      pageY: clientY,
+      screenX: 195,
+      screenY: clientY,
+    });
+    const startTouch = createTouch(20);
+    const start = new Event("touchstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(start, "touches", { value: [startTouch] });
+    Object.defineProperty(start, "changedTouches", { value: [startTouch] });
+    element.dispatchEvent(start);
+
+    const moveTouch = createTouch(20 + pullDistance);
+    const move = new Event("touchmove", { bubbles: true, cancelable: true });
+    Object.defineProperty(move, "touches", { value: [moveTouch] });
+    Object.defineProperty(move, "changedTouches", { value: [moveTouch] });
+    element.dispatchEvent(move);
+  }, distance);
+}
+
+async function endPullToRefresh(target) {
+  await target.evaluate((element) => {
+    const end = new Event("touchend", { bubbles: true, cancelable: true });
+    Object.defineProperty(end, "touches", { value: [] });
+    Object.defineProperty(end, "changedTouches", { value: [] });
+    element.dispatchEvent(end);
+  });
+}
+
 async function enterWalletKeypadAmount(targetPage, inputLabel, value) {
   const input = targetPage.getByLabel(inputLabel);
   const initialValue = await input.inputValue();
@@ -416,12 +451,42 @@ await page.getByRole("button", { name: "Back to wallet" }).click();
 await phantomTokenScreen.waitFor();
 await phantomTokenScreen.getByRole("button", { name: "Back to wallet" }).evaluate((button) => button.click());
 await page.getByLabel("Search Phantom").waitFor();
-const refreshWalletButton = page.getByRole("button", { name: "Refresh wallet data" });
-await refreshWalletButton.waitFor();
-await refreshWalletButton.click();
-const phantomRefreshStatus = page.locator('[role="status"]').filter({ hasText: "Refreshing wallet" });
-await phantomRefreshStatus.waitFor();
-await phantomRefreshStatus.waitFor({ state: "hidden", timeout: 5_000 });
+if (await page.getByRole("button", { name: "Refresh wallet data" }).count()) {
+  throw new Error("Phantom still exposes a manual refresh control.");
+}
+const phantomPullSurface = page.locator('[data-testid="phantom-home-scroll"]');
+const phantomPullContent = page.locator('[data-testid="phantom-pull-content"]');
+const phantomPullIndicator = page.locator('[data-testid="phantom-pull-refresh"]');
+await phantomPullIndicator.waitFor({ state: "attached" });
+await page.locator(".phantom-home-nav").evaluate(async (nav) => {
+  const content = document.querySelector('[data-testid="phantom-pull-content"]');
+  await Promise.all([...nav.getAnimations(), ...(content?.getAnimations() ?? [])].map((animation) => animation.finished));
+});
+const phantomPullBaseline = await phantomPullContent.evaluate((content) => content.getBoundingClientRect().top);
+await beginPullToRefresh(phantomPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="phantom-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+const phantomPulledState = await phantomPullIndicator.evaluate((indicator) => ({
+  gap: indicator.getBoundingClientRect().height,
+  indicatorText: indicator.textContent?.trim() ?? "",
+}));
+if (phantomPulledState.gap < 30 || phantomPulledState.gap > 54 || phantomPulledState.indicatorText !== "") {
+  throw new Error(`Phantom pull refresh is not a small icon-only gap: ${JSON.stringify(phantomPulledState)}`);
+}
+await endPullToRefresh(phantomPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="phantom-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await page.waitForFunction(() => {
+  const indicator = document.querySelector('[data-testid="phantom-pull-refresh"]');
+  return Boolean(indicator
+    && indicator.getAttribute("data-state") === "idle"
+    && indicator.getBoundingClientRect().height < 1);
+}, undefined, { timeout: 5_000 });
+const phantomReturnedState = await phantomPullContent.evaluate((content, baseline) => ({
+  offset: content.getBoundingClientRect().top - baseline,
+  scrollTop: content.closest('[data-testid="phantom-home-scroll"]')?.scrollTop ?? null,
+}), phantomPullBaseline);
+if (Math.abs(phantomReturnedState.offset) > 1 || phantomReturnedState.scrollTop !== 0) {
+  throw new Error(`Phantom pull refresh did not return to its starting position: ${JSON.stringify(phantomReturnedState)}`);
+}
 await page.getByRole("button", { name: "Open wallet actions" }).click();
 await page.getByRole("button", { name: "Send" }).click();
 const phantomSendSheet = page.locator("section[aria-label='Send']");
@@ -761,6 +826,32 @@ if (/TikTok|@northlarp|recording indicator/i.test(ledgerHomeText)) {
 if (await ledgerHome.getByText("BFS", { exact: true }).count()) {
   throw new Error("Larpz Wallet home still shows the retired BFS token.");
 }
+if (await page.getByRole("button", { name: "Refresh portfolio" }).count()) {
+  throw new Error("Larpz Wallet still exposes a manual refresh control.");
+}
+const ledgerPullSurface = page.locator('[data-testid="ledger-pull-surface"]');
+const ledgerPullContent = page.locator('[data-testid="ledger-pull-content"]');
+const ledgerPullIndicator = page.locator('[data-testid="ledger-pull-refresh"]');
+await ledgerPullIndicator.waitFor({ state: "attached" });
+const ledgerPullBaseline = await ledgerPullContent.evaluate((content) => content.getBoundingClientRect().top);
+await beginPullToRefresh(ledgerPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="ledger-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+const ledgerPulledState = await ledgerPullContent.evaluate((content, baseline) => ({
+  gap: content.getBoundingClientRect().top - baseline,
+  indicatorText: document.querySelector('[data-testid="ledger-pull-refresh"]')?.textContent?.trim() ?? "",
+}), ledgerPullBaseline);
+if (ledgerPulledState.gap < 30 || ledgerPulledState.gap > 54 || ledgerPulledState.indicatorText !== "") {
+  throw new Error(`Larpz Wallet pull refresh is not a small icon-only gap: ${JSON.stringify(ledgerPulledState)}`);
+}
+await endPullToRefresh(ledgerPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="ledger-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await page.waitForFunction((baseline) => {
+  const content = document.querySelector('[data-testid="ledger-pull-content"]');
+  const indicator = document.querySelector('[data-testid="ledger-pull-refresh"]');
+  return Boolean(content && indicator
+    && indicator.getAttribute("data-state") === "idle"
+    && Math.abs(content.getBoundingClientRect().top - baseline) < 1);
+}, ledgerPullBaseline, { timeout: 5_000 });
 
 const ledgerBottomNav = page.locator('[data-testid="ledger-bottom-nav"]');
 await ledgerBottomNav.waitFor();
@@ -1005,7 +1096,7 @@ const zeroLedgerChart = await page.locator('[data-testid="ledger-portfolio-chart
   const line = chart.querySelector('[data-testid="ledger-portfolio-line"]');
   const points = (line?.getAttribute("points") ?? "").trim().split(/\s+/).filter(Boolean).map((point) => point.split(",").map(Number));
   const yValues = points.map(([, y]) => y);
-  const changeText = document.querySelector('button[aria-label="Refresh portfolio"]')?.textContent?.trim() ?? "";
+  const changeText = document.querySelector('[data-testid="ledger-portfolio-change"]')?.textContent?.trim() ?? "";
   return {
     balanceText: document.querySelector('[data-testid="ledger-portfolio-balance"]')?.textContent?.trim() ?? "",
     mode: chart.getAttribute("data-chart-mode"),
@@ -1826,29 +1917,29 @@ if (process.env.WALLET_TEST_SCOPE === "trust-accounts") {
 }
 
 if (!["trust-market", "trust-earn", "trust-discover", "trust-accounts"].includes(process.env.WALLET_TEST_SCOPE ?? "")) {
-// Exercise the actual pull gesture, rather than only the refresh icon.
-await page.locator('[data-testid="trust-home"]').evaluate((home) => {
-  const target = home.parentElement;
-  if (!target) throw new Error("Trust home has no scroll container.");
-  target.scrollTop = 0;
-  const start = new Event("touchstart", { bubbles: true, cancelable: true });
-  Object.defineProperty(start, "touches", { value: [{ clientY: 20 }] });
-  target.dispatchEvent(start);
-  const move = new Event("touchmove", { bubbles: true, cancelable: true });
-  Object.defineProperty(move, "touches", { value: [{ clientY: 108 }] });
-  target.dispatchEvent(move);
-});
-await page.getByText("Release to refresh", { exact: true }).waitFor();
-await page.locator('[data-testid="trust-home"]').evaluate((home) => {
-  const target = home.parentElement;
-  if (!target) throw new Error("Trust home has no scroll container.");
-  const end = new Event("touchend", { bubbles: true, cancelable: true });
-  Object.defineProperty(end, "touches", { value: [] });
-  target.dispatchEvent(end);
-});
-const trustRefreshStatus = page.locator('[data-testid="trust-refresh-status"]');
-await trustRefreshStatus.waitFor();
-await trustRefreshStatus.waitFor({ state: "hidden", timeout: 10_000 });
+if (await page.getByRole("button", { name: "Refresh wallet" }).count()) {
+  throw new Error("Trust-style wallet still exposes a manual refresh control.");
+}
+const trustPullSurface = page.locator('[data-testid="trust-pull-surface"]');
+const trustPullIndicator = page.locator('[data-testid="trust-pull-refresh"]');
+await trustPullSurface.evaluate((surface) => { surface.scrollTop = 0; });
+await beginPullToRefresh(trustPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="trust-pull-refresh"]')?.getAttribute("data-state") === "pulling");
+const trustPulledState = await trustPullIndicator.evaluate((indicator) => ({
+  gap: indicator.getBoundingClientRect().height,
+  indicatorText: indicator.textContent?.trim() ?? "",
+}));
+if (trustPulledState.gap < 30 || trustPulledState.gap > 54 || trustPulledState.indicatorText !== "") {
+  throw new Error(`Trust-style pull refresh is not a small icon-only gap: ${JSON.stringify(trustPulledState)}`);
+}
+await endPullToRefresh(trustPullSurface);
+await page.waitForFunction(() => document.querySelector('[data-testid="trust-pull-refresh"]')?.getAttribute("data-state") === "refreshing");
+await page.waitForFunction(() => {
+  const indicator = document.querySelector('[data-testid="trust-pull-refresh"]');
+  return Boolean(indicator
+    && indicator.getAttribute("data-state") === "idle"
+    && indicator.getBoundingClientRect().height < 1);
+}, undefined, { timeout: 5_000 });
 
 await page.locator('[data-testid="trust-home"]').getByRole("button", { name: "Receive", exact: true }).click();
 const trustReceiveSheet = page.locator("section[aria-label='Receive']");
