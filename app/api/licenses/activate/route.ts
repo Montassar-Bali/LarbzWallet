@@ -4,8 +4,7 @@ import { assertSameOrigin } from "@/lib/admin-auth";
 import {
   activateLicense,
   clearLicenseActivationFailures,
-  enforceLicenseActivationRateLimit,
-  recordLicenseActivationFailure,
+  consumeLicenseActivationAttempt,
 } from "@/lib/admin-database";
 import { AdminServiceError } from "@/lib/admin-errors";
 import { adminErrorResponse, adminJson, readJsonObject } from "@/lib/admin-http";
@@ -32,14 +31,8 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const body = await readJsonObject(request);
     const fingerprint = activationRequestFingerprint(request);
-    await enforceLicenseActivationRateLimit(fingerprint);
-    let license;
-    try {
-      license = await activateLicense(body.key, fingerprint);
-    } catch (error) {
-      await recordLicenseActivationFailure(fingerprint);
-      throw error;
-    }
+    await consumeLicenseActivationAttempt(fingerprint);
+    const license = await activateLicense(body.key, fingerprint);
     await clearLicenseActivationFailures(fingerprint);
     return adminJson({ valid: true, license });
   } catch (error) {

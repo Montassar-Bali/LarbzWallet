@@ -330,27 +330,27 @@ export async function recordAdminAuditEvent(input: {
   await appendAuditEvent({ actor: "admin", ...input });
 }
 
-export async function enforceAdminLoginRateLimit(identifierDigest: string) {
-  await ensureAdminSchema();
-  const sql = neon(databaseUrl());
-  const rows = await sql`
-    SELECT failed_attempts, blocked_until
-    FROM larpz_admin_login_rate_limits
-    WHERE identifier_digest = ${identifierDigest}
-    LIMIT 1
-  ` as LoginRateLimitRow[];
-  const blockedUntil = rows[0]?.blocked_until ? new Date(rows[0].blocked_until).getTime() : 0;
+function enforceConsumedRateLimit(rows: LoginRateLimitRow[], message: string) {
+  const row = rows[0];
+  if (!row) {
+    throw new AdminServiceError("DATABASE_ERROR", 500, "The request could not be completed.");
+  }
+
+  const blockedUntil = row.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+  if (!Number.isFinite(blockedUntil)) {
+    throw new AdminServiceError("DATABASE_ERROR", 500, "The request could not be completed.");
+  }
   if (blockedUntil > Date.now()) {
     throw new AdminServiceError(
       "RATE_LIMITED",
       429,
-      "Too many sign-in attempts. Try again later.",
+      message,
       Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000)),
     );
   }
 }
 
-export async function recordAdminLoginFailure(identifierDigest: string) {
+export async function consumeAdminLoginAttempt(identifierDigest: string) {
   await ensureAdminSchema();
   const sql = neon(databaseUrl());
   const rows = await sql`
@@ -359,36 +359,36 @@ export async function recordAdminLoginFailure(identifierDigest: string) {
     VALUES (${identifierDigest}, 1, NOW(), NULL, NOW())
     ON CONFLICT (identifier_digest) DO UPDATE SET
       failed_attempts = CASE
+        WHEN larpz_admin_login_rate_limits.blocked_until > NOW()
+          THEN larpz_admin_login_rate_limits.failed_attempts
         WHEN larpz_admin_login_rate_limits.window_started_at <= NOW() - (${loginWindowMinutes} * INTERVAL '1 minute')
           THEN 1
         ELSE larpz_admin_login_rate_limits.failed_attempts + 1
       END,
       window_started_at = CASE
+        WHEN larpz_admin_login_rate_limits.blocked_until > NOW()
+          THEN larpz_admin_login_rate_limits.window_started_at
         WHEN larpz_admin_login_rate_limits.window_started_at <= NOW() - (${loginWindowMinutes} * INTERVAL '1 minute')
           THEN NOW()
         ELSE larpz_admin_login_rate_limits.window_started_at
       END,
       blocked_until = CASE
+        WHEN larpz_admin_login_rate_limits.blocked_until > NOW()
+          THEN larpz_admin_login_rate_limits.blocked_until
+        -- This function runs before the credential result is acted on. Keep
+        -- the configured number of attempts eligible and block the next one.
         WHEN (CASE
           WHEN larpz_admin_login_rate_limits.window_started_at <= NOW() - (${loginWindowMinutes} * INTERVAL '1 minute')
             THEN 1
           ELSE larpz_admin_login_rate_limits.failed_attempts + 1
-        END) >= ${loginAttemptLimit}
+        END) > ${loginAttemptLimit}
           THEN NOW() + (${loginWindowMinutes} * INTERVAL '1 minute')
         ELSE NULL
       END,
       updated_at = NOW()
     RETURNING failed_attempts, blocked_until
   ` as LoginRateLimitRow[];
-  const blockedUntil = rows[0]?.blocked_until ? new Date(rows[0].blocked_until).getTime() : 0;
-  if (blockedUntil > Date.now()) {
-    throw new AdminServiceError(
-      "RATE_LIMITED",
-      429,
-      "Too many sign-in attempts. Try again later.",
-      Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000)),
-    );
-  }
+  enforceConsumedRateLimit(rows, "Too many sign-in attempts. Try again later.");
 }
 
 export async function clearAdminLoginFailures(identifierDigest: string) {
@@ -397,27 +397,7 @@ export async function clearAdminLoginFailures(identifierDigest: string) {
   await sql`DELETE FROM larpz_admin_login_rate_limits WHERE identifier_digest = ${identifierDigest}`;
 }
 
-export async function enforceLicenseActivationRateLimit(identifierDigest: string) {
-  await ensureAdminSchema();
-  const sql = neon(databaseUrl());
-  const rows = await sql`
-    SELECT failed_attempts, blocked_until
-    FROM larpz_license_activation_rate_limits
-    WHERE identifier_digest = ${identifierDigest}
-    LIMIT 1
-  ` as LoginRateLimitRow[];
-  const blockedUntil = rows[0]?.blocked_until ? new Date(rows[0].blocked_until).getTime() : 0;
-  if (blockedUntil > Date.now()) {
-    throw new AdminServiceError(
-      "RATE_LIMITED",
-      429,
-      "Too many activation attempts. Try again later.",
-      Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000)),
-    );
-  }
-}
-
-export async function recordLicenseActivationFailure(identifierDigest: string) {
+export async function consumeLicenseActivationAttempt(identifierDigest: string) {
   await ensureAdminSchema();
   const sql = neon(databaseUrl());
   const rows = await sql`
@@ -426,36 +406,36 @@ export async function recordLicenseActivationFailure(identifierDigest: string) {
     VALUES (${identifierDigest}, 1, NOW(), NULL, NOW())
     ON CONFLICT (identifier_digest) DO UPDATE SET
       failed_attempts = CASE
+        WHEN larpz_license_activation_rate_limits.blocked_until > NOW()
+          THEN larpz_license_activation_rate_limits.failed_attempts
         WHEN larpz_license_activation_rate_limits.window_started_at <= NOW() - (${activationWindowMinutes} * INTERVAL '1 minute')
           THEN 1
         ELSE larpz_license_activation_rate_limits.failed_attempts + 1
       END,
       window_started_at = CASE
+        WHEN larpz_license_activation_rate_limits.blocked_until > NOW()
+          THEN larpz_license_activation_rate_limits.window_started_at
         WHEN larpz_license_activation_rate_limits.window_started_at <= NOW() - (${activationWindowMinutes} * INTERVAL '1 minute')
           THEN NOW()
         ELSE larpz_license_activation_rate_limits.window_started_at
       END,
       blocked_until = CASE
+        WHEN larpz_license_activation_rate_limits.blocked_until > NOW()
+          THEN larpz_license_activation_rate_limits.blocked_until
+        -- Activation is attempted only after this reservation succeeds, so
+        -- the configured number of attempts must remain eligible.
         WHEN (CASE
           WHEN larpz_license_activation_rate_limits.window_started_at <= NOW() - (${activationWindowMinutes} * INTERVAL '1 minute')
             THEN 1
           ELSE larpz_license_activation_rate_limits.failed_attempts + 1
-        END) >= ${activationAttemptLimit}
+        END) > ${activationAttemptLimit}
           THEN NOW() + (${activationWindowMinutes} * INTERVAL '1 minute')
         ELSE NULL
       END,
       updated_at = NOW()
     RETURNING failed_attempts, blocked_until
   ` as LoginRateLimitRow[];
-  const blockedUntil = rows[0]?.blocked_until ? new Date(rows[0].blocked_until).getTime() : 0;
-  if (blockedUntil > Date.now()) {
-    throw new AdminServiceError(
-      "RATE_LIMITED",
-      429,
-      "Too many activation attempts. Try again later.",
-      Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000)),
-    );
-  }
+  enforceConsumedRateLimit(rows, "Too many activation attempts. Try again later.");
 }
 
 export async function clearLicenseActivationFailures(identifierDigest: string) {

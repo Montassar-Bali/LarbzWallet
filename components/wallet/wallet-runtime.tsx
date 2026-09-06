@@ -42,6 +42,7 @@ import {
 import { activateLicenseWithServer } from "@/lib/license-client";
 import { normalizeLicenseKey } from "@/lib/storage";
 import type { WalletToken } from "@/lib/types";
+import { shouldKeepWalletLocked } from "@/lib/wallet-security-core";
 import {
   accountForSelection,
   calculateNetworkFee,
@@ -174,7 +175,7 @@ function useWalletSecurity() {
   const [settings, setSettings] = useState<SecuritySettings>({ enabled: false, timeoutMinutes: 5 });
   const [status, setStatus] = useState<SecurityStatus>({ enrolled: false, credentialCount: 0, pinEnabled: false, authenticated: false });
   const [supported, setSupported] = useState<boolean | null>(null);
-  const [locked, setLocked] = useState(false);
+  const [locked, setLocked] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lastActivity = useRef(0);
@@ -187,6 +188,7 @@ function useWalletSecurity() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       let id = window.localStorage.getItem(securityUserKey);
       if (!id) {
@@ -198,15 +200,43 @@ function useWalletSecurity() {
       setUserId(id);
       setSettings(storedSettings);
       const hasRecentUnlock = Number(window.sessionStorage.getItem(unlockedSessionKey) || 0) > Date.now() - storedSettings.timeoutMinutes * 60_000;
-      void Promise.all([
-        browserSupportsWebAuthn() ? platformAuthenticatorIsAvailable().catch(() => false) : Promise.resolve(false),
-        refreshStatus(id).catch(() => ({ enrolled: false, credentialCount: 0, pinEnabled: false, authenticated: false })),
-      ]).then(([platformSupported, serverStatus]) => {
+      void (async () => {
+        const platformSupported = browserSupportsWebAuthn()
+          ? await platformAuthenticatorIsAvailable().catch(() => false)
+          : false;
+        if (cancelled) return;
         setSupported(platformSupported);
-        setLocked(storedSettings.enabled && (serverStatus.enrolled || serverStatus.pinEnabled) && !hasRecentUnlock);
-      });
+        try {
+          const serverStatus = await refreshStatus(id);
+          if (cancelled) return;
+          setLocked(shouldKeepWalletLocked({
+            enabled: storedSettings.enabled,
+            statusAvailable: true,
+            authenticated: serverStatus.authenticated,
+            hasRecentUnlock,
+          }));
+        } catch {
+          if (cancelled) return;
+          setError("Wallet security status is temporarily unavailable.");
+          setLocked(shouldKeepWalletLocked({
+            enabled: storedSettings.enabled,
+            statusAvailable: false,
+            authenticated: false,
+            hasRecentUnlock,
+          }));
+        }
+      })();
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [refreshStatus]);
+
+  const requireAuthenticatedStatus = useCallback(async (id: string) => {
+    const next = await refreshStatus(id);
+    if (!next.authenticated) throw new Error("Wallet security session could not be verified.");
+    return next;
   }, [refreshStatus]);
 
   const lock = useCallback(async () => {
@@ -241,24 +271,27 @@ function useWalletSecurity() {
     if (!userId || !supported) throw new Error("This device does not offer a supported platform authenticator.");
     setBusy(true);
     setError("");
+    let securityMayHaveChanged = settings.enabled;
     try {
       const optionsJSON = await jsonRequest<Parameters<typeof startRegistration>[0]["optionsJSON"]>("/api/wallet-security/register/options", { userId, userName: "Larpz Wallet user" });
       const response = await startRegistration({ optionsJSON });
       await jsonRequest("/api/wallet-security/register/verify", { userId, response });
+      securityMayHaveChanged = true;
+      await requireAuthenticatedStatus(userId);
       const nextSettings = { ...settings, enabled: true };
       setSettings(nextSettings);
       window.localStorage.setItem(securitySettingsKey, JSON.stringify(nextSettings));
       window.sessionStorage.setItem(unlockedSessionKey, String(Date.now()));
       setLocked(false);
-      await refreshStatus(userId);
     } catch (caught) {
+      setLocked(securityMayHaveChanged);
       const message = caught instanceof Error && caught.name === "NotAllowedError" ? "Biometric enrollment was cancelled or timed out." : caught instanceof Error ? caught.message : "Biometric enrollment failed.";
       setError(message);
       throw new Error(message);
     } finally {
       setBusy(false);
     }
-  }, [refreshStatus, settings, supported, userId]);
+  }, [requireAuthenticatedStatus, settings, supported, userId]);
 
   const unlock = useCallback(async () => {
     if (!userId || !supported) throw new Error("Biometric unlock is not supported on this device.");
@@ -268,50 +301,60 @@ function useWalletSecurity() {
       const optionsJSON = await jsonRequest<Parameters<typeof startAuthentication>[0]["optionsJSON"]>("/api/wallet-security/authenticate/options", { userId });
       const response = await startAuthentication({ optionsJSON });
       await jsonRequest("/api/wallet-security/authenticate/verify", { userId, response });
+      await requireAuthenticatedStatus(userId);
       window.sessionStorage.setItem(unlockedSessionKey, String(Date.now()));
       lastActivity.current = Date.now();
       setLocked(false);
-      await refreshStatus(userId);
     } catch (caught) {
+      setLocked(true);
       const message = caught instanceof Error && caught.name === "NotAllowedError" ? "Biometric verification was cancelled or timed out." : caught instanceof Error ? caught.message : "Biometric verification failed.";
       setError(message);
       throw new Error(message);
     } finally {
       setBusy(false);
     }
-  }, [refreshStatus, supported, userId]);
+  }, [requireAuthenticatedStatus, supported, userId]);
 
   const verifyPin = useCallback(async (pin: string) => {
     setBusy(true);
     setError("");
     try {
       await jsonRequest("/api/wallet-security/pin", { userId, pin, action: "verify" });
+      await requireAuthenticatedStatus(userId);
       window.sessionStorage.setItem(unlockedSessionKey, String(Date.now()));
       lastActivity.current = Date.now();
       setLocked(false);
-      await refreshStatus(userId);
     } catch (caught) {
+      setLocked(true);
       const message = caught instanceof Error ? caught.message : "Recovery PIN verification failed.";
       setError(message);
       throw new Error(message);
     } finally {
       setBusy(false);
     }
-  }, [refreshStatus, userId]);
+  }, [requireAuthenticatedStatus, userId]);
 
   const setPin = useCallback(async (pin: string) => {
     setBusy(true);
     setError("");
+    let securityMayHaveChanged = settings.enabled;
     try {
       await jsonRequest("/api/wallet-security/pin", { userId, pin, action: "set" });
+      securityMayHaveChanged = true;
+      await requireAuthenticatedStatus(userId);
       const nextSettings = { ...settings, enabled: true };
       setSettings(nextSettings);
       window.localStorage.setItem(securitySettingsKey, JSON.stringify(nextSettings));
-      await refreshStatus(userId);
+      window.sessionStorage.setItem(unlockedSessionKey, String(Date.now()));
+      lastActivity.current = Date.now();
+      setLocked(false);
+    } catch (caught) {
+      setLocked(securityMayHaveChanged);
+      throw caught;
     } finally {
       setBusy(false);
     }
-  }, [refreshStatus, settings, userId]);
+  }, [requireAuthenticatedStatus, settings, userId]);
 
   const disable = useCallback(async () => {
     setBusy(true);
@@ -322,6 +365,9 @@ function useWalletSecurity() {
       window.localStorage.setItem(securitySettingsKey, JSON.stringify(nextSettings));
       setStatus((current) => ({ ...current, enrolled: false, credentialCount: 0, authenticated: false }));
       setLocked(false);
+    } catch (caught) {
+      setLocked(settings.enabled);
+      throw caught;
     } finally {
       setBusy(false);
     }

@@ -1,6 +1,6 @@
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
 
-import { setChallengeCookie, errorResponse } from "@/lib/wallet-security-http";
+import { errorResponse, securityJson, setChallengeCookie } from "@/lib/wallet-security-http";
 import { issueChallenge, listPasskeys, validateSecurityOrigin } from "@/lib/wallet-security-store";
 
 export const runtime = "nodejs";
@@ -10,7 +10,9 @@ export async function POST(request: Request) {
     const { userId } = await request.json() as { userId?: string };
     const { rpID } = validateSecurityOrigin(request);
     const passkeys = await listPasskeys(userId);
-    if (passkeys.length === 0) return Response.json({ error: "Face ID is not enabled for this wallet on this device." }, { status: 404 });
+    if (passkeys.length === 0) {
+      return securityJson({ error: "Face ID is not enabled for this wallet on this device." }, { status: 404 });
+    }
     const options = await generateAuthenticationOptions({
       rpID,
       allowCredentials: passkeys.map((passkey) => ({ id: passkey.id, transports: ["internal"] })),
@@ -18,7 +20,7 @@ export async function POST(request: Request) {
     });
     const challenge = await issueChallenge(userId, "authentication", options.challenge);
     await setChallengeCookie(request, challenge.id);
-    return Response.json(options, { headers: { "Cache-Control": "no-store" } });
+    return securityJson(options);
   } catch (error) {
     return errorResponse(error);
   }

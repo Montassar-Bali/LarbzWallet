@@ -1,22 +1,22 @@
 import { verifyAuthenticationResponse, type AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 import { createSecuritySession, consumeChallenge, findPasskey, publicKeyFromStored, updatePasskeyCounter, validateSecurityOrigin } from "@/lib/wallet-security-store";
-import { errorResponse, setSessionCookie, takeChallengeCookie } from "@/lib/wallet-security-http";
-import { completeAuthentication } from "@/lib/wallet-security-core";
+import { errorResponse, securityJson, setSessionCookie, takeChallengeCookie } from "@/lib/wallet-security-http";
+import { completeAuthentication, WalletSecurityPublicError } from "@/lib/wallet-security-core";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { userId?: string; response?: AuthenticationResponseJSON };
-    if (!body.response) throw new Error("Authentication response is required.");
+    if (!body.response) throw new WalletSecurityPublicError("Authentication response is required.");
     const { origin, rpID } = validateSecurityOrigin(request);
     let credentialId = "";
     await completeAuthentication({
       consume: () => consumeChallengeCookie(body.userId),
       verify: async (challenge) => {
         const passkey = await findPasskey(body.userId, body.response!.id);
-        if (!passkey) throw new Error("Face ID is not enabled for this wallet on this device.");
+        if (!passkey) throw new WalletSecurityPublicError("Face ID is not enabled for this wallet on this device.");
         credentialId = passkey.id;
         const verification = await verifyAuthenticationResponse({
           response: body.response!,
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     });
     const session = await createSecuritySession(body.userId);
     await setSessionCookie(request, session.token, session.expiresAt);
-    return Response.json({ verified: true });
+    return securityJson({ verified: true });
   } catch (error) {
     return errorResponse(error);
   }

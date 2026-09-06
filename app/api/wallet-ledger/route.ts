@@ -56,6 +56,20 @@ function assertAuthorizedOwner(request: Request, ownerId: unknown) {
   }
 }
 
+function unexpectedWalletErrorResponse() {
+  return Response.json(
+    { error: "Shared wallet request failed.", code: "INTERNAL_ERROR" },
+    { status: 500, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function remoteWalletErrorStatus(code: RemoteWalletError["code"]) {
+  return code === "ACTIVATION_REQUIRED" ? 401
+    : code === "ACCOUNT_NOT_FOUND" || code === "INVALID_ADDRESS" ? 404
+      : code === "DUPLICATE" ? 409
+        : 400;
+}
+
 export async function POST(request: Request) {
   let body: WalletLedgerRequest = {};
   try {
@@ -110,8 +124,11 @@ export async function POST(request: Request) {
     }
     throw new RemoteWalletError("INVALID_REQUEST", "Unknown shared wallet action.");
   } catch (error) {
-    const code = error instanceof RemoteWalletError ? error.code : "DATABASE_ERROR";
-    const message = error instanceof Error ? error.message : "Shared wallet request failed.";
+    if (!(error instanceof RemoteWalletError)) {
+      return unexpectedWalletErrorResponse();
+    }
+
+    const { code, message } = error;
     if (code === "DATABASE_NOT_CONFIGURED") {
       const ownerId = body.action === "linkOwner"
         ? await walletOwnerIdForLicense(body.licenseKey)
@@ -121,10 +138,9 @@ export async function POST(request: Request) {
         { headers: { "Cache-Control": "no-store" } },
       );
     }
-    const status = code === "ACTIVATION_REQUIRED" ? 401
-      : code === "ACCOUNT_NOT_FOUND" || code === "INVALID_ADDRESS" ? 404
-        : code === "DUPLICATE" ? 409
-          : 400;
-    return Response.json({ error: message, code }, { status });
+    return Response.json(
+      { error: message, code },
+      { status: remoteWalletErrorStatus(code), headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

@@ -7,7 +7,16 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/admin", "/api/admin"],
+      disallow: [
+        "/activate",
+        "/admin",
+        "/api",
+        "/dashboard",
+        "/download-wallet",
+        "/ledger-wallet",
+        "/trust-wallet",
+        "/wallet-launch",
+      ],
     },
     sitemap: `${siteConfig.url}/sitemap.xml`,
   };

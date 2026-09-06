@@ -26,6 +26,7 @@ export class AdminServiceError extends Error {
 
 export function asAdminServiceError(error: unknown) {
   if (error instanceof AdminServiceError) return error;
-  console.error("Admin service request failed", error);
+  const errorType = error instanceof Error ? error.name : typeof error;
+  console.error(`Admin service request failed (${errorType})`);
   return new AdminServiceError("DATABASE_ERROR", 500, "The request could not be completed.");
 }

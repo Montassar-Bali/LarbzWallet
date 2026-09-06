@@ -543,7 +543,7 @@ export function TrustWallet() {
   const refreshReturnTimer = useRef<number | null>(null);
   const manualRefreshPending = useRef(false);
   const latest = useRef<LiveMarketSnapshot>(emptyLiveMarketSnapshot);
-  const scroll = useRef<HTMLDivElement>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const marketListAnchor = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [heldOnly, setHeldOnly] = useState(false);
@@ -584,9 +584,9 @@ export function TrustWallet() {
   const [messages, setMessages] = useState<string[]>(["Ask about your portfolio. I never request recovery phrases or private keys."]);
   const operationLock = useRef(false);
   const buyRequestId = useRef(createId("trust-buy"));
-  const swapRequestId = useRef(createId("trust-swap"));
-  const earnRequestId = useRef(createId("trust-earn"));
-  const perpetualRequestId = useRef(createId("trust-perpetual"));
+  const [swapRequestId, setSwapRequestId] = useState(() => createId("trust-swap"));
+  const [earnRequestId, setEarnRequestId] = useState(() => createId("trust-earn"));
+  const [perpetualRequestId, setPerpetualRequestId] = useState(() => createId("trust-perpetual"));
 
   const accountId = runtime.currentAccount?.id;
   const accountName = runtime.currentAccount?.name ?? defaultProfile.walletName;
@@ -638,10 +638,10 @@ export function TrustWallet() {
       setEarnStage("list");
       setScreen("earn");
       setPrevious("home");
-      scroll.current?.scrollTo({ top: 0 });
+      scrollElement?.scrollTo({ top: 0 });
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [perpetualOrderOrigin, perpetualStage, screen]);
+  }, [perpetualOrderOrigin, perpetualStage, screen, scrollElement]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -733,20 +733,20 @@ export function TrustWallet() {
     if (next !== screen) setPrevious(screen);
     setScreen(next);
     setQuery("");
-    scroll.current?.scrollTo({ top: 0 });
+    scrollElement?.scrollTo({ top: 0 });
   }
 
   function back() {
     setScreen(previous === screen ? "home" : previous);
     setPrevious("home");
-    scroll.current?.scrollTo({ top: 0 });
+    scrollElement?.scrollTo({ top: 0 });
   }
 
   function closeSearch() {
     setScreen(searchOrigin);
     setPrevious("home");
     setQuery("");
-    scroll.current?.scrollTo({ top: 0 });
+    scrollElement?.scrollTo({ top: 0 });
   }
 
   function openDiscoverDapp(dapp: DiscoverDapp) {
@@ -791,7 +791,7 @@ export function TrustWallet() {
     setSelectedSymbol(token.symbol);
     if (screen !== "token") setPrevious(screen);
     setScreen("token");
-    scroll.current?.scrollTo({ top: 0 });
+    scrollElement?.scrollTo({ top: 0 });
   }
 
   function refreshWallet() {
@@ -896,7 +896,7 @@ export function TrustWallet() {
     const received = (value - serviceFee) * fromToken.price / toToken.price;
     const date = new Date().toISOString();
     const next = tokens.map((token) => token.id === fromToken.id ? { ...token, balance: token.balance - value, updatedAt: date } : token.id === toToken.id ? { ...token, balance: token.balance + received, updatedAt: date } : token);
-    const requestId = swapRequestId.current;
+    const requestId = swapRequestId;
     const records: WalletActivity[] = [
       { id: `${requestId}:credit`, type: "receive", tokenSymbol: toToken.symbol, amount: received, counterpartyLabel: `Swapped from ${fromToken.symbol}`, date, status: "completed", note: "INTERNAL SWAP" },
       { id: `${requestId}:debit`, type: "send", tokenSymbol: fromToken.symbol, amount: value, counterpartyLabel: `Swapped to ${toToken.symbol} · 0.35% fee`, date, status: "completed", note: "INTERNAL SWAP" },
@@ -907,7 +907,7 @@ export function TrustWallet() {
       const ok = await commit(next, records, `Swapped ${amount(value)} ${fromToken.symbol} for ${amount(received)} ${toToken.symbol}.`, requestId);
       if (ok) {
         setSwapStage("success");
-        swapRequestId.current = createId("trust-swap");
+        setSwapRequestId(createId("trust-swap"));
       }
     } finally {
       operationLock.current = false;
@@ -921,7 +921,7 @@ export function TrustWallet() {
     if (swapTo === symbol) setSwapTo(fallback?.symbol ?? "ETH");
     setSwapValue("0");
     setSwapStage("entry");
-    swapRequestId.current = createId("trust-swap");
+    setSwapRequestId(createId("trust-swap"));
     open("swap");
   }
 
@@ -935,7 +935,7 @@ export function TrustWallet() {
     setEarnValue("0");
     setEarnPositionId(undefined);
     setEarnStage("amount");
-    earnRequestId.current = createId("trust-earn");
+    setEarnRequestId(createId("trust-earn"));
     open("earn");
   }
 
@@ -944,7 +944,7 @@ export function TrustWallet() {
     setEarnValue(String(position.amount));
     setEarnPositionId(position.id);
     setEarnStage("review");
-    earnRequestId.current = createId("trust-earn-redeem");
+    setEarnRequestId(createId("trust-earn-redeem"));
   }
 
   async function performEarn() {
@@ -956,7 +956,7 @@ export function TrustWallet() {
     if (!redeeming && !earnOffer) { show("This earning opportunity is unavailable."); return; }
     const date = new Date().toISOString();
     const nextTokens = tokens.map((token) => token.id === earnToken.id ? { ...token, balance: token.balance + (redeeming ? value : -value), updatedAt: date } : token);
-    const requestId = earnRequestId.current;
+    const requestId = earnRequestId;
     const openedPosition: EarnPosition | undefined = redeeming ? undefined : {
       id: requestId,
       symbol: earnToken.symbol,
@@ -988,7 +988,7 @@ export function TrustWallet() {
       setEarnPositions(nextPositions);
       writeStorage(earnKey, nextPositions);
       setEarnStage("success");
-      earnRequestId.current = createId("trust-earn");
+      setEarnRequestId(createId("trust-earn"));
     } finally {
       operationLock.current = false;
       setBusy(false);
@@ -1003,7 +1003,7 @@ export function TrustWallet() {
     setPerpetualLeverage(leverage);
     setPerpetualPositionId(undefined);
     setPerpetualStage("order");
-    perpetualRequestId.current = createId("trust-perpetual");
+    setPerpetualRequestId(createId("trust-perpetual"));
     open("perpetuals");
   }
 
@@ -1014,7 +1014,7 @@ export function TrustWallet() {
     setPerpetualLeverage(position.leverage);
     setPerpetualPositionId(position.id);
     setPerpetualStage("review");
-    perpetualRequestId.current = createId("trust-perpetual-close");
+    setPerpetualRequestId(createId("trust-perpetual-close"));
   }
 
   async function performPerpetual() {
@@ -1026,7 +1026,7 @@ export function TrustWallet() {
     if (!closing && perpetualToken.price <= 0) { show("A live entry price is required to open this practice position."); return; }
     const date = new Date().toISOString();
     const nextTokens = tokens.map((token) => token.id === perpetualToken.id ? { ...token, balance: token.balance + (closing ? value : -value), updatedAt: date } : token);
-    const requestId = perpetualRequestId.current;
+    const requestId = perpetualRequestId;
     const openedPosition: PerpetualPosition | undefined = closing ? undefined : {
       id: requestId,
       symbol: perpetualToken.symbol,
@@ -1060,7 +1060,7 @@ export function TrustWallet() {
       setPerpetualPositions(nextPositions);
       writeStorage(perpetualsKey, nextPositions);
       setPerpetualStage("success");
-      perpetualRequestId.current = createId("trust-perpetual");
+      setPerpetualRequestId(createId("trust-perpetual"));
     } finally {
       operationLock.current = false;
       setBusy(false);
@@ -1207,7 +1207,7 @@ export function TrustWallet() {
       return <div data-testid="trust-swap-success" className="pb-8"><Header title="Swap complete" onBack={() => setSwapStage("entry")} /><div className="grid min-h-[66svh] place-items-center text-center"><div><span className="mx-auto grid size-24 place-items-center rounded-full bg-[#4437ff]"><Check className="size-12 stroke-[3]" /></span><h2 className="mt-7 text-3xl font-black">Assets swapped</h2><p className="mt-3 text-white/48">The shared account now includes {amount(output)} {toToken?.symbol}.</p><div className="mt-7 grid grid-cols-2 gap-3"><button type="button" onClick={() => { setSwapStage("entry"); setSwapValue("0"); }} className="min-h-14 rounded-full bg-[#191a28] font-extrabold">Swap again</button><button type="button" onClick={() => { setSwapStage("entry"); setSwapValue("0"); open("home"); }} className="min-h-14 rounded-full bg-[#4437ff] font-extrabold">Done</button></div></div></div></div>;
     }
 
-    return <div data-testid="trust-swap-screen" className="pb-8"><Header title="Swap" onBack={back} right={<IconButton label="Swap settings" icon={Settings2} onClick={() => setSwapSettingsOpen(true)} />} /><button type="button" onClick={() => setSwapSettingsOpen(true)} className="mx-auto mt-2 flex min-h-11 items-center gap-2 rounded-full bg-[#191a28] px-4 font-bold">Market order <ChevronDown className="size-4" /></button><div className="mt-5 rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><input aria-label="Swap amount" inputMode="decimal" value={swapValue} onChange={(event) => setSwapValue(event.target.value.replace(/[^0-9.]/g, ""))} className="min-w-0 flex-1 bg-transparent text-[44px] font-black outline-none" /><button type="button" aria-label="Select source token" onClick={() => setPicker("swap-from")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{fromToken ? <TokenIcon token={fromToken} size={28} /> : null}{fromToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(numeric * (fromToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(fromToken?.balance ?? 0)}</span></div></div><button type="button" aria-label="Reverse swap tokens" onClick={() => { setSwapFrom(swapTo); setSwapTo(swapFrom); swapRequestId.current = createId("trust-swap"); }} className="relative z-10 mx-auto -my-4 grid size-11 place-items-center rounded-full border-4 border-[#10101b] bg-[#242535]"><ArrowDown className="size-5" /></button><div className="rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><p className="min-w-0 flex-1 truncate text-[44px] font-black text-white/32">{amount(output)}</p><button type="button" aria-label="Select destination token" onClick={() => setPicker("swap-to")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{toToken ? <TokenIcon token={toToken} size={28} /> : null}{toToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(output * (toToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(toToken?.balance ?? 0)}</span></div></div><div className="mt-4 rounded-2xl bg-white/[.035] px-4 py-3 text-xs text-white/45"><div className="flex justify-between py-1"><span>Provider fee</span><strong className="text-white/75">{amount(serviceFee)} {fromToken?.symbol}</strong></div><div className="flex justify-between py-1"><span>Maximum slippage</span><strong className="text-white/75">{slippage.toFixed(1)}%</strong></div><div className="flex justify-between py-1"><span>Rate</span><strong className="text-right text-white/75">1 {fromToken?.symbol} ≈ {toToken?.price ? amount((fromToken?.price ?? 0) / toToken.price) : "—"} {toToken?.symbol}</strong></div></div><div className="mt-[clamp(1rem,3svh,2rem)]"><div className="flex justify-between text-xs font-bold text-white/35"><span>Min</span><span>25%</span><span>50%</span><span>75%</span><span>Max</span></div><input aria-label="Swap percentage" type="range" min="0" max="100" value={fromToken?.balance ? Math.min(100, numeric / fromToken.balance * 100) : 0} onChange={(event) => { setSwapValue(String((fromToken?.balance ?? 0) * Number(event.target.value) / 100)); swapRequestId.current = createId("trust-swap"); }} className="min-h-11 w-full accent-[#4437ff]" /></div><Keypad value={swapValue} onChange={(value) => { setSwapValue(value); swapRequestId.current = createId("trust-swap"); }} /><SwipeConfirm disabled={!fromToken || !toToken || numeric <= 0 || numeric > (fromToken?.balance ?? 0) || fromToken?.symbol === toToken?.symbol} busy={busy} onConfirm={() => void performSwap()} />{swapSettingsOpen ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm" role="presentation"><button type="button" aria-label="Close swap settings" onClick={() => setSwapSettingsOpen(false)} className="absolute inset-0" /><section role="dialog" aria-modal="true" aria-label="Swap settings" className="relative w-full max-w-md rounded-[1.7rem] bg-[#202130] p-5"><div className="flex items-center justify-between"><h2 className="text-xl font-black">Market order settings</h2><IconButton label="Close swap settings" icon={X} onClick={() => setSwapSettingsOpen(false)} /></div><p className="mt-2 text-sm leading-6 text-white/45">The quote uses current server-side market prices. Choose the maximum accepted slippage.</p><div className="mt-5 grid grid-cols-3 gap-2">{[0.1, 0.5, 1].map((value) => <button key={value} type="button" onClick={() => setSlippage(value)} className={`min-h-12 rounded-xl font-bold ${slippage === value ? "bg-[#4437ff]" : "bg-[#151621]"}`}>{value.toFixed(1)}%</button>)}</div><button type="button" onClick={() => setSwapSettingsOpen(false)} className="mt-5 min-h-14 w-full rounded-full bg-[#4437ff] font-extrabold">Done</button></section></div> : null}</div>;
+    return <div data-testid="trust-swap-screen" className="pb-8"><Header title="Swap" onBack={back} right={<IconButton label="Swap settings" icon={Settings2} onClick={() => setSwapSettingsOpen(true)} />} /><button type="button" onClick={() => setSwapSettingsOpen(true)} className="mx-auto mt-2 flex min-h-11 items-center gap-2 rounded-full bg-[#191a28] px-4 font-bold">Market order <ChevronDown className="size-4" /></button><div className="mt-5 rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><input aria-label="Swap amount" inputMode="decimal" value={swapValue} onChange={(event) => setSwapValue(event.target.value.replace(/[^0-9.]/g, ""))} className="min-w-0 flex-1 bg-transparent text-[44px] font-black outline-none" /><button type="button" aria-label="Select source token" onClick={() => setPicker("swap-from")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{fromToken ? <TokenIcon token={fromToken} size={28} /> : null}{fromToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(numeric * (fromToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(fromToken?.balance ?? 0)}</span></div></div><button type="button" aria-label="Reverse swap tokens" onClick={() => { setSwapFrom(swapTo); setSwapTo(swapFrom); setSwapRequestId(createId("trust-swap")); }} className="relative z-10 mx-auto -my-4 grid size-11 place-items-center rounded-full border-4 border-[#10101b] bg-[#242535]"><ArrowDown className="size-5" /></button><div className="rounded-[1.45rem] bg-[#191a28] p-5"><div className="flex items-start gap-3"><p className="min-w-0 flex-1 truncate text-[44px] font-black text-white/32">{amount(output)}</p><button type="button" aria-label="Select destination token" onClick={() => setPicker("swap-to")} className="flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-[#10101b] px-3 text-lg font-extrabold">{toToken ? <TokenIcon token={toToken} size={28} /> : null}{toToken?.symbol}<ChevronDown className="size-4" /></button></div><div className="mt-6 flex justify-between gap-3 text-sm font-bold text-white/42"><span className="truncate">{cash(output * (toToken?.price ?? 0), "USD")}</span><span className="truncate">Balance {amount(toToken?.balance ?? 0)}</span></div></div><div className="mt-4 rounded-2xl bg-white/[.035] px-4 py-3 text-xs text-white/45"><div className="flex justify-between py-1"><span>Provider fee</span><strong className="text-white/75">{amount(serviceFee)} {fromToken?.symbol}</strong></div><div className="flex justify-between py-1"><span>Maximum slippage</span><strong className="text-white/75">{slippage.toFixed(1)}%</strong></div><div className="flex justify-between py-1"><span>Rate</span><strong className="text-right text-white/75">1 {fromToken?.symbol} ≈ {toToken?.price ? amount((fromToken?.price ?? 0) / toToken.price) : "—"} {toToken?.symbol}</strong></div></div><div className="mt-[clamp(1rem,3svh,2rem)]"><div className="flex justify-between text-xs font-bold text-white/35"><span>Min</span><span>25%</span><span>50%</span><span>75%</span><span>Max</span></div><input aria-label="Swap percentage" type="range" min="0" max="100" value={fromToken?.balance ? Math.min(100, numeric / fromToken.balance * 100) : 0} onChange={(event) => { setSwapValue(String((fromToken?.balance ?? 0) * Number(event.target.value) / 100)); setSwapRequestId(createId("trust-swap")); }} className="min-h-11 w-full accent-[#4437ff]" /></div><Keypad value={swapValue} onChange={(value) => { setSwapValue(value); setSwapRequestId(createId("trust-swap")); }} /><SwipeConfirm disabled={!fromToken || !toToken || numeric <= 0 || numeric > (fromToken?.balance ?? 0) || fromToken?.symbol === toToken?.symbol} busy={busy} onConfirm={() => void performSwap()} />{swapSettingsOpen ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm" role="presentation"><button type="button" aria-label="Close swap settings" onClick={() => setSwapSettingsOpen(false)} className="absolute inset-0" /><section role="dialog" aria-modal="true" aria-label="Swap settings" className="relative w-full max-w-md rounded-[1.7rem] bg-[#202130] p-5"><div className="flex items-center justify-between"><h2 className="text-xl font-black">Market order settings</h2><IconButton label="Close swap settings" icon={X} onClick={() => setSwapSettingsOpen(false)} /></div><p className="mt-2 text-sm leading-6 text-white/45">The quote uses current server-side market prices. Choose the maximum accepted slippage.</p><div className="mt-5 grid grid-cols-3 gap-2">{[0.1, 0.5, 1].map((value) => <button key={value} type="button" onClick={() => setSlippage(value)} className={`min-h-12 rounded-xl font-bold ${slippage === value ? "bg-[#4437ff]" : "bg-[#151621]"}`}>{value.toFixed(1)}%</button>)}</div><button type="button" onClick={() => setSwapSettingsOpen(false)} className="mt-5 min-h-14 w-full rounded-full bg-[#4437ff] font-extrabold">Done</button></section></div> : null}</div>;
   }
 
   function renderMarket() {
@@ -1507,7 +1507,7 @@ export function TrustWallet() {
 
     if (earnStage === "amount") {
       const valid = Boolean(earnToken && earnOffer && value > 0 && value <= earnToken.balance);
-      return <div data-testid="trust-earn-amount" className="pb-8"><Header title={`Earn ${earnToken?.symbol ?? ""}`} onBack={() => setEarnStage("list")} /><div className="mt-7 rounded-[1.4rem] bg-[linear-gradient(135deg,#252342,#171825)] p-5"><div className="flex items-center gap-3"><TokenIcon token={earnToken} /><div><h2 className="text-xl font-black">{earnOffer?.apy.toFixed(2)}% APY</h2><p className="text-sm text-white/42">{earnOffer?.network} network</p></div></div></div><div className="mt-8 text-center"><p className="text-sm font-bold text-white/42">Amount to allocate</p><div className="mt-3 flex min-w-0 items-end justify-center gap-2"><KeypadAmountInput label="Earn amount" value={earnValue} onChange={(next) => { setEarnValue(next); earnRequestId.current = createId("trust-earn"); }} className="min-w-0 max-w-[75%] bg-transparent text-right text-[48px] font-black leading-none outline-none" /><strong className="pb-1 text-lg">{earnToken?.symbol}</strong></div><p className="mt-3 text-sm text-white/42">Available {amount(earnToken?.balance ?? 0)} {earnToken?.symbol}</p></div><Keypad value={earnValue} onChange={(next) => { setEarnValue(next); earnRequestId.current = createId("trust-earn"); }} /><button type="button" disabled={!valid} onClick={() => setEarnStage("review")} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:bg-[#27283a] disabled:text-white/22">Review allocation</button></div>;
+      return <div data-testid="trust-earn-amount" className="pb-8"><Header title={`Earn ${earnToken?.symbol ?? ""}`} onBack={() => setEarnStage("list")} /><div className="mt-7 rounded-[1.4rem] bg-[linear-gradient(135deg,#252342,#171825)] p-5"><div className="flex items-center gap-3"><TokenIcon token={earnToken} /><div><h2 className="text-xl font-black">{earnOffer?.apy.toFixed(2)}% APY</h2><p className="text-sm text-white/42">{earnOffer?.network} network</p></div></div></div><div className="mt-8 text-center"><p className="text-sm font-bold text-white/42">Amount to allocate</p><div className="mt-3 flex min-w-0 items-end justify-center gap-2"><KeypadAmountInput label="Earn amount" value={earnValue} onChange={(next) => { setEarnValue(next); setEarnRequestId(createId("trust-earn")); }} className="min-w-0 max-w-[75%] bg-transparent text-right text-[48px] font-black leading-none outline-none" /><strong className="pb-1 text-lg">{earnToken?.symbol}</strong></div><p className="mt-3 text-sm text-white/42">Available {amount(earnToken?.balance ?? 0)} {earnToken?.symbol}</p></div><Keypad value={earnValue} onChange={(next) => { setEarnValue(next); setEarnRequestId(createId("trust-earn")); }} /><button type="button" disabled={!valid} onClick={() => setEarnStage("review")} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:bg-[#27283a] disabled:text-white/22">Review allocation</button></div>;
     }
 
     if (earnStage === "list") {
@@ -1593,7 +1593,7 @@ export function TrustWallet() {
     if (perpetualStage === "order") {
       const maxLeverage = perpetualToken?.symbol === "BTC" ? 40 : 25;
       const valid = Boolean(perpetualToken && perpetualToken.price > 0 && value > 0 && value <= perpetualToken.balance);
-      return <div data-testid="trust-perpetual-order" className="pb-8"><Header title={`${perpetualToken?.symbol ?? ""} perpetual`} onBack={() => setPerpetualStage("list")} right={<IconButton label="View asset details" icon={TrendingUp} onClick={() => perpetualToken && selectToken(perpetualToken)} />} /><div className="mt-5 grid grid-cols-2 rounded-2xl bg-[#191a28] p-1">{(["long", "short"] as const).map((side) => <button key={side} type="button" onClick={() => { setPerpetualSide(side); perpetualRequestId.current = createId("trust-perpetual"); }} className={`min-h-12 rounded-xl font-extrabold capitalize ${perpetualSide === side ? side === "long" ? "bg-[#183927] text-[#3ed474]" : "bg-[#431d29] text-[#ff6575]" : "text-white/42"}`}>{side}</button>)}</div><div className="mt-5 rounded-[1.35rem] bg-[#191a28] p-5"><div className="flex min-w-0 items-center justify-between gap-3"><span className="flex min-w-0 items-center gap-3"><TokenIcon token={perpetualToken} /><span className="min-w-0"><strong className="block truncate text-lg">{perpetualToken?.name}</strong><span className="text-sm text-white/42">Live market</span></span></span><strong className="truncate text-lg">{cash(perpetualToken?.price ?? 0, profile.currency)}</strong></div></div><div className="mt-7 text-center"><p className="text-sm font-bold text-white/42">Collateral amount</p><div className="mt-3 flex min-w-0 items-end justify-center gap-2"><KeypadAmountInput label="Perpetual collateral" value={perpetualValue} onChange={(next) => { setPerpetualValue(next); perpetualRequestId.current = createId("trust-perpetual"); }} className="min-w-0 max-w-[72%] bg-transparent text-right text-[48px] font-black leading-none outline-none" /><strong className="pb-1 text-lg">{perpetualToken?.symbol}</strong></div><p className="mt-3 text-sm text-white/42">Available {amount(perpetualToken?.balance ?? 0)} {perpetualToken?.symbol}</p></div><div className="mt-6"><p className="mb-2 text-sm font-bold text-white/42">Leverage</p><div className="grid grid-cols-4 gap-2">{[2, 5, 10, maxLeverage].map((leverage) => <button key={leverage} type="button" onClick={() => { setPerpetualLeverage(leverage); perpetualRequestId.current = createId("trust-perpetual"); }} className={`min-h-11 rounded-xl font-extrabold ${perpetualLeverage === leverage ? "bg-[#4437ff]" : "bg-[#191a28]"}`}>{leverage}x</button>)}</div></div><Keypad value={perpetualValue} onChange={(next) => { setPerpetualValue(next); perpetualRequestId.current = createId("trust-perpetual"); }} /><button type="button" disabled={!valid} onClick={() => setPerpetualStage("review")} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:bg-[#27283a] disabled:text-white/22">Review practice order</button></div>;
+      return <div data-testid="trust-perpetual-order" className="pb-8"><Header title={`${perpetualToken?.symbol ?? ""} perpetual`} onBack={() => setPerpetualStage("list")} right={<IconButton label="View asset details" icon={TrendingUp} onClick={() => perpetualToken && selectToken(perpetualToken)} />} /><div className="mt-5 grid grid-cols-2 rounded-2xl bg-[#191a28] p-1">{(["long", "short"] as const).map((side) => <button key={side} type="button" onClick={() => { setPerpetualSide(side); setPerpetualRequestId(createId("trust-perpetual")); }} className={`min-h-12 rounded-xl font-extrabold capitalize ${perpetualSide === side ? side === "long" ? "bg-[#183927] text-[#3ed474]" : "bg-[#431d29] text-[#ff6575]" : "text-white/42"}`}>{side}</button>)}</div><div className="mt-5 rounded-[1.35rem] bg-[#191a28] p-5"><div className="flex min-w-0 items-center justify-between gap-3"><span className="flex min-w-0 items-center gap-3"><TokenIcon token={perpetualToken} /><span className="min-w-0"><strong className="block truncate text-lg">{perpetualToken?.name}</strong><span className="text-sm text-white/42">Live market</span></span></span><strong className="truncate text-lg">{cash(perpetualToken?.price ?? 0, profile.currency)}</strong></div></div><div className="mt-7 text-center"><p className="text-sm font-bold text-white/42">Collateral amount</p><div className="mt-3 flex min-w-0 items-end justify-center gap-2"><KeypadAmountInput label="Perpetual collateral" value={perpetualValue} onChange={(next) => { setPerpetualValue(next); setPerpetualRequestId(createId("trust-perpetual")); }} className="min-w-0 max-w-[72%] bg-transparent text-right text-[48px] font-black leading-none outline-none" /><strong className="pb-1 text-lg">{perpetualToken?.symbol}</strong></div><p className="mt-3 text-sm text-white/42">Available {amount(perpetualToken?.balance ?? 0)} {perpetualToken?.symbol}</p></div><div className="mt-6"><p className="mb-2 text-sm font-bold text-white/42">Leverage</p><div className="grid grid-cols-4 gap-2">{[2, 5, 10, maxLeverage].map((leverage) => <button key={leverage} type="button" onClick={() => { setPerpetualLeverage(leverage); setPerpetualRequestId(createId("trust-perpetual")); }} className={`min-h-11 rounded-xl font-extrabold ${perpetualLeverage === leverage ? "bg-[#4437ff]" : "bg-[#191a28]"}`}>{leverage}x</button>)}</div></div><Keypad value={perpetualValue} onChange={(next) => { setPerpetualValue(next); setPerpetualRequestId(createId("trust-perpetual")); }} /><button type="button" disabled={!valid} onClick={() => setPerpetualStage("review")} className="min-h-14 w-full rounded-full bg-[#4437ff] text-lg font-extrabold disabled:bg-[#27283a] disabled:text-white/22">Review practice order</button></div>;
     }
 
     return <div data-testid="trust-perpetuals" className="pb-8"><Header title="Perpetuals" onBack={back} /><div className="mt-6 rounded-[1.4rem] border border-[#4437ff]/30 bg-[#191a28] p-5"><Gauge className="size-6 text-[#8179ff]" /><h2 className="mt-3 text-2xl font-black">Practice markets</h2><p className="mt-2 text-sm leading-6 text-white/45">Open tracked internal positions without using real funds or a derivatives venue.</p></div>{perpetualPositions.length ? <section className="mt-7"><h2 className="text-xl font-black">Open positions</h2><div className="mt-3 space-y-3">{perpetualPositions.map((position) => { const token = tokens.find((item) => item.symbol === position.symbol); return <div key={position.id} className="flex min-h-[5.7rem] items-center gap-3 rounded-[1.3rem] border border-[#4437ff]/20 bg-[#191a28] p-4">{token ? <TokenIcon token={token} /> : null}<span className="min-w-0 flex-1"><strong className="block truncate capitalize">{position.side} {position.symbol} · {position.leverage}x</strong><span className="text-sm text-white/42">{amount(position.amount)} {position.symbol} collateral</span></span><button type="button" onClick={() => reviewPerpetualClose(position)} className="min-h-11 shrink-0 rounded-full bg-white/[.07] px-3 text-sm font-extrabold">Close</button></div>; })}</div></section> : null}<section className="mt-7"><h2 className="text-xl font-black">Markets</h2><div className="mt-3 grid grid-cols-2 gap-3">{perps.map((token) => <button key={token.id} type="button" aria-label={`Open ${token.symbol} perpetual market`} onClick={() => openPerpetualMarket(token.symbol)} className="min-h-[10rem] rounded-[1.35rem] bg-[#191a28] p-4 text-left focus-visible:outline-2 focus-visible:outline-[#665cff]"><TokenIcon token={token} /><strong className="mt-4 block text-xl">{token.symbol} <span className="text-sm text-white/40">{token.symbol === "BTC" ? "40x" : "25x"}</span></strong><span className={`mt-2 block font-bold ${token.change24h >= 0 ? "text-[#3ed474]" : "text-[#ff5364]"}`}>{token.change24h >= 0 ? "+" : ""}{token.change24h.toFixed(2)}%</span></button>)}</div></section></div>;
@@ -1769,7 +1769,7 @@ export function TrustWallet() {
       <div className="relative mx-auto h-[100dvh] w-full max-w-[36rem] overflow-hidden bg-[#10101b] shadow-2xl">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(68,55,255,.09),transparent_34%)]" />
         <div
-          ref={scroll}
+          ref={setScrollElement}
           data-testid="trust-pull-surface"
           className={`relative h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pt-[max(1rem,env(safe-area-inset-top))] ${screen === "market" ? "pb-[calc(11rem+env(safe-area-inset-bottom))]" : screen === "earn" && earnStage === "list" ? "pb-[calc(12.5rem+env(safe-area-inset-bottom))]" : showBottomNav ? "pb-[calc(7.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(2rem+env(safe-area-inset-bottom))]"}`}
           onFocusCapture={(event) => {

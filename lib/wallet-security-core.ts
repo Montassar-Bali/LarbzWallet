@@ -1,20 +1,34 @@
 export type SecurityCeremony = "registration" | "authentication";
 
-export function shouldUseTemporarySecurityStorage({
-  cwd,
-  vercel,
-  lambdaTaskRoot,
+export class WalletSecurityPublicError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+    this.name = "WalletSecurityPublicError";
+  }
+}
+
+export class RecoveryPinRateLimitError extends WalletSecurityPublicError {
+  constructor(retryAfterSeconds: number) {
+    super("Too many recovery PIN attempts. Try again later.", 429, retryAfterSeconds);
+    this.name = "RecoveryPinRateLimitError";
+  }
+}
+
+export type WalletSecurityStorageBackend = "database" | "file" | "unconfigured";
+
+export function walletSecurityStorageBackend({
+  nodeEnv,
+  databaseUrl,
 }: {
-  cwd: string;
-  vercel?: string;
-  lambdaTaskRoot?: string;
-}) {
-  const normalizedCwd = cwd.replace(/\/+$/, "") || "/";
-  const normalizedTaskRoot = lambdaTaskRoot?.replace(/\/+$/, "");
-  return vercel === "1"
-    || normalizedCwd === "/var/task"
-    || normalizedCwd.startsWith("/var/task/")
-    || normalizedTaskRoot === "/var/task";
+  nodeEnv?: string;
+  databaseUrl?: string;
+}): WalletSecurityStorageBackend {
+  if (databaseUrl?.trim()) return "database";
+  return nodeEnv === "production" ? "unconfigured" : "file";
 }
 
 export type SecurityChallenge = {
@@ -26,7 +40,7 @@ export type SecurityChallenge = {
   webAuthnUserId?: string;
 };
 
-export class ChallengeValidationError extends Error {
+export class ChallengeValidationError extends WalletSecurityPublicError {
   constructor(public readonly code: "INVALID" | "EXPIRED" | "REUSED" | "MISMATCH", message: string) {
     super(message);
     this.name = "ChallengeValidationError";
@@ -48,12 +62,16 @@ export class InMemoryChallengeStore {
     if (this.used.has(id)) throw new ChallengeValidationError("REUSED", "This security challenge was already used.");
     const record = this.records.get(id);
     if (!record) throw new ChallengeValidationError("INVALID", "Security challenge not found.");
-    this.records.delete(id);
-    this.used.add(id);
-    if (record.expiresAt <= now) throw new ChallengeValidationError("EXPIRED", "Security challenge expired.");
+    if (record.expiresAt <= now) {
+      this.records.delete(id);
+      this.used.add(id);
+      throw new ChallengeValidationError("EXPIRED", "Security challenge expired.");
+    }
     if (record.userId !== userId || record.ceremony !== ceremony) {
       throw new ChallengeValidationError("MISMATCH", "Security challenge does not match this request.");
     }
+    this.records.delete(id);
+    this.used.add(id);
     return record;
   }
 }
@@ -69,7 +87,7 @@ export async function completeRegistration<TCredential>({
 }) {
   const challenge = await consume();
   const result = await verify(challenge);
-  if (!result.verified || !result.credential) throw new Error("Passkey registration could not be verified.");
+  if (!result.verified || !result.credential) throw new WalletSecurityPublicError("Passkey registration could not be verified.");
   await persist(result.credential);
   return { verified: true as const, credential: result.credential };
 }
@@ -85,7 +103,7 @@ export async function completeAuthentication({
 }) {
   const challenge = await consume();
   const result = await verify(challenge);
-  if (!result.verified || result.newCounter === undefined) throw new Error("Biometric verification failed.");
+  if (!result.verified || result.newCounter === undefined) throw new WalletSecurityPublicError("Biometric verification failed.");
   await updateCounter(result.newCounter);
   return { verified: true as const };
 }
@@ -100,8 +118,23 @@ export function supportsPlatformBiometrics(webAuthnSupported: boolean, platformA
   return webAuthnSupported && platformAuthenticatorAvailable;
 }
 
+export function shouldKeepWalletLocked({
+  enabled,
+  statusAvailable,
+  authenticated,
+  hasRecentUnlock,
+}: {
+  enabled: boolean;
+  statusAvailable: boolean;
+  authenticated: boolean;
+  hasRecentUnlock: boolean;
+}) {
+  if (!enabled) return false;
+  return !statusAvailable || !authenticated || !hasRecentUnlock;
+}
+
 export async function completeRecoveryUnlock({ verifyPin, createSession }: { verifyPin: () => Promise<boolean>; createSession: () => Promise<void> }) {
-  if (!await verifyPin()) throw new Error("The recovery PIN is incorrect.");
+  if (!await verifyPin()) throw new WalletSecurityPublicError("The recovery PIN is incorrect.");
   await createSession();
   return { verified: true as const };
 }

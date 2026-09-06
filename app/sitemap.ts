@@ -10,12 +10,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/blog",
     "/privacy",
     "/terms",
-    "/activate",
-    "/dashboard",
-    "/dashboard/portfolio",
-    "/dashboard/tokens",
-    "/dashboard/activity",
-    "/dashboard/settings",
   ];
 
   return routes.map((route) => ({

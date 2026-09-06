@@ -1,42 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Larpz Wallet
 
-## Getting Started
+Larpz Wallet is a mobile-first crypto-wallet **simulator** built with Next.js. It is intended for demonstrations and interface testing only. It does not connect to real wallets or custody real funds, and it must never ask users for seed phrases or private keys.
 
-First, run the development server:
+## Local setup
+
+Requirements: Node.js 22 (the pinned version is in `.nvmrc`) and npm.
 
 ```bash
+npm ci
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
+
+`.env.local` is ignored by Git. Never commit it or include it in a source archive.
+
+## Production environment
+
+Configure these as server-only variables in the client's hosting account:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Neon PostgreSQL connection string for licenses, audit/rate-limit data, shared demo data, and wallet security records |
+| `ADMIN_ACCESS_KEY_HASH` | SHA-256 digest of the private administrator key |
+| `ADMIN_SESSION_SECRET` | A random 32+ character administrator-session signing secret |
+| `LICENSE_KEY_PEPPER` | A different random 32+ character license-key hashing secret |
+| `WALLET_SECURITY_RATE_LIMIT_SECRET` | A separate random 32+ character HMAC secret for recovery-PIN request throttling |
+| `WALLET_SECURITY_PIN_PEPPER` | A separate random 32+ character pepper for recovery-PIN hashes |
+| `COINGECKO_API_KEY` or `CRYPTO_API_KEY` | Primary market-price provider |
+| `ONDO_API_KEY` or `BLOCKDAEMON_API_KEY` | Ondo-compatible market provider |
+
+Optional variables and provider notes are documented in `.env.example`. Do not use a `NEXT_PUBLIC_` prefix for any secret.
+
+To hash a normal administrator key without placing the raw key in production hosting:
+
+```bash
+node --env-file=.env.local scripts/hash-admin-access-key.mjs
+```
+
+Copy only the printed digest to `ADMIN_ACCESS_KEY_HASH` in production, then leave `ADMIN_ACCESS_KEY` unset there. Validate a local handoff configuration without printing any secret values:
+
+```bash
+node scripts/check-production-env.mjs .env.local
+```
+
+Changing `LICENSE_KEY_PEPPER` makes previously issued keys unverifiable. Rotate it before production keys are issued, or regenerate/migrate those keys deliberately.
 
 ## Wallet security storage
 
-Face ID/passkey credentials, recovery PIN hashes, challenges, and unlock sessions are written to `.data/wallet-security.json` during local development. On Vercel, the app automatically avoids the read-only `/var/task` directory and uses the function's writable temporary directory.
+Production Face ID/passkey credentials, recovery PIN hashes, one-time challenges, unlock sessions, and PIN rate limits are stored in PostgreSQL through `DATABASE_URL`. Production fails closed when the database is missing. Challenges are consumed atomically and expired challenges/sessions are cleaned up.
 
-Temporary function storage is not durable or shared between every serverless instance. For reliable production Face ID and recovery-PIN access, set `WALLET_SECURITY_DATA_FILE` to an absolute path on persistent shared storage, or replace the file-backed adapter in `lib/wallet-security-store.ts` with a database-backed implementation.
+Recovery-PIN verification is bounded per wallet identifier and privacy-preserving request fingerprint. Configure the dedicated `WALLET_SECURITY_RATE_LIMIT_SECRET` in production; `LICENSE_KEY_PEPPER` is accepted only as a server-side fallback.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+New recovery-PIN hashes also use `WALLET_SECURITY_PIN_PEPPER`. Existing unpeppered hashes are upgraded automatically after the next successful verification. Changing the PIN pepper invalidates already-upgraded PINs, so rotate it only with a deliberate PIN reset or migration plan.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Local development and tests use `.data/wallet-security.json` when `DATABASE_URL` is absent. `WALLET_SECURITY_DATA_FILE` can override that local-only path. The database tables and indexes are initialized on first use, so the initial database role needs schema-creation privileges.
 
-## Learn More
+## PWA
 
-To learn more about Next.js, take a look at the following resources:
+The production build generates the Serwist service worker. Generated `public/sw.js` and worker bundles are ignored and must not be committed. Pages, APIs, administrator routes, activation routes, and wallet-security routes remain network-only; only same-origin static assets are runtime-cached.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Verification
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Before a deployment or client handoff, run:
 
-## Deploy on Vercel
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run test:mobile
+npm audit --omit=dev --audit-level=high
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The repository CI workflow performs the non-device checks on pushes and pull requests.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Security and handoff
+
+Read [SECURITY.md](./SECURITY.md) before transferring the source or deployment. The shared demo-ledger owner/link mechanism is intentionally not a production authentication boundary and must not protect real funds or sensitive data.

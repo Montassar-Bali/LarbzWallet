@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 
 import { AppProvider } from "@/components/providers/app-provider";
+import { RegisterPwa } from "@/components/providers/register-pwa";
 import { siteConfig } from "@/config/site";
 
 import "./globals.css";
@@ -91,6 +92,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-[var(--background)] text-[var(--foreground)]">
+        <RegisterPwa />
         <AppProvider>{children}</AppProvider>
       </body>
     </html>

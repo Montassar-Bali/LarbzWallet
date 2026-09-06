@@ -6,9 +6,10 @@ import {
   completeRecoveryUnlock,
   completeRegistration,
   InMemoryChallengeStore,
+  shouldKeepWalletLocked,
   shouldLockWallet,
-  shouldUseTemporarySecurityStorage,
   supportsPlatformBiometrics,
+  walletSecurityStorageBackend,
 } from "@/lib/wallet-security-core";
 
 describe("wallet WebAuthn ceremony coordination", () => {
@@ -53,12 +54,22 @@ describe("wallet WebAuthn ceremony coordination", () => {
     const mismatched = new InMemoryChallengeStore();
     const mismatchedChallenge = mismatched.issue("wallet-user-123", "registration", "value", 1_000);
     expect(() => mismatched.consume(mismatchedChallenge.id, "other-wallet-123", "registration", 1_001)).toThrowError(expect.objectContaining({ code: "MISMATCH" }));
+    expect(mismatched.consume(mismatchedChallenge.id, "wallet-user-123", "registration", 1_002))
+      .toEqual(mismatchedChallenge);
   });
 
   it("locks after inactivity and after the configured background interval", () => {
     expect(shouldLockWallet({ enabled: true, enrolled: true, lastActivityAt: 1_000, timeoutMs: 5_000, now: 6_000 })).toBe(true);
     expect(shouldLockWallet({ enabled: true, enrolled: true, lastActivityAt: 5_500, timeoutMs: 5_000, now: 6_000 })).toBe(false);
     expect(shouldLockWallet({ enabled: true, enrolled: true, lastActivityAt: 5_900, backgroundedAt: 1_000, timeoutMs: 5_000, now: 6_000 })).toBe(true);
+  });
+
+  it("keeps enabled wallet security locked until server and local unlock state agree", () => {
+    expect(shouldKeepWalletLocked({ enabled: true, statusAvailable: false, authenticated: false, hasRecentUnlock: true })).toBe(true);
+    expect(shouldKeepWalletLocked({ enabled: true, statusAvailable: true, authenticated: false, hasRecentUnlock: true })).toBe(true);
+    expect(shouldKeepWalletLocked({ enabled: true, statusAvailable: true, authenticated: true, hasRecentUnlock: false })).toBe(true);
+    expect(shouldKeepWalletLocked({ enabled: true, statusAvailable: true, authenticated: true, hasRecentUnlock: true })).toBe(false);
+    expect(shouldKeepWalletLocked({ enabled: false, statusAvailable: false, authenticated: false, hasRecentUnlock: false })).toBe(false);
   });
 
   it("unlocks through the recovery fallback only when the PIN verifier succeeds", async () => {
@@ -74,10 +85,10 @@ describe("wallet WebAuthn ceremony coordination", () => {
     expect(supportsPlatformBiometrics(true, true)).toBe(true);
   });
 
-  it("uses writable temporary storage in Vercel and /var/task runtimes", () => {
-    expect(shouldUseTemporarySecurityStorage({ cwd: "/var/task", vercel: "1" })).toBe(true);
-    expect(shouldUseTemporarySecurityStorage({ cwd: "/var/task/app" })).toBe(true);
-    expect(shouldUseTemporarySecurityStorage({ cwd: "/workspace", lambdaTaskRoot: "/var/task/" })).toBe(true);
-    expect(shouldUseTemporarySecurityStorage({ cwd: "/Users/test/wallet" })).toBe(false);
+  it("requires durable database storage in production and keeps a local file fallback", () => {
+    expect(walletSecurityStorageBackend({ nodeEnv: "production", databaseUrl: "postgresql://configured" })).toBe("database");
+    expect(walletSecurityStorageBackend({ nodeEnv: "production" })).toBe("unconfigured");
+    expect(walletSecurityStorageBackend({ nodeEnv: "development" })).toBe("file");
+    expect(walletSecurityStorageBackend({ nodeEnv: "test", databaseUrl: " postgresql://configured " })).toBe("database");
   });
 });
