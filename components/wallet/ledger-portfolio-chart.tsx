@@ -37,6 +37,7 @@ export function LedgerPortfolioChart({
   currency,
   rate,
   total,
+  zeroBalance,
   marketApiKey,
   additionalBalances,
 }: {
@@ -45,6 +46,7 @@ export function LedgerPortfolioChart({
   currency: string;
   rate: number;
   total: number;
+  zeroBalance: boolean;
   marketApiKey: string;
   additionalBalances: Record<string, number>;
 }) {
@@ -63,12 +65,12 @@ export function LedgerPortfolioChart({
   const holdings = useMemo(() => JSON.parse(holdingsKey) as { symbol: string; amount: number }[], [holdingsKey]);
   const points = useMemo(() => {
     const lastValue = rawPoints.at(-1)?.value ?? 0;
-    const scale = lastValue > 0 ? total / lastValue : 1;
+    const scale = zeroBalance ? 0 : lastValue > 0 ? total / lastValue : 1;
     return rawPoints.map((point) => ({
       time: point.time,
       value: point.value * scale,
     }));
-  }, [rawPoints, total]);
+  }, [rawPoints, total, zeroBalance]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +80,7 @@ export function LedgerPortfolioChart({
       setSelectedIndex(null);
       setError("");
 
-      if (!holdings.length) {
+      if (zeroBalance || !holdings.length) {
         const now = Date.now();
         setRawPoints([
           { time: now - 60 * 60 * 1000, value: 0 },
@@ -133,7 +135,7 @@ export function LedgerPortfolioChart({
       cancelled = true;
       controller.abort();
     };
-  }, [holdings, marketApiKey, period, rate, retryKey]);
+  }, [holdings, marketApiKey, period, rate, retryKey, zeroBalance]);
 
   const chart = useMemo(() => {
     const width = 430;
@@ -144,11 +146,12 @@ export function LedgerPortfolioChart({
     const values = points.map((point) => point.value);
     const minimum = values.length ? Math.min(...values) : 0;
     const maximum = values.length ? Math.max(...values) : 1;
-    const range = maximum - minimum || Math.max(maximum * 0.01, 1);
+    const flat = maximum === minimum;
+    const range = maximum - minimum || 1;
     const mapped = points.map((point) => ({
       ...point,
       x: ((point.time - firstTime) / Math.max(1, lastTime - firstTime)) * width,
-      y: verticalPadding + ((maximum - point.value) / range) * (height - verticalPadding * 2),
+      y: flat ? height / 2 : verticalPadding + ((maximum - point.value) / range) * (height - verticalPadding * 2),
     }));
     const line = mapped.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
     const area = mapped.length ? `0,${height} ${line} ${width},${height}` : "";
@@ -186,6 +189,7 @@ export function LedgerPortfolioChart({
   return (
     <div
       data-testid="ledger-portfolio-chart"
+      data-chart-mode={zeroBalance ? "flat" : "market"}
       className={styles.portfolioChart}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -215,7 +219,7 @@ export function LedgerPortfolioChart({
           </linearGradient>
         </defs>
         <polyline points={chart.area} fill={`url(#${gradientId})`} stroke="none" />
-        <polyline points={chart.line} fill="none" stroke="#b3a3fc" strokeWidth="2.3" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline data-testid="ledger-portfolio-line" points={chart.line} fill="none" stroke="#b3a3fc" strokeWidth="2.3" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
         {selected ? (
           <>
             <line x1={selected.x} x2={selected.x} y1="0" y2={chart.height} stroke="rgba(255,255,255,.24)" strokeWidth="1" />

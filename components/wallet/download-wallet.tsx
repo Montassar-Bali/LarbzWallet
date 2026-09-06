@@ -10,12 +10,14 @@ import {
   Bell,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
   Clock3,
   Copy,
   CreditCard,
   Gem,
+  Globe2,
   Headphones,
   Heart,
   Info,
@@ -57,7 +59,7 @@ import {
   saveToken,
 } from "@/lib/wallet";
 import { createId, readStorage, writeStorage } from "@/lib/storage";
-import { tokensForWalletAccount, walletLedgerEvent } from "@/lib/wallet-ledger";
+import { tokensForWalletAccount, walletLedgerEvent, type SimulatedTransaction } from "@/lib/wallet-ledger";
 import { applyLiveMarketSnapshot, emptyLiveMarketSnapshot, type LiveMarketSnapshot } from "@/lib/wallet-market";
 import { useSwipeDismiss } from "@/components/wallet/use-swipe-dismiss";
 import { AddressQrCode } from "@/components/wallet/address-qr-code";
@@ -68,7 +70,14 @@ type HomeRefreshStatus = "idle" | "pulling" | "ready" | "refreshing" | "complete
 type TokenFlow = "send" | "buy";
 type View =
   | "home"
+  | "tokens"
   | "profile"
+  | "profile-overview"
+  | "manage-profile"
+  | "avatar-picker"
+  | "username-editor"
+  | "bio-editor"
+  | "x-editor"
   | "history"
   | "watchlist"
   | "community"
@@ -97,6 +106,8 @@ type ProfileRecord = {
   discord: string;
   currency: string;
   avatar: string;
+  privacy: "Public" | "Private";
+  verified: boolean;
   cash: number;
   showCash: boolean;
 };
@@ -167,16 +178,20 @@ const defaultProfile: ProfileRecord = {
   discord: "",
   currency: "USD",
   avatar: "🔐",
+  privacy: "Public",
+  verified: false,
   cash: 0,
   showCash: true,
 };
 
-function readProfile() {
+function readProfile(): ProfileRecord {
   const stored = readStorage<Partial<ProfileRecord>>(profileStorageKey, {});
   return {
     ...defaultProfile,
     ...stored,
     cash: typeof stored.cash === "number" && Number.isFinite(stored.cash) && stored.cash >= 0 ? stored.cash : defaultProfile.cash,
+    privacy: stored.privacy === "Private" ? "Private" : "Public",
+    verified: stored.verified === true,
     showCash: stored.showCash !== false,
   };
 }
@@ -186,6 +201,8 @@ const profileEmojis = [
   "⚒️", "⛓️", "🚀", "🌙", "💩", "👻",
   "👽", "👾", "🤖", "😼", "😁", "🫡",
   "🫥", "🤡", "💎", "🙌", "🗣️", "💪",
+  "💸", "💰", "💳", "🧠", "📱", "🛸",
+  "🦄", "🦊", "🐸", "🦋", "🌈", "⚡",
 ];
 
 const profileAvatars = Array.from(
@@ -389,12 +406,14 @@ function tokenMark(token: WalletToken) {
   return tokenVisuals[token.symbol]?.mark ?? token.symbol.slice(0, 1);
 }
 
-function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "small" | "normal" | "large" }) {
+function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "small" | "row" | "normal" | "large" }) {
   const visual = tokenVisuals[token.symbol] ?? { background: "#8068e8", mark: tokenMark(token) };
-  const dimensions = size === "small" ? "h-8 w-8 text-sm" : size === "large" ? "h-[clamp(4rem,20vw,5rem)] w-[clamp(4rem,20vw,5rem)] text-[clamp(1.8rem,8vw,2.25rem)]" : "h-[clamp(2.5rem,12vw,3rem)] w-[clamp(2.5rem,12vw,3rem)] text-[clamp(1rem,5vw,1.25rem)]";
+  const dimensions = size === "small" ? "h-8 w-8 text-sm" : size === "row" ? "h-10 w-10 text-[17px]" : size === "large" ? "h-[clamp(4rem,20vw,5rem)] w-[clamp(4rem,20vw,5rem)] text-[clamp(1.8rem,8vw,2.25rem)]" : "h-[clamp(2.5rem,12vw,3rem)] w-[clamp(2.5rem,12vw,3rem)] text-[clamp(1rem,5vw,1.25rem)]";
 
   return (
     <span
+      data-testid="phantom-token-logo"
+      data-token-icon-size={size}
       className={`relative isolate grid shrink-0 place-items-center overflow-hidden rounded-full font-bold shadow-[inset_0_1px_2px_rgba(255,255,255,.35)] ${dimensions}`}
       style={{ background: visual.background, color: visual.foreground ?? "white" }}
     >
@@ -441,10 +460,10 @@ function CashBanknoteIcon({ className = "h-6 w-7" }: { className?: string }) {
   );
 }
 
-function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "small" | "normal" | "large" }) {
-  const imageSource = value === "🔐" ? "/assets/logo_m.png" : value.startsWith("/avatars/") ? value : null;
-  const dimensions = size === "large" ? "h-24 w-24 text-5xl" : size === "small" ? "h-11 w-11 text-xl" : "h-12 w-12 text-2xl";
-  const imageSize = size === "large" ? "96px" : size === "small" ? "44px" : "48px";
+function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?: "small" | "normal" | "profile" | "large" | "xlarge" }) {
+  const imageSource = value === "🔐" ? "/assets/phantom-profile-avatar.svg" : value.startsWith("/") ? value : null;
+  const dimensions = size === "xlarge" ? "h-32 w-32 text-7xl" : size === "large" ? "h-24 w-24 text-5xl" : size === "profile" ? "h-[72px] w-[72px] text-4xl" : size === "small" ? "h-11 w-11 text-xl" : "h-12 w-12 text-2xl";
+  const imageSize = size === "xlarge" ? "128px" : size === "large" ? "96px" : size === "profile" ? "72px" : size === "small" ? "44px" : "48px";
 
   return (
     <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#242426] ${dimensions}`}>
@@ -453,7 +472,7 @@ function LockAvatar({ value = "🔐", size = "normal" }: { value?: string; size?
   );
 }
 
-function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; avatar: string; onChange: (tab: Tab) => void; onMenu: () => void }) {
+function WalletTabs({ activeTab, avatar, onChange, onProfile }: { activeTab: Tab; avatar: string; onChange: (tab: Tab) => void; onProfile: () => void }) {
   const tabs: { value: Tab; label: string }[] = [
     { value: "Home", label: "Home" },
     { value: "Trade", label: "Trade" },
@@ -466,7 +485,7 @@ function WalletTabs({ activeTab, avatar, onChange, onMenu }: { activeTab: Tab; a
       data-testid="phantom-wallet-tabs"
       className="grid min-w-0 grid-cols-[2.75rem_.85fr_.85fr_1.45fr_1fr] items-center gap-1 overflow-hidden pb-1 min-[400px]:gap-1.5"
     >
-      <button type="button" onClick={onMenu} aria-label="Open wallet menu" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
+      <button type="button" onClick={onProfile} aria-label="Open profile" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
         <LockAvatar value={avatar} size="small" />
       </button>
       {tabs.map(({ value, label }) => (
@@ -562,11 +581,12 @@ function HomeView({
   refreshOffset,
   refreshStatus,
   onTab,
-  onMenu,
+  onProfile,
   onCash,
   onSearch,
   onActions,
   onOpenWatchlist,
+  onOpenTokens,
   onAccounts,
   onExecuteTrade,
   perpPositions,
@@ -588,11 +608,12 @@ function HomeView({
   refreshOffset: number;
   refreshStatus: HomeRefreshStatus;
   onTab: (tab: Tab) => void;
-  onMenu: () => void;
+  onProfile: () => void;
   onCash: () => void;
   onSearch: (value: string) => void;
   onActions: () => void;
   onOpenWatchlist: () => void;
+  onOpenTokens: () => void;
   onAccounts: () => void;
   onExecuteTrade: (trade: TradeRequest) => boolean;
   perpPositions: PerpPosition[];
@@ -670,12 +691,12 @@ function HomeView({
       ) : null}
 
       <div className="phantom-home-nav sticky top-0 z-20 min-w-0 bg-black/85 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl min-[400px]:px-4 sm:px-5" style={pulledContentStyle}>
-        <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onMenu={onMenu} />
+        <WalletTabs activeTab={tab} avatar={profile.avatar} onChange={onTab} onProfile={onProfile} />
       </div>
 
       {tab === "Home" ? (
-        <section className="phantom-home-content px-4 pb-40 pt-8 sm:px-5" style={pulledContentStyle}>
-          <div className="flex items-center justify-between gap-4"><button type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button></span></div>
+        <section className="phantom-home-content px-4 pb-40 pt-3 sm:px-5" style={pulledContentStyle}>
+          <div className="flex items-center justify-between gap-4"><button data-testid="phantom-account-selector" type="button" onClick={onAccounts} className="flex min-w-0 max-w-full items-center gap-1.5 truncate text-[18px] font-semibold text-white/70"><span className="truncate">{accountName}</span><ChevronDown className="h-4 w-4 shrink-0" /></button><span className="flex shrink-0 items-center gap-1.5"><button type="button" onClick={onRefresh} disabled={isRefreshing} aria-label="Refresh wallet data" className="grid h-8 w-8 place-items-center rounded-full text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait"><RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-[#a99bf7]" : ""}`} /></button></span></div>
           <h1 data-testid="phantom-total-balance" className="mt-2 max-w-full whitespace-nowrap text-[clamp(2rem,10vw,3rem)] font-semibold leading-none tracking-[-0.065em] tabular-nums text-white">{formatMoney(displayTotal)}</h1>
           <div className={`mt-3 flex min-w-0 items-center gap-2 text-[clamp(.9rem,4.2vw,1.125rem)] font-semibold ${displayChangeValue < 0 ? "text-[#ff1744]" : "text-[#00e676]"}`}><span className="min-w-0 truncate tabular-nums">{formatSignedMoney(displayChangeValue)}</span><span className={`shrink-0 rounded-[.65rem] px-2 py-0.5 tabular-nums text-black ${displayChangeValue < 0 ? "bg-[#ff1744]" : "bg-[#00e676]"}`}>{displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%</span></div>
 
@@ -683,7 +704,7 @@ function HomeView({
 
           <WatchlistPromo onBrowse={onOpenWatchlist} />
 
-          <SectionHeading>Token</SectionHeading>
+          <SectionHeading action={onOpenTokens}>Token</SectionHeading>
           <div className="mt-4 space-y-2.5">
             {filteredTokens.map((token, index) => <TokenRow key={token.id} token={token} animationDelay={260 + Math.min(index, 6) * 45} onClick={() => onToken(token)} />)}
             {filteredTokens.length === 0 ? <div className="rounded-[1.5rem] bg-[#19191b] px-5 py-7 text-center text-white/55">No tokens match your search.</div> : null}
@@ -701,9 +722,9 @@ function HomeView({
 }
 
 function SectionHeading({ children, action }: { children: ReactNode; action?: () => void }) {
-  const heading = <h2 className="text-[28px] font-semibold tracking-[-.05em]">{children}</h2>;
-  if (!action) return <div className="mt-8 flex items-center gap-1.5">{heading}</div>;
-  return <button type="button" onClick={action} className="mt-8 flex items-center gap-1.5 text-left">{heading}<ChevronRight className="h-6 w-6 text-white/65" /></button>;
+  const headingClass = "text-[28px] font-semibold tracking-[-.05em]";
+  if (!action) return <h2 className={`mt-8 ${headingClass}`}>{children}</h2>;
+  return <h2 className={`mt-8 ${headingClass}`}><button type="button" onClick={action} className="flex items-center gap-1.5 text-left">{children}<ChevronRight className="h-6 w-6 text-white/65" /></button></h2>;
 }
 
 function WatchlistPromo({ onBrowse }: { onBrowse: () => void }) {
@@ -776,6 +797,66 @@ function DiscoverySections({ watchlistTokens, onWatchlist, onToken, onPerps, onP
         <button type="button" onClick={onDisclosures} className="mt-3 flex items-center gap-2 py-3 text-left text-base text-white/35"><Info className="h-4 w-4" /> View disclosures</button>
       </section>
     </>
+  );
+}
+
+function TokensScreen({ tokens, onBack, onToken }: { tokens: WalletToken[]; onBack: () => void; onToken: (token: WalletToken) => void }) {
+  const [sortOpen, setSortOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<"value" | "name" | "change">("value");
+  const portfolioTokens = useMemo(
+    () => sortTokens([
+      ...referenceHomeTokens(tokens),
+      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS"),
+    ]),
+    [tokens],
+  );
+  const displayTokens = useMemo(() => [...portfolioTokens].sort((a, b) => {
+    if (sortMode === "name") return a.name.localeCompare(b.name);
+    if (sortMode === "change") return b.change24h - a.change24h;
+    return b.balance * b.price - a.balance * a.price;
+  }), [portfolioTokens, sortMode]);
+  const total = portfolioTokens.reduce((sum, token) => sum + token.balance * token.price, 0);
+  const changeValue = portfolioTokens.reduce((sum, token) => sum + token.balance * token.price * token.change24h / 100, 0);
+  const change = total === 0 ? 0 : changeValue / total * 100;
+  const positive = changeValue >= 0;
+
+  return (
+    <SwipePanel onDismiss={onBack} scrollable className="phantom-token-panel">
+      <section data-testid="phantom-token-screen" className="relative flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+32px)]">
+        <button type="button" onClick={onBack} aria-label="Back to wallet" className="sr-only">Back to wallet</button>
+        <header className="mt-5 flex items-center justify-between">
+          <h1 className="text-[24px] font-semibold tracking-[-.035em]">Token</h1>
+          <div className="relative">
+            <button type="button" onClick={() => setSortOpen((open) => !open)} aria-label="Sort tokens" aria-expanded={sortOpen} className="grid h-10 w-10 place-items-center rounded-full bg-[#202022] text-white transition hover:bg-[#2a2a2d]">
+              <SlidersHorizontal className="h-5 w-5" />
+            </button>
+            {sortOpen ? (
+              <div role="menu" aria-label="Token sorting" className="absolute right-0 top-14 z-30 w-48 rounded-[1.2rem] border border-white/[0.06] bg-[#252527] p-1.5 shadow-2xl">
+                {([
+                  ["value", "Portfolio value"],
+                  ["name", "Name"],
+                  ["change", "24h change"],
+                ] as const).map(([value, label]) => (
+                  <button key={value} type="button" role="menuitemradio" aria-checked={sortMode === value} onClick={() => { setSortMode(value); setSortOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] ${sortMode === value ? "bg-[#a295f3] font-semibold text-black" : "text-white/75 hover:bg-white/[0.05]"}`}>
+                    {label}{sortMode === value ? <Check className="h-4 w-4" /> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </header>
+
+        <h2 data-testid="phantom-token-screen-total" className="mt-5 whitespace-nowrap text-[48px] font-semibold leading-none tracking-[-0.065em] tabular-nums">{formatMoney(total)}</h2>
+        <div className={`mt-3 flex items-center gap-2 text-[18px] font-semibold ${positive ? "text-[#00e676]" : "text-[#ff1744]"}`}>
+          <span className="tabular-nums">{formatSignedMoney(changeValue)}</span>
+          <span className={`rounded-[.65rem] px-2 py-0.5 tabular-nums text-black ${positive ? "bg-[#00e676]" : "bg-[#ff1744]"}`}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span>
+        </div>
+
+        <div className="mt-6 space-y-2.5">
+          {displayTokens.map((token) => <TokenRow key={token.id} token={token} onClick={() => onToken(token)} />)}
+        </div>
+      </section>
+    </SwipePanel>
   );
 }
 
@@ -1101,10 +1182,10 @@ function TokenRow({ token, animationDelay, onClick }: { token: WalletToken; anim
   const changeClass = token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#00e676]";
 
   return (
-    <button type="button" onClick={onClick} className="phantom-home-token-row grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-[1.45rem] bg-[#191919] px-3 py-2 text-left transition hover:bg-[#232323] min-[400px]:gap-x-3 min-[400px]:px-4" style={animationDelay === undefined ? undefined : { animationDelay: `${animationDelay}ms` }}>
-      <TokenIcon token={token} />
-      <span className="min-w-0 flex-1"><span className="block truncate text-[20px] font-semibold">{token.name}</span><span className="mt-0.5 block truncate text-[17px] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
-      <span className="min-w-fit whitespace-nowrap text-right tabular-nums"><span data-testid="phantom-token-value" className="block text-[clamp(.72rem,3.9vw,1.2rem)] font-medium tracking-[-0.025em]">{formatMoney(value)}</span><span className={`mt-0.5 block text-[clamp(.8rem,4vw,1.1rem)] font-semibold ${changeClass}`}>{changeLabel}</span></span>
+    <button type="button" onClick={onClick} className="phantom-home-token-row grid min-h-[68px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-[1.45rem] bg-[#191919] px-3 py-2 text-left transition hover:bg-[#232323] min-[400px]:gap-x-3 min-[400px]:px-4" style={animationDelay === undefined ? undefined : { animationDelay: `${animationDelay}ms` }}>
+      <TokenIcon token={token} size="row" />
+      <span className="min-w-0 flex-1"><span data-testid="phantom-token-name" className="block truncate text-[20px] font-semibold leading-[1.2]">{token.name}</span><span data-testid="phantom-token-amount" className="mt-0.5 block truncate text-[17px] leading-[1.2] text-white/55">{formatAmount(token.balance)} {token.symbol}</span></span>
+      <span className="min-w-fit whitespace-nowrap text-right tabular-nums"><span data-testid="phantom-token-value" className="block text-[20px] font-medium leading-[1.2] tracking-[-0.025em]">{formatMoney(value)}</span><span data-testid="phantom-token-change" className={`mt-0.5 block text-[18px] font-medium leading-[1.2] ${changeClass}`}>{changeLabel}</span></span>
     </button>
   );
 }
@@ -1127,6 +1208,273 @@ function SwipePanel({ onDismiss, className = "", scrollable = false, children }:
         {children}
       </div>
     </div>
+  );
+}
+
+type ProfileActivityItem = {
+  id: string;
+  type: "send" | "receive";
+  symbol: string;
+  amount: number;
+  date: string;
+  detail: string;
+};
+
+function EmptyProfileActivity() {
+  return (
+    <div className="flex flex-col items-center pt-[clamp(5rem,19vh,9rem)] text-center">
+      <div aria-hidden="true" className="relative h-24 w-32">
+        <span className="absolute left-4 top-10 h-7 w-7 rotate-45 rounded-[.35rem] bg-[#a295f3]" />
+        <span className="absolute left-14 top-1 h-8 w-8 rotate-45 rounded-[.45rem] bg-[#35c98d]" />
+        <span className="absolute right-5 top-3 h-12 w-6 skew-x-[-20deg] bg-[#ffd23f]" />
+        <span className="absolute bottom-1 left-[3.2rem] h-4 w-10 rotate-[-42deg] rounded-full bg-[#ff694b]" />
+        <span className="absolute bottom-4 right-6 h-8 w-8 rotate-12 rounded-[.45rem] bg-[#4a80ef]" />
+        <Sparkles className="absolute bottom-1 left-1/2 h-8 w-8 -translate-x-1/2 text-white/25" />
+      </div>
+      <p className="mt-7 text-[18px] font-semibold text-white/55">No activity to display.</p>
+    </div>
+  );
+}
+
+function ProfileOverviewScreen({
+  profile,
+  records,
+  transactions,
+  currentAccountId,
+  onClose,
+  onManage,
+  onShare,
+}: {
+  profile: ProfileRecord;
+  records: WalletActivity[];
+  transactions: SimulatedTransaction[];
+  currentAccountId?: string;
+  onClose: () => void;
+  onManage: () => void;
+  onShare: () => void;
+}) {
+  const activity = useMemo<ProfileActivityItem[]>(() => {
+    const accountTransactions = currentAccountId
+      ? transactions.filter((record) => record.sourceAccountId === currentAccountId || record.destinationAccountId === currentAccountId)
+      : [];
+    const shared = accountTransactions
+          .map((record) => {
+            const outgoing = record.sourceAccountId === currentAccountId;
+            return {
+              id: record.id,
+              type: outgoing ? "send" as const : "receive" as const,
+              symbol: record.tokenSymbol,
+              amount: record.amount,
+              date: record.timestamp,
+              detail: outgoing ? shortAddress(record.recipientAddress) : shortAddress(record.senderAddress),
+            };
+          });
+    const sharedIds = new Set(accountTransactions.flatMap((record) => [record.id, record.legacyIds?.ghost].filter((id): id is string => Boolean(id))));
+    const legacy = records
+      .filter((record) => !sharedIds.has(record.id))
+      .map((record) => ({
+        id: record.id,
+        type: record.type,
+        symbol: record.tokenSymbol,
+        amount: record.amount,
+        date: record.date,
+        detail: shortAddress(record.counterpartyLabel),
+      }));
+    return [...shared, ...legacy]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 12);
+  }, [currentAccountId, records, transactions]);
+
+  return (
+    <SwipePanel onDismiss={onClose} scrollable className="pb-[calc(env(safe-area-inset-bottom)+36px)]" >
+      <section data-testid="phantom-profile-overview" className="min-h-full px-5 pb-14 pt-4">
+        <button type="button" onClick={onClose} className="sr-only">Close profile</button>
+        <h1 className="truncate text-[26px] font-bold tracking-[-0.045em]">@{profile.username}</h1>
+
+        <div className="mt-4 grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-4">
+          <LockAvatar value={profile.avatar} size="profile" />
+          <dl className="grid min-w-0 grid-cols-[1.25fr_1fr_1fr] gap-1.5">
+            <div className="min-w-0"><dt className="whitespace-nowrap text-[12px] font-semibold text-white/50 min-[400px]:text-[13px]">Trading volume</dt><dd className="mt-1 text-[18px] font-semibold tabular-nums">$0.00</dd></div>
+            <div><dt className="text-[12px] font-semibold text-white/50 min-[400px]:text-[13px]">Following</dt><dd className="mt-1 text-[18px] font-semibold tabular-nums">0</dd></div>
+            <div><dt className="text-[12px] font-semibold text-white/50 min-[400px]:text-[13px]">Followers</dt><dd className="mt-1 text-[18px] font-semibold tabular-nums">0</dd></div>
+          </dl>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button type="button" onClick={onManage} className="min-h-14 rounded-full bg-[#1d1d1f] px-4 text-[18px] font-semibold transition hover:bg-[#29292b] active:scale-[.99]">Manage profile</button>
+          <button type="button" onClick={onShare} className="min-h-14 rounded-full bg-[#1d1d1f] px-3 text-[18px] font-semibold transition hover:bg-[#29292b] active:scale-[.99]">Share profile</button>
+        </div>
+
+        <h2 className="mt-10 text-[30px] font-bold tracking-[-0.055em]">Latest Activity</h2>
+        {activity.length === 0 ? <EmptyProfileActivity /> : (
+          <div className="mt-5 space-y-2.5">
+            {activity.map((record) => {
+              const incoming = record.type === "receive";
+              return (
+                <article key={record.id} className="flex items-center gap-4 rounded-[1.45rem] bg-[#191919] px-4 py-4">
+                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${incoming ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#ff4d63]/15 text-[#ff5c70]"}`}>{incoming ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}</span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-[18px]">{incoming ? "Received" : "Sent"} {record.symbol}</strong><span className="mt-1 block truncate text-[14px] text-white/45">{record.detail} · {new Date(record.date).toLocaleDateString()}</span></span>
+                  <strong className={`shrink-0 text-[17px] tabular-nums ${incoming ? "text-[#00e676]" : "text-white"}`}>{incoming ? "+" : "−"}{formatAmount(record.amount)} {record.symbol}</strong>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </SwipePanel>
+  );
+}
+
+function ProfileSettingsRow({ label, detail, onClick, disabled = false }: { label: string; detail?: ReactNode; onClick?: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className="flex min-h-[58px] w-full items-center gap-3 border-b border-white/[0.07] px-5 text-left text-[18px] last:border-0 disabled:text-white/25">
+      <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
+      {detail ? <span className="max-w-[48%] truncate text-[17px] text-white/55">{detail}</span> : null}
+      <ChevronRight className="h-5 w-5 shrink-0 text-white/45" />
+    </button>
+  );
+}
+
+function ManageProfileScreen({ profile, onBack, onAvatar, onUsername, onBio, onX, onFollowing, onAuthFactors, onPrivacy, onVerify }: { profile: ProfileRecord; onBack: () => void; onAvatar: () => void; onUsername: () => void; onBio: () => void; onX: () => void; onFollowing: () => void; onAuthFactors: () => void; onPrivacy: () => void; onVerify: () => void }) {
+  return (
+    <SwipePanel onDismiss={onBack} scrollable className="pb-[calc(env(safe-area-inset-bottom)+36px)]">
+      <section data-testid="phantom-manage-profile" className="min-h-full px-5 pb-16 pt-4">
+        <button type="button" onClick={onBack} className="sr-only">Back to profile</button>
+        <h1 className="text-[25px] font-bold tracking-[-0.045em]">Manage Profile</h1>
+        <div className="mt-8 flex justify-center">
+          <button type="button" onClick={onAvatar} aria-label="Edit profile avatar" className="relative rounded-full transition active:scale-[.98]">
+            <LockAvatar value={profile.avatar} size="xlarge" />
+            <span className="absolute bottom-0 right-0 grid h-11 w-11 place-items-center rounded-[.9rem] border-4 border-black bg-[#232325]"><Pencil className="h-5 w-5" /></span>
+          </button>
+        </div>
+
+        <h2 className="mb-3 mt-8 text-[18px] font-semibold text-white/55">About</h2>
+        <div className="overflow-hidden rounded-[1.35rem] bg-[#1d1d1f]">
+          <ProfileSettingsRow label="Username" detail={`@${profile.username}`} onClick={onUsername} />
+          <ProfileSettingsRow label="Bio" detail={profile.bio || "Add a bio"} onClick={onBio} />
+          <ProfileSettingsRow label="Connect your X account" detail={profile.twitter || undefined} onClick={onX} />
+        </div>
+
+        <h2 className="mb-3 mt-7 text-[18px] font-semibold text-white/55">Manage</h2>
+        <div className="overflow-hidden rounded-[1.35rem] bg-[#1d1d1f]">
+          <ProfileSettingsRow label="Following" detail="0" onClick={onFollowing} />
+          <ProfileSettingsRow label="Auth Factors" onClick={onAuthFactors} />
+          <ProfileSettingsRow label="Privacy" detail={<span className="inline-flex items-center gap-1.5"><Globe2 className="h-4 w-4" />{profile.privacy}</span>} onClick={onPrivacy} />
+          <ProfileSettingsRow label="Verify my profile" detail={profile.verified ? "Verified" : undefined} onClick={onVerify} />
+        </div>
+      </section>
+    </SwipePanel>
+  );
+}
+
+const profileEmojiNames: Record<string, string> = {
+  "🔥": "fire hot", "🔐": "lock secure", "🔮": "crystal ball", "🖼️": "picture art", "💯": "hundred", "🔌": "plug",
+  "⚒️": "tools mining", "⛓️": "chains", "🚀": "rocket space", "🌙": "moon", "💩": "poop", "👻": "ghost",
+  "👽": "alien", "👾": "space invader", "🤖": "robot", "😼": "cat", "😁": "smile", "🫡": "salute",
+  "🫥": "dotted face", "🤡": "clown", "💎": "diamond", "🙌": "hands", "🗣️": "speaking", "💪": "strong arm",
+  "💸": "money wings", "💰": "money bag", "💳": "credit card", "🧠": "brain", "📱": "phone", "🛸": "ufo",
+  "🦄": "unicorn", "🦊": "fox", "🐸": "frog", "🦋": "butterfly", "🌈": "rainbow", "⚡": "lightning",
+};
+
+function AvatarPickerScreen({ avatar, onBack, onSave }: { avatar: string; onBack: () => void; onSave: (avatar: string) => void }) {
+  const [draft, setDraft] = useState(avatar);
+  const [tab, setTab] = useState<"Emojis" | "Collectibles">("Emojis");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("🙂");
+  const categorySets: Record<string, string[]> = {
+    "🙂": profileEmojis,
+    "🍃": ["🔥", "🌙", "💎", "🌈", "⚡", "🦋", "🦄", "🐸"],
+    "🎁": ["🔐", "🔮", "🖼️", "💯", "🔌", "⚒️", "⛓️", "📱", "💳"],
+    "✈️": ["🚀", "🛸", "🌙", "👽", "👾", "🤖"],
+    "🎟️": ["💸", "💰", "💳", "💎", "💯"],
+    "💡": ["🧠", "🤖", "🔮", "⚡", "🗣️"],
+    "☮️": ["🙌", "😁", "🫡", "🫥", "🌈"],
+    "🚩": ["🔥", "💪", "💯", "⚡", "🚀"],
+  };
+  const visibleEmojis = (query.trim() ? profileEmojis : categorySets[category] ?? profileEmojis).filter((emoji) => {
+    const normalized = query.trim().toLowerCase();
+    return !normalized || emoji.includes(normalized) || (profileEmojiNames[emoji] ?? "").includes(normalized);
+  });
+  const visibleCollectibles = profileAvatars.filter((_, index) => {
+    const normalized = query.trim().toLowerCase();
+    return !normalized || `collectible avatar ${index + 1}`.includes(normalized);
+  });
+
+  return (
+    <SwipePanel onDismiss={onBack} className="pb-[env(safe-area-inset-bottom)]">
+      <section data-testid="phantom-avatar-picker" className="flex min-h-0 flex-1 flex-col">
+        <header className="flex shrink-0 items-center gap-4 px-5 pt-4">
+          <button type="button" onClick={onBack} aria-label="Go back" className="grid h-12 w-12 place-items-center rounded-full bg-[#242426]"><ChevronLeft className="h-7 w-7" /></button>
+          <h1 className="text-[25px] font-bold tracking-[-0.045em]">Choose Avatar</h1>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4">
+          <div className="mt-5 flex justify-center">
+            <div className="relative"><LockAvatar value={draft} size="xlarge" /><button type="button" onClick={() => setDraft("🔐")} aria-label="Reset avatar" className="absolute bottom-0 right-0 grid h-10 w-10 place-items-center rounded-[.85rem] border-4 border-black bg-[#242426]"><X className="h-5 w-5" /></button></div>
+          </div>
+
+          <div className="mt-7 flex items-end border-b border-white/[0.08]">
+            {(["Emojis", "Collectibles"] as const).map((value) => <button key={value} type="button" onClick={() => { setTab(value); setQuery(""); }} aria-pressed={tab === value} className={`relative px-1 pb-4 pr-8 text-[20px] font-bold ${tab === value ? "text-white" : "text-white/50"}`}>{value}{tab === value ? <span className="absolute inset-x-0 -bottom-px h-1 rounded-full bg-[#a295f3]" /> : null}</button>)}
+            <span aria-hidden="true" className="ml-auto pb-3 text-3xl">👋</span>
+          </div>
+
+          <label className="mt-4 flex items-center gap-3 rounded-full bg-[#202022] px-4 py-3.5 text-white/45"><Search className="h-5 w-5" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." aria-label={`Search ${tab.toLowerCase()}`} className="min-w-0 flex-1 bg-transparent text-[17px] text-white outline-none placeholder:text-white/35" /></label>
+          <h2 className="mt-6 text-[20px] font-bold">Recommended</h2>
+
+          {tab === "Emojis" ? (
+            <div className="mt-4 grid grid-cols-7 gap-x-2 gap-y-3">
+              {visibleEmojis.map((emoji) => <button key={emoji} type="button" onClick={() => setDraft(emoji)} aria-label={`Use ${profileEmojiNames[emoji] ?? emoji} emoji`} aria-pressed={draft === emoji} className={`grid aspect-square place-items-center rounded-full text-[clamp(1.6rem,7vw,2.25rem)] transition active:scale-90 ${draft === emoji ? "bg-[#a295f3]/25 ring-2 ring-[#a295f3]" : "hover:bg-white/[0.06]"}`}>{emoji}</button>)}
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-5 gap-3">
+              {visibleCollectibles.map((item) => { const index = profileAvatars.indexOf(item); return <button key={item} type="button" onClick={() => setDraft(item)} aria-label={`Use collectible avatar ${index + 1}`} aria-pressed={draft === item} className={`relative aspect-square overflow-hidden rounded-full bg-[#202022] ${draft === item ? "ring-2 ring-[#a295f3] ring-offset-2 ring-offset-black" : ""}`}><Image src={item} alt="" fill unoptimized sizes="72px" className="object-cover" /></button>; })}
+            </div>
+          )}
+        </div>
+
+        {tab === "Emojis" ? <div className="mx-5 mb-3 grid shrink-0 grid-cols-8 rounded-[1.35rem] bg-[#202022] px-1.5 py-2">{Object.keys(categorySets).map((item) => <button key={item} type="button" onClick={() => { setCategory(item); setQuery(""); }} aria-label={`Show ${item} emoji category`} aria-pressed={category === item} className={`grid min-h-10 min-w-0 place-items-center rounded-full text-[clamp(1rem,5vw,1.25rem)] ${category === item ? "bg-[#343438]" : "opacity-55"}`}>{item}</button>)}</div> : null}
+        <div className="shrink-0 px-5 pb-3"><button type="button" onClick={() => onSave(draft)} className="min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-[20px] font-bold text-black transition active:scale-[.99]">Save</button></div>
+      </section>
+    </SwipePanel>
+  );
+}
+
+function ProfileEditorHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return <header className="flex shrink-0 items-center gap-4 px-5 pt-4"><button type="button" onClick={onBack} aria-label="Go back" className="grid h-12 w-12 place-items-center rounded-full bg-[#242426]"><ChevronLeft className="h-7 w-7" /></button><h1 className="text-[25px] font-bold tracking-[-0.045em]">{title}</h1></header>;
+}
+
+function UsernameEditorScreen({ username, onBack, onSave }: { username: string; onBack: () => void; onSave: (username: string) => void }) {
+  const [draft, setDraft] = useState(username);
+  const normalized = draft.replace(/^@+/, "").replace(/\s+/g, "").slice(0, 24);
+  const valid = normalized.length >= 3;
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (valid) onSave(normalized); };
+
+  return (
+    <SwipePanel onDismiss={onBack}>
+      <form data-testid="phantom-username-editor" onSubmit={submit} className="flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+14px)]">
+        <ProfileEditorHeader title="Edit Username" onBack={onBack} />
+        <div className="px-5">
+          <label className="mt-5 flex min-h-14 items-center rounded-full bg-[#202022] px-5 text-[20px]"><span className="mr-2 text-white/55">@</span><input autoFocus autoCapitalize="none" autoComplete="off" spellCheck={false} value={normalized} onChange={(event) => setDraft(event.target.value)} aria-label="Username" className="min-w-0 flex-1 bg-transparent text-[17px] outline-none" />{normalized ? <button type="button" onClick={() => setDraft("")} aria-label="Clear username" className="grid h-8 w-8 place-items-center rounded-full bg-white/70 text-black"><X className="h-4 w-4" /></button> : null}</label>
+          <p className="mt-4 flex items-start gap-2 text-[16px] font-semibold leading-6 text-white/55"><Info className="mt-0.5 h-5 w-5 shrink-0" /> Usernames can be changed once every 14 days.</p>
+        </div>
+        <div className="mt-auto px-5 pt-8"><button type="submit" disabled={!valid} className="min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-[20px] font-bold text-black disabled:bg-[#514a77] disabled:text-black/50">Save</button></div>
+      </form>
+    </SwipePanel>
+  );
+}
+
+function ProfileTextEditorScreen({ title, label, value, multiline = false, onBack, onSave }: { title: string; label: string; value: string; multiline?: boolean; onBack: () => void; onSave: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onSave(draft.trim()); };
+  const inputClass = "w-full bg-transparent text-[17px] leading-6 outline-none placeholder:text-white/30";
+  return (
+    <SwipePanel onDismiss={onBack}>
+      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+14px)]">
+        <ProfileEditorHeader title={title} onBack={onBack} />
+        <div className="px-5">{multiline ? <textarea autoFocus value={draft} onChange={(event) => setDraft(event.target.value.slice(0, 160))} aria-label={label} placeholder="Tell people about yourself..." className={`mt-5 min-h-40 resize-none rounded-[1.35rem] bg-[#202022] px-5 py-4 ${inputClass}`} /> : <label className="mt-5 flex min-h-14 items-center rounded-full bg-[#202022] px-5"><span className="mr-2 text-[18px] text-white/55">@</span><input autoFocus autoCapitalize="none" autoComplete="off" spellCheck={false} value={draft.replace(/^@+/, "")} onChange={(event) => setDraft(event.target.value)} aria-label={label} className={inputClass} /></label>}</div>
+        <div className="mt-auto px-5 pt-8"><button type="submit" className="min-h-14 w-full rounded-full bg-[#a295f3] px-5 text-[20px] font-bold text-black">Save</button></div>
+      </form>
+    </SwipePanel>
   );
 }
 
@@ -1599,7 +1947,7 @@ export function DownloadWallet() {
   const [perpPositions, setPerpPositions] = useState<PerpPosition[]>([]);
   const [selectedPerpSymbol, setSelectedPerpSymbol] = useState("BTC");
   const [perpOriginTab, setPerpOriginTab] = useState<Tab>("Home");
-  const [tokenDetailOrigin, setTokenDetailOrigin] = useState<"home" | "watchlist">("home");
+  const [tokenDetailOrigin, setTokenDetailOrigin] = useState<"home" | "tokens" | "watchlist">("home");
   const [cashVisible, setCashVisible] = useState(true);
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -1680,7 +2028,7 @@ export function DownloadWallet() {
 
   const resetSend = () => { setSelectedToken(null); setSendAmount(""); setRecipient(""); };
 
-  const openTokenDetail = (token: WalletToken, origin: "home" | "watchlist" = "home") => {
+  const openTokenDetail = (token: WalletToken, origin: "home" | "tokens" | "watchlist" = "home") => {
     setSelectedToken(token);
     setTokenDetailOrigin(origin);
     setView("token-detail");
@@ -1725,6 +2073,35 @@ export function DownloadWallet() {
     runtime.renameCurrentAccount(nextProfile.accountName);
     setView("home");
     notify("Profile saved.");
+  };
+
+  const saveProfileFields = (changes: Partial<ProfileRecord>, nextView: View = "manage-profile", message = "Profile updated.") => {
+    const nextProfile = { ...profile, ...changes };
+    writeStorage(profileStorageKey, nextProfile);
+    setProfile(nextProfile);
+    setView(nextView);
+    notify(message);
+  };
+
+  const shareProfile = async () => {
+    const profileUrl = new URL(window.location.href);
+    profileUrl.searchParams.set("profile", profile.username);
+    const shareData = {
+      title: `@${profile.username}`,
+      text: `View @${profile.username}'s Phantom profile`,
+      url: profileUrl.toString(),
+    };
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share(shareData);
+        return;
+      }
+      await navigator.clipboard.writeText(`${shareData.text} — ${shareData.url}`);
+      notify("Profile link copied.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      notify("Profile sharing is not available on this device.");
+    }
   };
 
   const saveEditedToken = (form: TokenForm) => {
@@ -1952,7 +2329,14 @@ export function DownloadWallet() {
     <main className="download-wallet-app fixed inset-0 z-0 h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-[100dvh] max-h-[100dvh] w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onMenu={() => setDrawerOpen(true)} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onProfile={() => setView("profile-overview")} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onOpenTokens={() => setView("tokens")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+          {view === "tokens" ? <TokensScreen tokens={tokens} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "tokens")} /> : null}
+          {view === "profile-overview" ? <ProfileOverviewScreen profile={profile} records={records} transactions={runtime.state?.transactions ?? []} currentAccountId={runtime.currentAccount?.id} onClose={() => setView("home")} onManage={() => setView("manage-profile")} onShare={() => { void shareProfile(); }} /> : null}
+          {view === "manage-profile" ? <ManageProfileScreen profile={profile} onBack={() => setView("profile-overview")} onAvatar={() => setView("avatar-picker")} onUsername={() => setView("username-editor")} onBio={() => setView("bio-editor")} onX={() => setView("x-editor")} onFollowing={() => notify("You are not following any profiles yet.")} onAuthFactors={runtime.openSecurity} onPrivacy={() => saveProfileFields({ privacy: profile.privacy === "Public" ? "Private" : "Public" }, "manage-profile", `Profile is now ${profile.privacy === "Public" ? "private" : "public"}.`)} onVerify={() => saveProfileFields({ verified: true }, "manage-profile", profile.verified ? "Profile is already verified." : "Profile verified.")} /> : null}
+          {view === "avatar-picker" ? <AvatarPickerScreen avatar={profile.avatar} onBack={() => setView("manage-profile")} onSave={(avatar) => saveProfileFields({ avatar }, "manage-profile", "Avatar updated.")} /> : null}
+          {view === "username-editor" ? <UsernameEditorScreen username={profile.username} onBack={() => setView("manage-profile")} onSave={(username) => saveProfileFields({ username }, "manage-profile", "Username updated.")} /> : null}
+          {view === "bio-editor" ? <ProfileTextEditorScreen title="Edit Bio" label="Bio" value={profile.bio} multiline onBack={() => setView("manage-profile")} onSave={(bio) => saveProfileFields({ bio }, "manage-profile", "Bio updated.")} /> : null}
+          {view === "x-editor" ? <ProfileTextEditorScreen title="Connect X" label="X username" value={profile.twitter} onBack={() => setView("manage-profile")} onSave={(twitter) => saveProfileFields({ twitter: twitter.replace(/^@+/, "") }, "manage-profile", twitter ? "X account connected." : "X account disconnected.")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
@@ -1972,7 +2356,7 @@ export function DownloadWallet() {
           {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} onChat={() => { setSelectedToken(null); setView("community"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} onClose={() => setActionsOpen(false)} /> : null}
-          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile"); }} onCommunity={() => { setDrawerOpen(false); setView("community"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onSupport={() => { setDrawerOpen(false); setView("support"); }} onNotice={notify} /> : null}
+          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile-overview"); }} onCommunity={() => { setDrawerOpen(false); setView("community"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onSupport={() => { setDrawerOpen(false); setView("support"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
           {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}

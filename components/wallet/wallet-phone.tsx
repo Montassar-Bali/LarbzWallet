@@ -16,7 +16,7 @@ const tokenRows = [
 ];
 
 const activityRows = [
-  { type: "receive", label: "Demo Sponsor", amount: "+4,000 USDT", time: "Today, 08:50" },
+  { type: "receive", label: "Binance", amount: "+4,000 USDT", time: "Today, 08:50" },
   { type: "send", label: "Creator Wallet", amount: "-14.20 SOL", time: "Yesterday, 16:10" },
   { type: "receive", label: "Training Sandbox", amount: "+0.42 ETH", time: "Yesterday, 10:22" },
 ];
@@ -75,10 +75,10 @@ function DetailsScreen() {
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button className="rounded-xl border border-white/[0.04] bg-white/[0.02] px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-white/[0.04]">
-          Simulate Send
+          Send
         </button>
         <button className="rounded-xl border border-white/[0.04] bg-white/[0.02] px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-white/[0.04]">
-          Simulate Receive
+          Receive
         </button>
       </div>
       <div
@@ -104,7 +104,7 @@ function ActivityScreen() {
                 {activity.amount}
               </p>
             </div>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-zinc-700">Simulated Transaction</p>
+            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-zinc-700">Confirmed</p>
             <p className="mt-1 text-xs text-zinc-600">{activity.time}</p>
           </div>
         ))}
@@ -124,21 +124,21 @@ function WalletScreen() {
         }}
       >
         <p className="text-xs uppercase tracking-[0.15em] text-emerald-200/60">Mirage Card</p>
-        <p className="mt-3 font-display text-2xl font-bold text-white">Simulation Wallet</p>
+        <p className="mt-3 font-display text-2xl font-bold text-white">Main Wallet</p>
         <p className="mt-8 text-sm tracking-[0.22em] text-white/40">**** **** **** 2048</p>
       </div>
       <div className="mt-4 space-y-2">
         <div className="flex items-center justify-between rounded-xl bg-white/[0.02] px-3 py-3">
           <span className="flex items-center gap-2 text-sm text-zinc-400">
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
-            Secure Simulation Mode
+            Security & Privacy
           </span>
           <ChevronRight className="h-4 w-4 text-zinc-700" />
         </div>
         <div className="flex items-center justify-between rounded-xl bg-white/[0.02] px-3 py-3">
           <span className="flex items-center gap-2 text-sm text-zinc-400">
             <Bell className="h-4 w-4 text-indigo-400" />
-            Demo Alerts
+            Notifications
           </span>
           <ChevronRight className="h-4 w-4 text-zinc-700" />
         </div>
@@ -160,7 +160,7 @@ export function WalletPhone({ variant, className }: WalletPhoneProps) {
             <p className="font-display text-lg font-bold text-white">Wallet</p>
           </div>
           <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80">
-            Simulation
+            Active
           </span>
         </div>
         {variant === "portfolio" ? <PortfolioScreen /> : null}
@@ -202,7 +202,7 @@ export function WalletScreenContent({ variant, className }: WalletPhoneProps) {
           <p className="font-display text-base font-bold text-white">Wallet</p>
         </div>
         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-emerald-300/80">
-          Simulation
+          Active
         </span>
       </div>
       {variant === "portfolio" ? <PortfolioScreen /> : null}

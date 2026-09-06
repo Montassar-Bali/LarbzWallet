@@ -49,7 +49,7 @@ type WalletDesign = {
 const designs: Record<AlternateWalletId, WalletDesign> = {
   ledger: {
     name: "Larpz Wallet",
-    subtitle: "Internal demo wallet",
+    subtitle: "Main wallet",
     logo: "/assets/logo_m.png",
     background: "#000000",
     surface: "#171717",
@@ -148,10 +148,10 @@ export function AlternateWallet({ themeId }: { themeId: AlternateWalletId }) {
             <Image src={design.logo} alt={`${design.name} logo`} width={40} height={40} className="h-10 w-10 rounded-xl" priority />
             <div>
               <p className="text-base font-semibold tracking-tight">{design.name}</p>
-              <p className="text-xs text-white/45">Simulation wallet</p>
+              <p className="text-xs text-white/45">{design.subtitle}</p>
             </div>
           </div>
-          <button type="button" onClick={() => notify("Wallet menu is available in simulation mode.")} aria-label="Open wallet menu" className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.07] text-white/75 hover:bg-white/10">
+          <button type="button" onClick={() => notify("Wallet menu opened.")} aria-label="Open wallet menu" className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.07] text-white/75 hover:bg-white/10">
             <MoreHorizontal className="h-5 w-5" />
           </button>
         </header>
@@ -196,15 +196,15 @@ export function AlternateWallet({ themeId }: { themeId: AlternateWalletId }) {
               </div>
 
               <div className="mt-5 grid grid-cols-4 gap-2 rounded-3xl p-4" style={{ background: design.surface }}>
-                {design.actions.map(({ label, icon: Icon }) => <WalletAction key={label} label={label} icon={Icon} accent={design.accent} onClick={() => notify(`${label} opened in simulation mode.`)} />)}
+                {design.actions.map(({ label, icon: Icon }) => <WalletAction key={label} label={label} icon={Icon} accent={design.accent} onClick={() => notify(`${label} initiated.`)} />)}
               </div>
 
               <div className="mt-7 flex items-center justify-between">
                 <div>
                   <h1 className="text-xl font-semibold tracking-[-0.04em]">Assets</h1>
-                  <p className="mt-1 text-xs text-white/40">Your simulated portfolio</p>
+                  <p className="mt-1 text-xs text-white/40">Your portfolio</p>
                 </div>
-                <button type="button" onClick={() => notify("Asset search is available in simulation mode.")} aria-label="Search assets" className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.07] text-white/60 hover:bg-white/10"><Search className="h-4 w-4" /></button>
+                <button type="button" onClick={() => notify("Search opened.")} aria-label="Search assets" className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.07] text-white/60 hover:bg-white/10"><Search className="h-4 w-4" /></button>
               </div>
               <div className="mt-3 space-y-2">
                 {design.tokens.map((token) => (
@@ -218,7 +218,7 @@ export function AlternateWallet({ themeId }: { themeId: AlternateWalletId }) {
                   </button>
                 ))}
               </div>
-              <button type="button" onClick={() => notify("Add asset is available in simulation mode.")} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 py-3 text-xs font-semibold text-white/55 hover:border-white/30 hover:text-white/80"><Plus className="h-4 w-4" /> Add asset</button>
+              <button type="button" onClick={() => notify("Add asset opened.")} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 py-3 text-xs font-semibold text-white/55 hover:border-white/30 hover:text-white/80"><Plus className="h-4 w-4" /> Add asset</button>
             </>
           ) : (
             <div className="rounded-3xl p-6" style={{ background: design.surface }}>
@@ -226,8 +226,8 @@ export function AlternateWallet({ themeId }: { themeId: AlternateWalletId }) {
                 {tab === "discover" ? <Compass className="h-6 w-6" /> : <Settings className="h-6 w-6" />}
               </div>
               <h1 className="mt-6 text-2xl font-semibold">{tab === "discover" ? "Discover" : "Settings"}</h1>
-              <p className="mt-3 text-sm leading-6 text-white/50">This {design.name} screen is part of the visual wallet simulator. No real assets or transactions are connected.</p>
-              <button type="button" onClick={() => notify(`${tab === "discover" ? "Discover" : "Settings"} opened in simulation mode.`)} className="mt-6 rounded-xl px-4 py-3 text-sm font-semibold" style={{ background: design.accent, color: design.accentText }}>Continue</button>
+              <p className="mt-3 text-sm leading-6 text-white/50">Explore {design.name} features and manage your wallet preferences.</p>
+              <button type="button" onClick={() => notify(`${tab === "discover" ? "Discover" : "Settings"} opened.`)} className="mt-6 rounded-xl px-4 py-3 text-sm font-semibold" style={{ background: design.accent, color: design.accentText }}>Continue</button>
             </div>
           )}
         </section>

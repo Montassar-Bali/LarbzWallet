@@ -118,6 +118,11 @@ function formatMoney(amount: number, currency: CurrencyCode) {
   }).format(amount);
 }
 
+function displaysAsZeroMoney(amount: number, currency: CurrencyCode) {
+  const fractionDigits = currency === "JPY" ? 0 : 2;
+  return Math.round(Math.abs(amount) * 10 ** fractionDigits) === 0;
+}
+
 function SplitMoney({ amount, currency, className = "", testId, fit = false }: { amount: number; currency: CurrencyCode; className?: string; testId?: string; fit?: boolean }) {
   return <span data-testid={testId} className={`block max-w-full whitespace-nowrap tabular-nums ${fit ? "" : "overflow-hidden text-ellipsis"} ${className}`}>{formatMoney(amount, currency)}</span>;
 }
@@ -395,7 +400,8 @@ function HomeScreen({
   }, [tokens]);
 
   const baseTotal = tokens.reduce((sum, token) => sum + (token.balance + (earnPositions[token.symbol] ?? 0)) * token.price, 0);
-  const change = baseTotal === 0 ? 0 : tokens.reduce((sum, token) => sum + token.change24h * (token.balance + (earnPositions[token.symbol] ?? 0)) * token.price, 0) / baseTotal;
+  const zeroBalance = displaysAsZeroMoney(total, currency);
+  const change = zeroBalance || baseTotal === 0 ? 0 : tokens.reduce((sum, token) => sum + token.change24h * (token.balance + (earnPositions[token.symbol] ?? 0)) * token.price, 0) / baseTotal;
   const dailyValue = total * change / 100;
   const allocationTotal = baseTotal;
   const allocationColors = ["#2db6c4", "#f2aa3d", "#f4f1f6", "#8e76dc"];
@@ -456,10 +462,10 @@ function HomeScreen({
         {balanceVisible
           ? <SplitMoney fit testId="ledger-portfolio-balance" amount={total} currency={currency} className={`${styles.heroValue} ${heroSizeClass}`} />
           : <span data-testid="ledger-portfolio-balance" className={styles.heroValue}>••••••</span>}
-        <button type="button" onClick={onRefresh} aria-label="Refresh portfolio" className={`${styles.heroChange} ${change >= 0 ? styles.positive : styles.negative}`}>
-          {balanceVisible ? `${change >= 0 ? "↗ +" : "↘ "}${change.toFixed(2)}% (${dailyValue >= 0 ? "+" : ""}${formatMoney(dailyValue, currency)})` : "Balance hidden"}
+        <button type="button" onClick={onRefresh} aria-label="Refresh portfolio" className={`${styles.heroChange} ${zeroBalance ? styles.neutral : change >= 0 ? styles.positive : styles.negative}`}>
+          {balanceVisible ? zeroBalance ? `→ 0.00% (${formatMoney(0, currency)})` : `${change >= 0 ? "↗ +" : "↘ "}${change.toFixed(2)}% (${dailyValue >= 0 ? "+" : ""}${formatMoney(dailyValue, currency)})` : "Balance hidden"}
         </button>
-        <LedgerPortfolioChart key={period} tokens={tokens} period={period} currency={currency} rate={rate} total={total} marketApiKey={marketApiKey} additionalBalances={earnPositions} />
+        <LedgerPortfolioChart key={period} tokens={tokens} period={period} currency={currency} rate={rate} total={total} zeroBalance={zeroBalance} marketApiKey={marketApiKey} additionalBalances={earnPositions} />
         <div className={styles.periods} role="tablist" aria-label="Portfolio chart period">
           {["1D", "1W", "1M", "1Y", "ALL"].map((timeframe) => <button key={timeframe} type="button" role="tab" aria-selected={period === timeframe} onClick={() => setPeriod(timeframe)} className={`${styles.period} ${period === timeframe ? styles.periodActive : ""}`}>{timeframe}</button>)}
         </div>

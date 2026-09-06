@@ -263,10 +263,7 @@ if (phantomWatchlistCloseLayout.buttonWidth < 44 || phantomWatchlistCloseLayout.
   || phantomWatchlistCloseLayout.iconWidth !== 20 || phantomWatchlistCloseLayout.iconHeight !== 20) {
   throw new Error(`Phantom watchlist close button is not a centered 44px target: ${JSON.stringify(phantomWatchlistCloseLayout)}`);
 }
-await phantomWatchlistClose.click();
-await phantomWatchlistCard.waitFor({ state: "detached" });
-await page.getByRole("button", { name: "Open wallet menu" }).click();
-await page.getByRole("complementary").getByRole("button", { name: "Watchlist", exact: true }).click();
+await phantomWatchlistCard.getByRole("button", { name: "Browse", exact: true }).click();
 const phantomWatchlistHeading = page.getByRole("heading", { name: "Watchlist", exact: true });
 await phantomWatchlistHeading.waitFor();
 const phantomWatchlistHeader = phantomWatchlistHeading.locator("xpath=parent::header");
@@ -285,6 +282,9 @@ if (phantomWatchlistLayout.scrollAreaBottom === null
 }
 await phantomWatchlistHeader.getByRole("button", { name: "Go back" }).click();
 await page.getByPlaceholder("Search Phantom").waitFor();
+await phantomWatchlistClose.waitFor();
+await phantomWatchlistClose.click();
+await phantomWatchlistCard.waitFor({ state: "detached" });
 const responsiveHomeLayout = await page.evaluate(() => {
   const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
   const total = document.querySelector('[data-testid="phantom-total-balance"]');
@@ -319,6 +319,83 @@ if (await page.getByText("Demo · No real funds", { exact: true }).isVisible().c
   throw new Error("Phantom still shows the repeated demo disclaimer instead of its compact parody watermark.");
 }
 if (await page.getByRole("button", { name: "Not Now" }).isVisible().catch(() => false)) await page.getByRole("button", { name: "Not Now" }).click();
+await page.locator('[data-testid="phantom-home-scroll"]').evaluate((scrollArea) => scrollArea.scrollTo({ top: 0, behavior: "instant" }));
+await page.locator(".phantom-home-content").evaluate(async (content) => {
+  await Promise.all(content.getAnimations().map((animation) => animation.finished));
+});
+const phantomHomeReferenceLayout = await page.evaluate(() => {
+  const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
+  const homeTab = [...(tabs?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.trim() === "Home");
+  const account = document.querySelector('[data-testid="phantom-account-selector"]');
+  const row = document.querySelector(".phantom-home-token-row");
+  const logo = row?.querySelector('[data-token-icon-size="row"]');
+  const name = row?.querySelector('[data-testid="phantom-token-name"]');
+  const amount = row?.querySelector('[data-testid="phantom-token-amount"]');
+  const value = row?.querySelector('[data-testid="phantom-token-value"]');
+  const change = row?.querySelector('[data-testid="phantom-token-change"]');
+  const styles = (element) => element ? getComputedStyle(element) : null;
+  return {
+    accountGap: homeTab && account ? account.getBoundingClientRect().top - homeTab.getBoundingClientRect().bottom : null,
+    rowHeight: row?.getBoundingClientRect().height ?? null,
+    logoWidth: logo?.getBoundingClientRect().width ?? null,
+    logoHeight: logo?.getBoundingClientRect().height ?? null,
+    nameFont: styles(name)?.fontSize ?? null,
+    amountFont: styles(amount)?.fontSize ?? null,
+    valueFont: styles(value)?.fontSize ?? null,
+    changeFont: styles(change)?.fontSize ?? null,
+  };
+});
+if (phantomHomeReferenceLayout.accountGap === null
+  || phantomHomeReferenceLayout.accountGap < 28
+  || phantomHomeReferenceLayout.accountGap > 31
+  || phantomHomeReferenceLayout.rowHeight !== 68
+  || phantomHomeReferenceLayout.logoWidth !== 40
+  || phantomHomeReferenceLayout.logoHeight !== 40
+  || phantomHomeReferenceLayout.nameFont !== "20px"
+  || phantomHomeReferenceLayout.amountFont !== "17px"
+  || phantomHomeReferenceLayout.valueFont !== "20px"
+  || phantomHomeReferenceLayout.changeFont !== "18px") {
+  throw new Error(`Phantom home spacing or token sizing does not match the reference: ${JSON.stringify(phantomHomeReferenceLayout)}`);
+}
+const phantomTokenHeading = page.getByRole("button", { name: "Token", exact: true });
+if (!await phantomTokenHeading.locator("svg").count()) throw new Error("Phantom Token heading is missing its forward chevron.");
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-home-token-layout.png` });
+await phantomTokenHeading.click();
+const phantomTokenPanel = page.locator(".phantom-token-panel");
+const phantomTokenScreen = page.locator('[data-testid="phantom-token-screen"]');
+await phantomTokenScreen.waitFor();
+await phantomTokenScreen.getByRole("heading", { name: "Token", exact: true }).waitFor();
+await phantomTokenScreen.locator('[data-testid="phantom-token-screen-total"]').waitFor();
+const phantomTokenSortSize = await phantomTokenScreen.getByRole("button", { name: "Sort tokens" }).evaluate((button) => {
+  const bounds = button.getBoundingClientRect();
+  return { width: bounds.width, height: bounds.height };
+});
+if (phantomTokenSortSize.width !== 40 || phantomTokenSortSize.height !== 40) {
+  throw new Error(`Phantom Token filter control does not match the reference size: ${JSON.stringify(phantomTokenSortSize)}`);
+}
+const phantomTokenPanelLayout = await phantomTokenPanel.evaluate((panel) => {
+  const bounds = panel.getBoundingClientRect();
+  return { top: bounds.top, bottom: bounds.bottom, width: bounds.width, viewportHeight: window.innerHeight, viewportWidth: window.innerWidth };
+});
+if (Math.abs(phantomTokenPanelLayout.top) > 1
+  || Math.abs(phantomTokenPanelLayout.bottom - phantomTokenPanelLayout.viewportHeight) > 1
+  || Math.abs(phantomTokenPanelLayout.width - phantomTokenPanelLayout.viewportWidth) > 1) {
+  throw new Error(`Phantom Token screen does not fill the mobile viewport: ${JSON.stringify(phantomTokenPanelLayout)}`);
+}
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-token-layout.png` });
+await phantomTokenScreen.getByRole("button", { name: "Sort tokens" }).click();
+await phantomTokenScreen.getByRole("menuitemradio", { name: "Name" }).click();
+const sortedPhantomTokenNames = await phantomTokenScreen.locator('[data-testid="phantom-token-name"]').allTextContents();
+const expectedSortedPhantomTokenNames = [...sortedPhantomTokenNames].sort((a, b) => a.localeCompare(b));
+if (sortedPhantomTokenNames.length < 2 || JSON.stringify(sortedPhantomTokenNames) !== JSON.stringify(expectedSortedPhantomTokenNames)) {
+  throw new Error(`Phantom Token screen sorting is not functional: ${JSON.stringify(sortedPhantomTokenNames)}`);
+}
+await phantomTokenScreen.locator(".phantom-home-token-row").filter({ hasText: "Solana" }).first().click();
+await page.getByRole("heading", { name: "Solana", exact: true }).waitFor();
+await page.getByRole("button", { name: "Back to wallet" }).click();
+await phantomTokenScreen.waitFor();
+await phantomTokenScreen.getByRole("button", { name: "Back to wallet" }).evaluate((button) => button.click());
+await page.getByLabel("Search Phantom").waitFor();
 const refreshWalletButton = page.getByRole("button", { name: "Refresh wallet data" });
 await refreshWalletButton.waitFor();
 await refreshWalletButton.click();
@@ -393,17 +470,114 @@ const updatedSolanaHomeRow = page.getByRole("button")
   .first();
 await updatedSolanaHomeRow.waitFor({ state: "visible", timeout: 6_000 });
 
-await page.getByRole("button", { name: "Open wallet menu" }).click();
-await page.getByRole("button", { name: "Profile", exact: true }).click();
-await page.getByRole("heading", { name: "Edit Profile" }).waitFor();
-await assertWritingFieldsAvoidIosZoom(page, "Phantom profile");
-const profileSolanaHolding = page.getByLabel("Solana holding");
-await profileSolanaHolding.waitFor();
-const profileSolanaAmount = Number(await profileSolanaHolding.inputValue());
-if (Math.abs(profileSolanaAmount - expectedPhantomSol) > 1e-8) {
-  throw new Error(`Edit Profile SOL holding ${profileSolanaAmount} did not match the homepage/account balance ${expectedPhantomSol}.`);
+const originalPhantomProfile = await page.evaluate(() => {
+  const stored = JSON.parse(window.localStorage.getItem("larpz_download_profile") || "null");
+  return {
+    hadStoredProfile: Boolean(stored),
+    username: typeof stored?.username === "string" ? stored.username : "larperwallet",
+    avatar: typeof stored?.avatar === "string" ? stored.avatar : "🔐",
+  };
+});
+const temporaryPhantomUsername = originalPhantomProfile.username === "phantomsmoke" ? "phantomcheck" : "phantomsmoke";
+const temporaryPhantomAvatar = originalPhantomProfile.avatar === "🔥"
+  ? { value: "🔮", label: "Use crystal ball emoji", query: "crystal" }
+  : { value: "🔥", label: "Use fire hot emoji", query: "fire" };
+
+await page.getByRole("button", { name: "Open profile", exact: true }).click();
+const phantomProfileOverview = page.locator('[data-testid="phantom-profile-overview"]');
+await phantomProfileOverview.waitFor();
+await phantomProfileOverview.getByRole("heading", { name: `@${originalPhantomProfile.username}`, exact: true }).waitFor();
+await phantomProfileOverview.getByText("Trading volume", { exact: true }).waitFor();
+await phantomProfileOverview.getByText("Latest Activity", { exact: true }).waitFor();
+await phantomProfileOverview.getByRole("button", { name: "Share profile", exact: true }).waitFor();
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-profile-overview.png` });
+
+await phantomProfileOverview.getByRole("button", { name: "Manage profile", exact: true }).click();
+const phantomManageProfile = page.locator('[data-testid="phantom-manage-profile"]');
+await phantomManageProfile.waitFor();
+await phantomManageProfile.getByRole("heading", { name: "Manage Profile", exact: true }).waitFor();
+for (const setting of ["Username", "Bio", "Connect your X account", "Following", "Auth Factors", "Privacy", "Verify my profile"]) {
+  await phantomManageProfile.getByRole("button").filter({ hasText: setting }).first().waitFor();
 }
-await page.getByRole("button", { name: "Go back" }).click();
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-manage-profile.png` });
+
+await phantomManageProfile.getByRole("button").filter({ hasText: "Username" }).first().click();
+const phantomUsernameEditor = page.locator('[data-testid="phantom-username-editor"]');
+await phantomUsernameEditor.waitFor();
+await phantomUsernameEditor.getByRole("heading", { name: "Edit Username", exact: true }).waitFor();
+await phantomUsernameEditor.getByText("Usernames can be changed once every 14 days.", { exact: true }).waitFor();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom username editor");
+const phantomUsernameInput = phantomUsernameEditor.getByLabel("Username", { exact: true });
+await phantomUsernameInput.fill(temporaryPhantomUsername);
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-username-editor.png` });
+await phantomUsernameEditor.getByRole("button", { name: "Save", exact: true }).click();
+await phantomManageProfile.waitFor();
+await phantomManageProfile.getByRole("button").filter({ hasText: `@${temporaryPhantomUsername}` }).waitFor();
+
+await phantomManageProfile.getByRole("button", { name: "Edit profile avatar", exact: true }).click();
+const phantomAvatarPicker = page.locator('[data-testid="phantom-avatar-picker"]');
+await phantomAvatarPicker.waitFor();
+await phantomAvatarPicker.getByRole("heading", { name: "Choose Avatar", exact: true }).waitFor();
+await phantomAvatarPicker.getByRole("button", { name: "Collectibles", exact: true }).click();
+await phantomAvatarPicker.getByRole("button", { name: "Use collectible avatar 1", exact: true }).waitFor();
+await phantomAvatarPicker.getByRole("button", { name: "Emojis", exact: true }).click();
+await assertWritingFieldsAvoidIosZoom(page, "Phantom avatar picker");
+await phantomAvatarPicker.getByLabel("Search emojis", { exact: true }).fill(temporaryPhantomAvatar.query);
+const temporaryAvatarChoice = phantomAvatarPicker.getByRole("button", { name: temporaryPhantomAvatar.label, exact: true });
+await temporaryAvatarChoice.click();
+if (await temporaryAvatarChoice.getAttribute("aria-pressed") !== "true") {
+  throw new Error("Phantom avatar picker did not select the requested emoji.");
+}
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-avatar-picker.png` });
+await phantomAvatarPicker.getByRole("button", { name: "Save", exact: true }).click();
+await phantomManageProfile.waitFor();
+const updatedProfileAvatar = await phantomManageProfile.getByRole("button", { name: "Edit profile avatar", exact: true }).textContent();
+if (!updatedProfileAvatar?.includes(temporaryPhantomAvatar.value)) {
+  throw new Error(`Phantom manage profile did not show the saved avatar: ${updatedProfileAvatar}`);
+}
+
+await phantomManageProfile.getByRole("button", { name: "Back to profile", exact: true }).evaluate((button) => button.click());
+await phantomProfileOverview.waitFor();
+await phantomProfileOverview.getByRole("heading", { name: `@${temporaryPhantomUsername}`, exact: true }).waitFor();
+if (!(await phantomProfileOverview.textContent())?.includes(temporaryPhantomAvatar.value)) {
+  throw new Error("Phantom profile overview did not show the saved avatar.");
+}
+await phantomProfileOverview.getByRole("button", { name: "Close profile", exact: true }).evaluate((button) => button.click());
+await page.getByLabel("Search Phantom").waitFor();
+await page.getByRole("button", { name: "Open profile", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
+
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.getByLabel("Search Phantom").waitFor({ timeout: 20_000 });
+await page.getByRole("button", { name: "Open profile", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
+await page.getByRole("button", { name: "Open profile", exact: true }).click();
+await phantomProfileOverview.getByRole("heading", { name: `@${temporaryPhantomUsername}`, exact: true }).waitFor();
+const persistedPhantomProfile = await page.evaluate(() => JSON.parse(window.localStorage.getItem("larpz_download_profile") || "null"));
+if (persistedPhantomProfile?.username !== temporaryPhantomUsername || persistedPhantomProfile?.avatar !== temporaryPhantomAvatar.value) {
+  throw new Error(`Phantom profile changes did not persist after reload: ${JSON.stringify(persistedPhantomProfile)}`);
+}
+
+// Restore the user's original profile values so the smoke test leaves no visible profile changes behind.
+await phantomProfileOverview.getByRole("button", { name: "Manage profile", exact: true }).click();
+await phantomManageProfile.getByRole("button").filter({ hasText: "Username" }).first().click();
+await phantomUsernameEditor.getByLabel("Username", { exact: true }).fill(originalPhantomProfile.username);
+await phantomUsernameEditor.getByRole("button", { name: "Save", exact: true }).click();
+await phantomManageProfile.getByRole("button", { name: "Edit profile avatar", exact: true }).click();
+if (originalPhantomProfile.avatar.startsWith("/avatars/avatar-")) {
+  const avatarNumber = Number.parseInt(originalPhantomProfile.avatar.match(/avatar-(\d+)\.svg$/)?.[1] ?? "1", 10);
+  await phantomAvatarPicker.getByRole("button", { name: "Collectibles", exact: true }).click();
+  await phantomAvatarPicker.getByRole("button", { name: `Use collectible avatar ${avatarNumber}`, exact: true }).click();
+} else {
+  const originalEmojiChoice = phantomAvatarPicker.locator('button[aria-label^="Use "]').filter({ hasText: originalPhantomProfile.avatar }).first();
+  await originalEmojiChoice.waitFor();
+  await originalEmojiChoice.click();
+}
+await phantomAvatarPicker.getByRole("button", { name: "Save", exact: true }).click();
+await phantomManageProfile.getByRole("button", { name: "Back to profile", exact: true }).evaluate((button) => button.click());
+await phantomProfileOverview.getByRole("heading", { name: `@${originalPhantomProfile.username}`, exact: true }).waitFor();
+await phantomProfileOverview.getByRole("button", { name: "Close profile", exact: true }).evaluate((button) => button.click());
+if (!originalPhantomProfile.hadStoredProfile) {
+  await page.evaluate(() => window.localStorage.removeItem("larpz_download_profile"));
+}
 await page.getByLabel("Search Phantom").waitFor();
 
 await page.getByRole("button", { name: "Open wallet actions" }).click();
@@ -552,6 +726,7 @@ const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
   const transfer = nav.querySelector('button[aria-label="Transfer"]');
   const center = nav.querySelector('[data-testid="ledger-transfer-orb"]')?.getBoundingClientRect();
   const surface = nav.querySelector('[data-testid="ledger-nav-surface"]')?.getBoundingClientRect();
+  const safeAreaFill = getComputedStyle(nav, "::after");
   const currentTabs = [...nav.querySelectorAll('button[aria-current="page"]')].map((button) => button.textContent?.trim());
   const centerHit = center
     ? document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)
@@ -567,6 +742,12 @@ const ledgerNavGeometry = await ledgerBottomNav.evaluate((nav) => {
     centerIsClickable: Boolean(transfer && centerHit && (centerHit === transfer || transfer.contains(centerHit))),
     surfaceMatchesRail: surface ? Math.abs(surface.top - bounds.top) < 1 && Math.abs(surface.width - bounds.width) < 1 : false,
     surfaceAllowsCurve: surface ? surface.height >= 80 : false,
+    safeAreaFill: {
+      bottom: Number.parseFloat(safeAreaFill.bottom),
+      height: Number.parseFloat(safeAreaFill.height),
+      background: safeAreaFill.backgroundColor,
+      content: safeAreaFill.content,
+    },
     currentTabs,
     equalColumns: buttons.length === 5 && Math.max(...buttons.map(({ width }) => width)) - Math.min(...buttons.map(({ width }) => width)) < 1,
   };
@@ -581,6 +762,10 @@ if (Math.abs(ledgerNavGeometry.bottomGap) > 1
   || !ledgerNavGeometry.centerIsClickable
   || !ledgerNavGeometry.surfaceMatchesRail
   || !ledgerNavGeometry.surfaceAllowsCurve
+  || Math.abs(ledgerNavGeometry.safeAreaFill.bottom) > 0.5
+  || ledgerNavGeometry.safeAreaFill.height < 1
+  || ledgerNavGeometry.safeAreaFill.background === "rgba(0, 0, 0, 0)"
+  || ledgerNavGeometry.safeAreaFill.content === "none"
   || ledgerNavGeometry.currentTabs.join(",") !== "Wallet"
   || !ledgerNavGeometry.equalColumns) {
   throw new Error(`Ledger bottom navigation geometry does not match the reference: ${JSON.stringify(ledgerNavGeometry)}`);
@@ -748,6 +933,57 @@ await ledgerAddTransaction.getByRole("status").filter({ hasText: "Transaction ad
 await ledgerAddTransaction.getByRole("button", { name: "Close", exact: true }).click();
 await ledgerAddTransaction.waitFor({ state: "hidden" });
 await ledgerHome.getByText("+0.00001 BTC", { exact: true }).first().waitFor();
+
+await ledgerHome.getByRole("button", { name: "Open Larpz Wallet settings" }).click();
+await ledgerEditPortfolio.waitFor();
+const ledgerBalanceInputs = ledgerEditPortfolio.locator('input[aria-label$=" balance"]');
+const savedLedgerBalances = await ledgerBalanceInputs.evaluateAll((inputs) => inputs.map((input) => ({
+  label: input.getAttribute("aria-label") ?? "",
+  value: input instanceof HTMLInputElement ? input.value : "0",
+})));
+for (const { label } of savedLedgerBalances) {
+  await ledgerEditPortfolio.getByLabel(label, { exact: true }).fill(label === "SOL balance" ? "0.000001" : "0");
+}
+await ledgerEditPortfolio.getByRole("button", { name: "Save", exact: true }).click();
+await ledgerEditPortfolio.getByRole("status").filter({ hasText: "Portfolio settings saved for this account." }).waitFor();
+await ledgerEditPortfolio.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerEditPortfolio.waitFor({ state: "hidden" });
+const expectedLedgerZeroBalance = new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(0);
+await page.waitForFunction((expectedBalance) => document.querySelector('[data-testid="ledger-portfolio-balance"]')?.textContent?.trim() === expectedBalance, expectedLedgerZeroBalance);
+const zeroLedgerChart = await page.locator('[data-testid="ledger-portfolio-chart"]').evaluate((chart) => {
+  const line = chart.querySelector('[data-testid="ledger-portfolio-line"]');
+  const points = (line?.getAttribute("points") ?? "").trim().split(/\s+/).filter(Boolean).map((point) => point.split(",").map(Number));
+  const yValues = points.map(([, y]) => y);
+  const changeText = document.querySelector('button[aria-label="Refresh portfolio"]')?.textContent?.trim() ?? "";
+  return {
+    balanceText: document.querySelector('[data-testid="ledger-portfolio-balance"]')?.textContent?.trim() ?? "",
+    mode: chart.getAttribute("data-chart-mode"),
+    pointCount: points.length,
+    firstX: points[0]?.[0],
+    lastX: points.at(-1)?.[0],
+    ySpread: yValues.length ? Math.max(...yValues) - Math.min(...yValues) : Number.POSITIVE_INFINITY,
+    changeText,
+  };
+});
+if (zeroLedgerChart.balanceText !== expectedLedgerZeroBalance
+  || zeroLedgerChart.mode !== "flat"
+  || zeroLedgerChart.pointCount < 2
+  || zeroLedgerChart.firstX !== 0
+  || zeroLedgerChart.lastX !== 430
+  || zeroLedgerChart.ySpread > 0.01
+  || !zeroLedgerChart.changeText.startsWith("→ 0.00%")
+  || zeroLedgerChart.changeText.includes("(+")) {
+  throw new Error(`Larpz Wallet did not render a continuous neutral line for a displayed zero balance: ${JSON.stringify(zeroLedgerChart)}`);
+}
+await ledgerHome.getByRole("button", { name: "Open Larpz Wallet settings" }).click();
+await ledgerEditPortfolio.waitFor();
+for (const { label, value } of savedLedgerBalances) {
+  await ledgerEditPortfolio.getByLabel(label, { exact: true }).fill(value);
+}
+await ledgerEditPortfolio.getByRole("button", { name: "Save", exact: true }).click();
+await ledgerEditPortfolio.getByRole("status").filter({ hasText: "Portfolio settings saved for this account." }).waitFor();
+await ledgerEditPortfolio.getByRole("button", { name: "Close", exact: true }).click();
+await ledgerEditPortfolio.waitFor({ state: "hidden" });
 
 if (process.env.WALLET_TEST_SCOPE === "ledger") {
   if (errors.length) throw new Error(`Browser console errors:\n${errors.join("\n")}`);
@@ -1569,7 +1805,7 @@ if (await trustReceiveQr.locator("circle").count() < 20) throw new Error("Trust 
 await trustReceiveSheet.getByRole("button", { name: "Copy", exact: true }).click();
 await trustReceiveSheet.getByRole("status").filter({ hasText: "Address copied" }).waitFor();
 await trustReceiveSheet.getByRole("button", { name: "Deposit from crypto exchange", exact: true }).click();
-await trustReceiveSheet.getByText("This demo never requests exchange credentials.", { exact: false }).waitFor();
+await trustReceiveSheet.getByText("then paste this receiving address.", { exact: false }).waitFor();
 await trustReceiveSheet.getByRole("button", { name: "Close", exact: true }).click();
 await trustReceiveSheet.waitFor({ state: "hidden" });
 
@@ -1614,7 +1850,7 @@ if (await page.getByLabel("Fiat amount").inputValue() !== "25") throw new Error(
 await page.getByRole("button", { name: "Review purchase", exact: true }).click();
 await page.locator('[data-testid="trust-buy-review"]').waitFor();
 await page.getByRole("heading", { name: "Review buy", exact: true }).waitFor();
-await page.getByText("Internal demo only.", { exact: false }).waitFor();
+await page.getByText("Service fee", { exact: true }).waitFor();
 await page.getByRole("button", { name: "Confirm buy", exact: true }).click();
 await page.locator('[data-testid="trust-buy-success"]').waitFor({ timeout: 10_000 });
 await page.getByRole("heading", { name: "Purchase complete", exact: true }).waitFor();
@@ -2081,20 +2317,22 @@ if (await trustEarn.getByRole("heading", { name: "Your positions", exact: true }
 }
 await trustBottomNav.getByRole("button", { name: "Home", exact: true }).click();
 await page.getByRole("button", { name: "Open transaction history", exact: true }).click();
-const trustHistorySearch = trustActivitySheet.getByLabel("Search transaction history");
+const trustActivityHistorySheet = page.locator("section[aria-label='Activity']");
+await trustActivityHistorySheet.waitFor();
+const trustHistorySearch = trustActivityHistorySheet.getByLabel("Search transaction history");
 await trustHistorySearch.fill("INTERNAL PERPETUAL");
-await trustActivitySheet.getByText("Sent BTC", { exact: true }).waitFor();
-await trustActivitySheet.getByText("Received BTC", { exact: true }).waitFor();
-if (await trustActivitySheet.locator("article").count() !== 2) {
+await trustActivityHistorySheet.getByText("Sent BTC", { exact: true }).waitFor();
+await trustActivityHistorySheet.getByText("Received BTC", { exact: true }).waitFor();
+if (await trustActivityHistorySheet.locator("article").count() !== 2) {
   throw new Error("Trust practice-position open and close did not produce exactly two ledger activities.");
 }
 await trustHistorySearch.fill("INTERNAL EARN");
-await trustActivitySheet.getByText("Sent SOL", { exact: true }).waitFor();
-await trustActivitySheet.getByText("Received SOL", { exact: true }).waitFor();
-if (await trustActivitySheet.locator("article").count() !== 2) {
+await trustActivityHistorySheet.getByText("Sent SOL", { exact: true }).waitFor();
+await trustActivityHistorySheet.getByText("Received SOL", { exact: true }).waitFor();
+if (await trustActivityHistorySheet.locator("article").count() !== 2) {
   throw new Error("Trust Earn allocation and redemption did not produce exactly two ledger activities.");
 }
-await trustActivitySheet.getByRole("button", { name: "Close", exact: true }).click();
+await trustActivityHistorySheet.getByRole("button", { name: "Close", exact: true }).click();
 await page.locator('[data-testid="trust-home"]').getByRole("button", { name: /^Watchlist/ }).click();
 await page.getByRole("button", { name: "Add BTC to watchlist", exact: true }).waitFor();
 await page.getByRole("button", { name: "Remove BNB from watchlist", exact: true }).waitFor();
@@ -2415,11 +2653,11 @@ if (!refreshedPhantomAccount || Math.abs(Number(refreshedPhantomAccount.balances
   throw new Error("Cross-PWA .larpz transfer did not immediately credit the receiving Phantom account.");
 }
 
-await phantomPage.getByRole("button", { name: "Open wallet menu" }).click();
-await phantomPage.getByRole("button", { name: "Activity", exact: true }).click();
-const phantomActivity = phantomPage.locator("section[aria-label='Activity']");
-await phantomActivity.getByText("Received BNB", { exact: true }).waitFor({ timeout: 6_000 });
-await phantomActivity.getByText("+0.2999", { exact: false }).waitFor();
+await phantomPage.getByRole("button", { name: "Open profile", exact: true }).click();
+const phantomActivity = phantomPage.locator('[data-testid="phantom-profile-overview"]');
+await phantomActivity.getByText("Latest Activity", { exact: true }).waitFor();
+const receivedBnbProfileActivity = phantomActivity.locator("article").filter({ hasText: "Received BNB" }).filter({ hasText: "+0.2999 BNB" });
+await receivedBnbProfileActivity.waitFor({ timeout: 6_000 });
 
 await trustContext.close();
 await phantomContext.close();

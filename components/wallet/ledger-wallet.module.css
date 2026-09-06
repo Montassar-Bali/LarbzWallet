@@ -716,6 +716,18 @@
   transform: translateX(-50%);
 }
 
+.bottomNav::after {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: calc(env(safe-area-inset-bottom) + 2px);
+  background: var(--ledger-nav-surface);
+  content: "";
+  pointer-events: none;
+}
+
 .navSurface {
   position: absolute;
   z-index: 0;
