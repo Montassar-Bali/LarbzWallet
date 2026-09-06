@@ -1,5 +1,8 @@
-import { AdminUsersTable } from "@/components/admin/users-table";
+import { redirect } from "next/navigation";
 
-export default function AdminUsersPage() {
-  return <AdminUsersTable />;
+import { requireAdminPageSession } from "@/lib/admin-auth";
+
+export default async function AdminUsersPage() {
+  await requireAdminPageSession("/admin/users");
+  redirect("/admin/licenses");
 }

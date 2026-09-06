@@ -39,7 +39,7 @@ import {
   isLicenseWalletOwnerId,
   resolveWalletOwnerId,
 } from "@/lib/auth";
-import { validateLicense } from "@/lib/license";
+import { activateLicenseWithServer } from "@/lib/license-client";
 import { normalizeLicenseKey } from "@/lib/storage";
 import type { WalletToken } from "@/lib/types";
 import {
@@ -419,10 +419,7 @@ export function WalletRuntimeProvider({ walletId, children }: { walletId: Wallet
     if (!/^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3}$/.test(licenseKey)) {
       throw new Error("Enter your complete activation key.");
     }
-    const validation = validateLicense(licenseKey);
-    if (!validation.valid) {
-      throw new Error(validation.reason || "This activation key is not valid.");
-    }
+    await activateLicenseWithServer(licenseKey);
     const response = await sharedLedgerRequest({
       action: "linkOwner",
       licenseKey,

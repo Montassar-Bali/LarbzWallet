@@ -16,9 +16,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/dashboard/tokens",
     "/dashboard/activity",
     "/dashboard/settings",
-    "/admin",
-    "/admin/users",
-    "/admin/licenses",
   ];
 
   return routes.map((route) => ({

@@ -218,6 +218,20 @@ async function assertTrustViewportContentFits(targetPage, screen, expectedWidth)
   }
 }
 
+async function openPhantomProfile(targetPage) {
+  await targetPage.getByRole("button", { name: "Open profile menu", exact: true }).click();
+  const drawer = targetPage.locator('[data-testid="phantom-side-drawer"]');
+  await drawer.waitFor();
+  if (await targetPage.locator('[data-testid="phantom-profile-overview"]').isVisible().catch(() => false)) {
+    throw new Error("Phantom profile opened before the Profile drawer action was selected.");
+  }
+  await drawer.getByRole("button", { name: "Profile", exact: true }).click();
+  await drawer.waitFor({ state: "detached" });
+  const profile = targetPage.locator('[data-testid="phantom-profile-overview"]');
+  await profile.waitFor();
+  return profile;
+}
+
 await page.goto(`${baseUrl}/trust-wallet`, { waitUntil: "domcontentloaded" });
 await page.getByRole("heading", { name: "Link this installed wallet" }).waitFor({ timeout: 15_000 });
 if (await page.getByRole("button", { name: "Send", exact: true }).isVisible().catch(() => false)) {
@@ -483,9 +497,34 @@ const temporaryPhantomAvatar = originalPhantomProfile.avatar === "🔥"
   ? { value: "🔮", label: "Use crystal ball emoji", query: "crystal" }
   : { value: "🔥", label: "Use fire hot emoji", query: "fire" };
 
-await page.getByRole("button", { name: "Open profile", exact: true }).click();
-const phantomProfileOverview = page.locator('[data-testid="phantom-profile-overview"]');
-await phantomProfileOverview.waitFor();
+await page.getByRole("button", { name: "Open profile menu", exact: true }).click();
+const phantomProfileDrawer = page.locator('[data-testid="phantom-side-drawer"]');
+await phantomProfileDrawer.waitFor();
+for (const menuItem of ["Profile", "Chats", "Watchlist", "History", "Settings", "Help & Support"]) {
+  await phantomProfileDrawer.getByRole("button", { name: menuItem, exact: true }).waitFor();
+}
+await page.waitForFunction(() => {
+  const drawer = document.querySelector('[data-testid="phantom-side-drawer"]');
+  const surface = document.querySelector('[data-testid="phantom-wallet-surface"]');
+  if (!drawer || !surface) return false;
+  const drawerBounds = drawer.getBoundingClientRect();
+  const surfaceBounds = surface.getBoundingClientRect();
+  return Math.abs(drawerBounds.width / window.innerWidth - 0.78) < 0.02
+    && Math.abs(drawerBounds.height - window.innerHeight) <= 1
+    && Math.abs(surfaceBounds.left - drawerBounds.right) <= 2;
+});
+const phantomDrawerTargets = await phantomProfileDrawer.getByRole("button").evaluateAll((buttons) => buttons.map((button) => {
+  const bounds = button.getBoundingClientRect();
+  return { label: button.textContent?.trim() || button.getAttribute("aria-label"), width: bounds.width, height: bounds.height };
+}));
+const undersizedPhantomDrawerTargets = phantomDrawerTargets.filter((target) => target.width < 44 || target.height < 44);
+if (undersizedPhantomDrawerTargets.length > 0) {
+  throw new Error(`Phantom profile drawer has undersized controls: ${JSON.stringify(undersizedPhantomDrawerTargets)}`);
+}
+if (phantomScreenshotDir) await page.screenshot({ path: `${phantomScreenshotDir}/phantom-profile-drawer.png` });
+await page.getByRole("button", { name: "Close menu", exact: true }).click();
+await phantomProfileDrawer.waitFor({ state: "detached" });
+const phantomProfileOverview = await openPhantomProfile(page);
 await phantomProfileOverview.getByRole("heading", { name: `@${originalPhantomProfile.username}`, exact: true }).waitFor();
 await phantomProfileOverview.getByText("Trading volume", { exact: true }).waitFor();
 await phantomProfileOverview.getByText("Latest Activity", { exact: true }).waitFor();
@@ -544,12 +583,12 @@ if (!(await phantomProfileOverview.textContent())?.includes(temporaryPhantomAvat
 }
 await phantomProfileOverview.getByRole("button", { name: "Close profile", exact: true }).evaluate((button) => button.click());
 await page.getByLabel("Search Phantom").waitFor();
-await page.getByRole("button", { name: "Open profile", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
+await page.getByRole("button", { name: "Open profile menu", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
 
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.getByLabel("Search Phantom").waitFor({ timeout: 20_000 });
-await page.getByRole("button", { name: "Open profile", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
-await page.getByRole("button", { name: "Open profile", exact: true }).click();
+await page.getByRole("button", { name: "Open profile menu", exact: true }).filter({ hasText: temporaryPhantomAvatar.value }).waitFor();
+await openPhantomProfile(page);
 await phantomProfileOverview.getByRole("heading", { name: `@${temporaryPhantomUsername}`, exact: true }).waitFor();
 const persistedPhantomProfile = await page.evaluate(() => JSON.parse(window.localStorage.getItem("larpz_download_profile") || "null"));
 if (persistedPhantomProfile?.username !== temporaryPhantomUsername || persistedPhantomProfile?.avatar !== temporaryPhantomAvatar.value) {
@@ -2653,8 +2692,7 @@ if (!refreshedPhantomAccount || Math.abs(Number(refreshedPhantomAccount.balances
   throw new Error("Cross-PWA .larpz transfer did not immediately credit the receiving Phantom account.");
 }
 
-await phantomPage.getByRole("button", { name: "Open profile", exact: true }).click();
-const phantomActivity = phantomPage.locator('[data-testid="phantom-profile-overview"]');
+const phantomActivity = await openPhantomProfile(phantomPage);
 await phantomActivity.getByText("Latest Activity", { exact: true }).waitFor();
 const receivedBnbProfileActivity = phantomActivity.locator("article").filter({ hasText: "Received BNB" }).filter({ hasText: "+0.2999 BNB" });
 await receivedBnbProfileActivity.waitFor({ timeout: 6_000 });

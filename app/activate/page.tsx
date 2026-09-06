@@ -7,7 +7,8 @@ import { useState } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { MarketingNavbar } from "@/components/marketing/navbar";
-import { activateLicense, validateLicense } from "@/lib/license";
+import { activateLicense } from "@/lib/license";
+import { activateLicenseWithServer } from "@/lib/license-client";
 import { normalizeLicenseKey } from "@/lib/storage";
 
 type ActivateState = "idle" | "loading" | "error" | "success";
@@ -33,16 +34,8 @@ export default function ActivatePage() {
     setStatus("loading");
     setMessage("");
 
-    await new Promise((resolve) => setTimeout(resolve, 450));
-
-    const validation = validateLicense(key);
-    if (!validation.valid) {
-      setStatus("error");
-      setMessage(validation.reason || "Invalid license key. Please check and try again.");
-      return;
-    }
-
     try {
+      await activateLicenseWithServer(key);
       const licenseUser = await loginWithLicense(key);
       activateLicense(key, { id: licenseUser.id, email: licenseUser.email });
       router.replace("/wallet-launch");

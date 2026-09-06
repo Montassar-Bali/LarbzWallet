@@ -44,7 +44,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 
 import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
@@ -485,7 +485,7 @@ function WalletTabs({ activeTab, avatar, onChange, onProfile }: { activeTab: Tab
       data-testid="phantom-wallet-tabs"
       className="grid min-w-0 grid-cols-[2.75rem_.85fr_.85fr_1.45fr_1fr] items-center gap-1 overflow-hidden pb-1 min-[400px]:gap-1.5"
     >
-      <button type="button" onClick={onProfile} aria-label="Open profile" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
+      <button type="button" onClick={onProfile} aria-label="Open profile menu" aria-haspopup="dialog" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition hover:scale-[1.03] active:scale-95">
         <LockAvatar value={avatar} size="small" />
       </button>
       {tabs.map(({ value, label }) => (
@@ -539,34 +539,46 @@ function NotificationPrompt({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SideDrawer({ profile, onClose, onAccounts, onProfile, onCommunity, onWatchlist, onHistory, onSettings, onSupport, onNotice }: { profile: ProfileRecord; onClose: () => void; onAccounts: () => void; onProfile: () => void; onCommunity: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onSupport: () => void; onNotice: (message: string) => void }) {
+function SideDrawer({ profile, onClose, onAccounts, onProfile, onConnectX, onCommunity, onWatchlist, onHistory, onSettings, onSupport, onNotice }: { profile: ProfileRecord; onClose: () => void; onAccounts: () => void; onProfile: () => void; onConnectX: () => void; onCommunity: () => void; onWatchlist: () => void; onHistory: () => void; onSettings: () => void; onSupport: () => void; onNotice: (message: string) => void }) {
+  const drawerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    drawerRef.current?.focus({ preventScroll: true });
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("keydown", dismissOnEscape);
+      window.setTimeout(() => previouslyFocused?.focus({ preventScroll: true }), 0);
+    };
+  }, [onClose]);
+
   const item = (icon: LucideIcon, label: string, onClick: () => void) => {
     const Icon = icon;
     return <button type="button" onClick={onClick} className="flex w-full items-center gap-5 px-1 py-4 text-left text-[20px] font-medium text-white transition hover:text-[#a295f3]"><Icon className="h-6 w-6" />{label}</button>;
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-[2px]" role="presentation">
-      <button type="button" onClick={onClose} aria-label="Close menu" className="absolute inset-0 cursor-default" />
-      <aside className="relative flex h-full w-[min(84vw,390px)] flex-col border-r border-white/[0.06] bg-black px-7 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-[calc(env(safe-area-inset-top)+30px)] shadow-[20px_0_60px_rgba(0,0,0,.75)]">
+      <aside ref={drawerRef} data-testid="phantom-side-drawer" role="dialog" aria-modal="true" aria-label="Profile menu" tabIndex={-1} className="phantom-profile-drawer absolute inset-y-0 left-0 z-30 flex h-full flex-col bg-black px-7 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-[calc(env(safe-area-inset-top)+30px)] outline-none" style={{ width: "min(78%, 390px)" }}>
         <div className="flex items-start justify-between">
           <div><LockAvatar value={profile.avatar} /><p className="mt-6 text-[25px] font-semibold tracking-[-0.04em]">@{profile.username}</p></div>
           <button type="button" onClick={() => { void navigator.clipboard?.writeText(profile.address); onNotice("Wallet address copied."); }} aria-label="Copy wallet address" className="grid h-12 w-12 place-items-center rounded-full bg-[#202022] text-white/75 transition hover:text-white"><Copy className="h-5 w-5" /></button>
         </div>
-        <button type="button" onClick={onProfile} className="mt-6 flex items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
+        <button type="button" onClick={onConnectX} className="mt-6 flex min-h-11 items-center gap-2 text-left text-[15px] font-semibold text-[#a99bf7]"><span className="text-lg">𝕏</span> Connect your X account</button>
         <div className="mt-10">
           <button type="button" onClick={onAccounts} className="flex items-center gap-4 py-3 text-left text-[17px] font-semibold text-white/90"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#202022] text-xs">A</span> {profile.accountName} <ChevronDown className="h-4 w-4 text-white/50" /></button>
           {item(UserRound, "Profile", onProfile)}
           {item(MessageCircle, "Chats", onCommunity)}
           {item(Heart, "Watchlist", onWatchlist)}
-          {item(Clock3, "Activity", onHistory)}
+          {item(Clock3, "History", onHistory)}
         </div>
         <div className="mt-auto space-y-1">
           {item(Settings, "Settings", onSettings)}
           {item(CircleHelp, "Help & Support", onSupport)}
         </div>
       </aside>
-    </div>
   );
 }
 
@@ -1220,6 +1232,18 @@ type ProfileActivityItem = {
   detail: string;
 };
 
+const profileActivityDateFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function formatProfileActivityDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : profileActivityDateFormatter.format(date);
+}
+
 function EmptyProfileActivity() {
   return (
     <div className="flex flex-col items-center pt-[clamp(5rem,19vh,9rem)] text-center">
@@ -1313,7 +1337,7 @@ function ProfileOverviewScreen({
               return (
                 <article key={record.id} className="flex items-center gap-4 rounded-[1.45rem] bg-[#191919] px-4 py-4">
                   <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${incoming ? "bg-[#00e676]/15 text-[#00e676]" : "bg-[#ff4d63]/15 text-[#ff5c70]"}`}>{incoming ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}</span>
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-[18px]">{incoming ? "Received" : "Sent"} {record.symbol}</strong><span className="mt-1 block truncate text-[14px] text-white/45">{record.detail} · {new Date(record.date).toLocaleDateString()}</span></span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-[18px]">{incoming ? "Received" : "Sent"} {record.symbol}</strong><span className="mt-1 block truncate text-[14px] text-white/45">{record.detail} · {formatProfileActivityDate(record.date)}</span></span>
                   <strong className={`shrink-0 text-[17px] tabular-nums ${incoming ? "text-[#00e676]" : "text-white"}`}>{incoming ? "+" : "−"}{formatAmount(record.amount)} {record.symbol}</strong>
                 </article>
               );
@@ -1933,6 +1957,7 @@ export function DownloadWallet() {
   const [activeTab, setActiveTab] = useState<Tab>("Home");
   const [view, setView] = useState<View>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [xEditorReturnView, setXEditorReturnView] = useState<"home" | "manage-profile">("manage-profile");
   const [actionsOpen, setActionsOpen] = useState(false);
   const [tokenEditorOpen, setTokenEditorOpen] = useState(false);
   const [editingToken, setEditingToken] = useState<WalletToken | null>(null);
@@ -1958,6 +1983,7 @@ export function DownloadWallet() {
   const homeScrollRef = useRef<HTMLDivElement>(null);
   const homePullStart = useRef<{ x: number; y: number } | null>(null);
   const homeRawPull = useRef(0);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const homeRefreshTimers = useRef<number[]>([]);
   const liveSymbols = liveMarketSymbols;
 
@@ -2328,15 +2354,17 @@ export function DownloadWallet() {
   return (
     <main className="download-wallet-app fixed inset-0 z-0 h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#080809] font-sans text-white sm:bg-[radial-gradient(circle_at_50%_10%,#211d34_0%,#080809_46%)]">
       <div className="relative mx-auto h-[100dvh] max-h-[100dvh] w-full max-w-[560px] overflow-hidden bg-black shadow-2xl shadow-black/70 sm:my-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2.5rem] sm:border sm:border-white/[0.07]">
+        {drawerOpen ? <SideDrawer profile={profile} onClose={closeDrawer} onAccounts={() => { closeDrawer(); runtime.openAccounts(); }} onProfile={() => { closeDrawer(); setView("profile-overview"); }} onConnectX={() => { closeDrawer(); setXEditorReturnView("home"); setView("x-editor"); }} onCommunity={() => { closeDrawer(); setView("community"); }} onWatchlist={() => { closeDrawer(); setView("watchlist"); }} onHistory={() => { closeDrawer(); runtime.openHistory(); }} onSettings={() => { closeDrawer(); runtime.openSecurity(); }} onSupport={() => { closeDrawer(); setView("support"); }} onNotice={notify} /> : null}
+        <div data-testid="phantom-wallet-surface" inert={drawerOpen} aria-hidden={drawerOpen} className={`relative z-40 h-full overflow-hidden bg-black transition-[transform,filter,border-radius] duration-[260ms] ease-[cubic-bezier(.22,.8,.24,1)] ${drawerOpen ? "rounded-l-[2rem] brightness-[.32] shadow-[-22px_0_60px_rgba(0,0,0,.88)]" : ""}`} style={drawerOpen ? { transform: "translateX(min(78%, 390px))" } : undefined}>
         <div ref={homeScrollRef} data-testid="phantom-home-scroll" onTouchStart={handleHomeTouchStart} onTouchMove={handleHomeTouchMove} onTouchEnd={handleHomeTouchEnd} onTouchCancel={handleHomeTouchCancel} className="relative h-full overflow-y-auto overscroll-contain">
-{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onProfile={() => setView("profile-overview")} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onOpenTokens={() => setView("tokens")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
+{view === "home" ? <HomeView tokens={tokens} profile={profile} tab={activeTab} cashVisible={cashVisible} tokenQuery={tokenQuery} watchlistSymbols={watchlistSymbols} actionsOpen={actionsOpen} refreshOffset={homePullOffset} refreshStatus={homeRefreshStatus} onRefresh={startHomeRefresh} onTab={setActiveTab} onProfile={() => { setActionsOpen(false); setDrawerOpen(true); }} onCash={() => setCashVisible((value) => !value)} onSearch={setTokenQuery} onActions={() => setActionsOpen((value) => !value)} onOpenWatchlist={() => setView("watchlist")} onOpenTokens={() => setView("tokens")} onAccounts={runtime.openAccounts} onExecuteTrade={executeMarketTrade} perpPositions={perpPositions} onOpenPerp={openPerpMarket} onClosePerp={closePerpPosition} onToken={(token) => openTokenDetail(token)} onCommunity={() => setView("community")} onSupport={() => setView("support")} onDisclosures={() => setView("disclosures")} /> : null}
           {view === "tokens" ? <TokensScreen tokens={tokens} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "tokens")} /> : null}
           {view === "profile-overview" ? <ProfileOverviewScreen profile={profile} records={records} transactions={runtime.state?.transactions ?? []} currentAccountId={runtime.currentAccount?.id} onClose={() => setView("home")} onManage={() => setView("manage-profile")} onShare={() => { void shareProfile(); }} /> : null}
-          {view === "manage-profile" ? <ManageProfileScreen profile={profile} onBack={() => setView("profile-overview")} onAvatar={() => setView("avatar-picker")} onUsername={() => setView("username-editor")} onBio={() => setView("bio-editor")} onX={() => setView("x-editor")} onFollowing={() => notify("You are not following any profiles yet.")} onAuthFactors={runtime.openSecurity} onPrivacy={() => saveProfileFields({ privacy: profile.privacy === "Public" ? "Private" : "Public" }, "manage-profile", `Profile is now ${profile.privacy === "Public" ? "private" : "public"}.`)} onVerify={() => saveProfileFields({ verified: true }, "manage-profile", profile.verified ? "Profile is already verified." : "Profile verified.")} /> : null}
+          {view === "manage-profile" ? <ManageProfileScreen profile={profile} onBack={() => setView("profile-overview")} onAvatar={() => setView("avatar-picker")} onUsername={() => setView("username-editor")} onBio={() => setView("bio-editor")} onX={() => { setXEditorReturnView("manage-profile"); setView("x-editor"); }} onFollowing={() => notify("You are not following any profiles yet.")} onAuthFactors={runtime.openSecurity} onPrivacy={() => saveProfileFields({ privacy: profile.privacy === "Public" ? "Private" : "Public" }, "manage-profile", `Profile is now ${profile.privacy === "Public" ? "private" : "public"}.`)} onVerify={() => saveProfileFields({ verified: true }, "manage-profile", profile.verified ? "Profile is already verified." : "Profile verified.")} /> : null}
           {view === "avatar-picker" ? <AvatarPickerScreen avatar={profile.avatar} onBack={() => setView("manage-profile")} onSave={(avatar) => saveProfileFields({ avatar }, "manage-profile", "Avatar updated.")} /> : null}
           {view === "username-editor" ? <UsernameEditorScreen username={profile.username} onBack={() => setView("manage-profile")} onSave={(username) => saveProfileFields({ username }, "manage-profile", "Username updated.")} /> : null}
           {view === "bio-editor" ? <ProfileTextEditorScreen title="Edit Bio" label="Bio" value={profile.bio} multiline onBack={() => setView("manage-profile")} onSave={(bio) => saveProfileFields({ bio }, "manage-profile", "Bio updated.")} /> : null}
-          {view === "x-editor" ? <ProfileTextEditorScreen title="Connect X" label="X username" value={profile.twitter} onBack={() => setView("manage-profile")} onSave={(twitter) => saveProfileFields({ twitter: twitter.replace(/^@+/, "") }, "manage-profile", twitter ? "X account connected." : "X account disconnected.")} /> : null}
+          {view === "x-editor" ? <ProfileTextEditorScreen title="Connect X" label="X username" value={profile.twitter} onBack={() => setView(xEditorReturnView)} onSave={(twitter) => saveProfileFields({ twitter: twitter.replace(/^@+/, "") }, xEditorReturnView, twitter ? "X account connected." : "X account disconnected.")} /> : null}
           {view === "profile" ? <ProfileScreen profile={profile} tokens={tokens} onBack={() => setView("home")} onSave={saveProfile} onAddToken={() => { setEditingToken(null); setTokenEditorOpen(true); }} onEditToken={(token) => { setEditingToken(token); setTokenEditorOpen(true); }} onDeleteToken={removeToken} /> : null}
           {view === "history" ? <HistoryScreen records={records} onBack={() => setView("home")} onRecord={(record) => { setSentRecord(record); setView("sent-detail"); }} /> : null}
           {view === "watchlist" ? <WatchlistScreen tokens={tokens} watchlistSymbols={watchlistSymbols} onBack={() => setView("home")} onToken={(token) => openTokenDetail(token, "watchlist")} onToggle={toggleWatchlist} /> : null}
@@ -2356,11 +2384,12 @@ export function DownloadWallet() {
           {view === "token-detail" && currentToken ? <TokenDetail token={currentToken} isWatched={watchlistSymbols.includes(currentToken.symbol)} onBack={() => { setSelectedToken(null); setView(tokenDetailOrigin); }} onToggleWatchlist={() => toggleWatchlist(currentToken)} onSend={() => runtime.openTransfer(currentToken.symbol)} onReceive={runtime.openReceive} onTrade={() => { setSelectedToken(null); setView("home"); setActiveTab("Trade"); }} onChat={() => { setSelectedToken(null); setView("community"); }} /> : null}
           {view === "sent-detail" && sentRecord ? <TransactionDetail record={sentRecord} onClose={() => setView("history")} /> : null}
           {actionsOpen && view === "home" ? <ActionMenu onAction={openAction} onClose={() => setActionsOpen(false)} /> : null}
-          {drawerOpen ? <SideDrawer profile={profile} onClose={() => setDrawerOpen(false)} onAccounts={() => { setDrawerOpen(false); runtime.openAccounts(); }} onProfile={() => { setDrawerOpen(false); setView("profile-overview"); }} onCommunity={() => { setDrawerOpen(false); setView("community"); }} onWatchlist={() => { setDrawerOpen(false); setView("watchlist"); }} onHistory={() => { setDrawerOpen(false); runtime.openHistory(); }} onSettings={() => { setDrawerOpen(false); runtime.openSecurity(); }} onSupport={() => { setDrawerOpen(false); setView("support"); }} onNotice={notify} /> : null}
           {tokenEditorOpen ? <TokenEditor token={editingToken} onClose={() => { setEditingToken(null); setTokenEditorOpen(false); }} onSave={saveEditedToken} /> : null}
-          {toast ? <div className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
           {notificationPromptOpen ? <NotificationPrompt onClose={() => setNotificationPromptOpen(false)} /> : null}
         </div>
+        </div>
+        {drawerOpen ? <button type="button" onClick={closeDrawer} aria-label="Close menu" className="absolute inset-y-0 right-0 z-50 cursor-default" style={{ left: "min(78%, 390px)" }} /> : null}
+        {toast ? <div role="status" aria-live="polite" className="absolute bottom-28 left-1/2 z-[80] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-white/[0.06] bg-[#29292b] px-5 py-3 text-center text-sm text-white/85 shadow-xl">{toast}</div> : null}
       </div>
     </main>
   );
