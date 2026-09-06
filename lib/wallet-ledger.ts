@@ -1,4 +1,4 @@
-import { canonicalWalletTokens, defaultTokens } from "@/config/tokens";
+import { canonicalWalletTokens, defaultTokens, isRetiredWalletTokenSymbol } from "@/config/tokens";
 import type { WalletThemeId } from "@/config/wallets";
 import type { ActivityStatus, WalletActivity, WalletToken } from "@/lib/types";
 
@@ -205,7 +205,6 @@ const networkBySymbol: Record<string, string> = {
   USDT: "Ethereum",
   USDC: "Ethereum",
   SOL: "Solana",
-  BFS: "Solana",
   SUI: "Sui",
   MATIC: "Polygon",
   HYPE: "HyperEVM",
@@ -220,7 +219,6 @@ const decimalsBySymbol: Record<string, number> = {
   BTC: 8,
   ETH: 18,
   SOL: 9,
-  BFS: 8,
   USDT: 6,
   USDC: 6,
   USD: 2,
@@ -232,7 +230,6 @@ const feesBySymbol: Record<string, number> = {
   BTC: 0.000005,
   ETH: 0.0002,
   SOL: 0.000005,
-  BFS: 0.01,
   USDT: 0.01,
   USDC: 0.01,
   USD: 0,
@@ -292,6 +289,12 @@ function assetFromToken(token: WalletToken): WalletAsset {
   };
 }
 
+function withoutRetiredBalances(balances: Record<string, number>) {
+  return Object.fromEntries(
+    Object.entries(balances).filter(([symbol]) => !isRetiredWalletTokenSymbol(symbol)),
+  );
+}
+
 function baseAssets(snapshots: LegacyWalletSnapshots) {
   const assets: Record<string, WalletAsset> = {};
   for (const token of canonicalWalletTokens) {
@@ -306,7 +309,9 @@ function baseAssets(snapshots: LegacyWalletSnapshots) {
     image: "",
   };
   for (const snapshot of Object.values(snapshots)) {
-    for (const token of snapshot?.tokens ?? []) assets[token.symbol.toUpperCase()] = assetFromToken(token);
+    for (const token of snapshot?.tokens ?? []) {
+      if (!isRetiredWalletTokenSymbol(token.symbol)) assets[token.symbol.toUpperCase()] = assetFromToken(token);
+    }
   }
   for (const token of canonicalWalletTokens) {
     const canonical = assetFromToken({ ...token, updatedAt: "" });
@@ -320,9 +325,25 @@ function baseAssets(snapshots: LegacyWalletSnapshots) {
 
 function withCanonicalAssets(state: WalletLedgerState) {
   let next = state;
-  if (!Array.isArray(state.operations)) {
+  const retiredAssets = Object.keys(state.assets).filter(isRetiredWalletTokenSymbol);
+  const hasRetiredBalances = (["ghost", "ledger", "trust"] as const).some((walletId) =>
+    state.wallets[walletId].accounts.some((account) =>
+      Object.keys(account.balances).some(isRetiredWalletTokenSymbol),
+    ),
+  );
+  if (!Array.isArray(state.operations) || retiredAssets.length > 0 || hasRetiredBalances) {
     next = cloneState(state);
+  }
+  if (!Array.isArray(state.operations)) {
     next.operations = [];
+  }
+  for (const symbol of retiredAssets) delete next.assets[symbol];
+  if (hasRetiredBalances) {
+    for (const walletId of ["ghost", "ledger", "trust"] as const) {
+      for (const account of next.wallets[walletId].accounts) {
+        account.balances = withoutRetiredBalances(account.balances);
+      }
+    }
   }
   for (const token of canonicalWalletTokens) {
     const symbol = token.symbol.toUpperCase();
@@ -344,7 +365,9 @@ function accountAddress(walletId: WalletThemeId) {
 function snapshotBalances(snapshot: LegacyWalletSnapshot | undefined) {
   const balances: Record<string, number> = {};
   for (const token of snapshot?.tokens ?? []) {
-    if (Number.isFinite(token.balance) && token.balance >= 0) balances[token.symbol.toUpperCase()] = token.balance;
+    if (!isRetiredWalletTokenSymbol(token.symbol) && Number.isFinite(token.balance) && token.balance >= 0) {
+      balances[token.symbol.toUpperCase()] = token.balance;
+    }
   }
   if (Number.isFinite(snapshot?.cash) && (snapshot?.cash ?? 0) >= 0) balances.USD = snapshot?.cash ?? 0;
   return balances;
@@ -501,6 +524,7 @@ export class WalletLedgerRepository {
   updateAssets(tokens: WalletToken[]) {
     const next = cloneState(this.getState());
     for (const token of tokens) {
+      if (isRetiredWalletTokenSymbol(token.symbol)) continue;
       const current = next.assets[token.symbol.toUpperCase()];
       next.assets[token.symbol.toUpperCase()] = { ...current, ...assetFromToken(token) };
     }
@@ -727,9 +751,13 @@ export function sortedAccountAssets(state: WalletLedgerState, account: WalletAcc
 }
 
 export function tokensForWalletAccount(tokens: WalletToken[], state: WalletLedgerState, account: WalletAccount) {
-  const tokenMap = new Map(tokens.map((token) => [token.symbol.toUpperCase(), token]));
+  const tokenMap = new Map(
+    tokens
+      .filter((token) => !isRetiredWalletTokenSymbol(token.symbol))
+      .map((token) => [token.symbol.toUpperCase(), token]),
+  );
   for (const [symbol, asset] of Object.entries(state.assets)) {
-    if (symbol === "USD") continue;
+    if (symbol === "USD" || isRetiredWalletTokenSymbol(symbol)) continue;
     const existing = tokenMap.get(symbol);
     tokenMap.set(symbol, {
       id: existing?.id ?? `shared-${symbol.toLowerCase()}`,
@@ -761,7 +789,7 @@ export function mergeRemoteWalletSnapshot(state: WalletLedgerState, snapshot: Re
         walletId: remote.walletId,
         name: remote.name,
         address: remote.address,
-        balances: { ...remote.balances },
+        balances: withoutRetiredBalances(remote.balances),
         createdAt: remote.createdAt,
       }));
     wallet.selectedAccountId = wallet.accounts.find((account) => account.id === selected?.id || account.address === selected?.address)?.id
@@ -798,7 +826,8 @@ export function readLegacySnapshots(storage: StorageAdapter): LegacyWalletSnapsh
   const result: LegacyWalletSnapshots = {};
   for (const walletId of ["ghost", "ledger", "trust"] as const) {
     const snapshot: LegacyWalletSnapshot = {
-      tokens: parseJson<WalletToken[]>(storage.getItem(legacyTokenKeys[walletId]), []),
+      tokens: parseJson<WalletToken[]>(storage.getItem(legacyTokenKeys[walletId]), [])
+        .filter((token) => !isRetiredWalletTokenSymbol(token.symbol)),
       transactions: parseJson<WalletActivity[]>(storage.getItem(legacyTransactionKeys[walletId]), []),
     };
     if (snapshot.tokens?.length === 0 && walletId === "ghost") {

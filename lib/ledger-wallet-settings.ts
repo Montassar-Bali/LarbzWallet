@@ -1,4 +1,4 @@
-import { walletMarketSymbols } from "@/config/tokens";
+import { isRetiredWalletTokenSymbol, walletMarketSymbols } from "@/config/tokens";
 
 export const ledgerCurrencies = [
   { code: "USD", label: "$ USD", rate: 1 },
@@ -90,6 +90,7 @@ function isCustomToken(value: unknown): value is LedgerCustomToken {
     && Boolean(token.name.trim())
     && typeof token.symbol === "string"
     && Boolean(token.symbol.trim())
+    && !isRetiredWalletTokenSymbol(token.symbol)
     && !reservedTokenSymbols.has(token.symbol.trim().toUpperCase())
     && typeof token.price === "number"
     && Number.isFinite(token.price)
@@ -128,6 +129,7 @@ export function validateLedgerSettings(settings: LedgerWalletSettings) {
     seenContracts.add(contractKey);
     const symbol = token.symbol.trim().toUpperCase();
     if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return "Custom-token symbols must use 2–10 letters or numbers.";
+    if (isRetiredWalletTokenSymbol(symbol)) return `${symbol} is no longer supported.`;
     if (reservedTokenSymbols.has(symbol)) return `${symbol} is already included in the built-in asset catalogue.`;
     if (seenSymbols.has(symbol)) return "Each custom-token symbol must be unique.";
     seenSymbols.add(symbol);

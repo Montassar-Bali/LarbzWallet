@@ -1,4 +1,4 @@
-import { defaultTokens } from "@/config/tokens";
+import { defaultTokens, isRetiredWalletTokenSymbol } from "@/config/tokens";
 import { defaultWalletTheme, walletThemes, type WalletThemeId } from "@/config/wallets";
 import {
   createId,
@@ -46,8 +46,10 @@ const seedTransactions: WalletActivity[] = [
 ];
 
 function seedWalletTokens() {
-  const existing = readStorage<WalletToken[]>(storageKeys.tokens, []);
+  const stored = readStorage<WalletToken[]>(storageKeys.tokens, []);
+  const existing = stored.filter((token) => !isRetiredWalletTokenSymbol(token.symbol));
   if (existing.length > 0) {
+    if (existing.length !== stored.length) writeStorage(storageKeys.tokens, existing);
     return existing;
   }
 
@@ -75,6 +77,9 @@ export function getTokens() {
 }
 
 export function saveToken(input: Omit<WalletToken, "updatedAt" | "id"> & { id?: string }) {
+  if (isRetiredWalletTokenSymbol(input.symbol)) {
+    throw new Error(`${input.symbol.trim().toUpperCase()} is no longer supported.`);
+  }
   const tokens = seedWalletTokens();
   const token: WalletToken = {
     ...input,

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { isRetiredWalletTokenSymbol } from "@/config/tokens";
 import type { WalletToken } from "@/lib/types";
 import { deleteToken, getTokens, saveToken } from "@/lib/wallet";
 import { formatCurrency, formatPercentage } from "@/lib/utils";
@@ -47,6 +48,7 @@ export function TokensManager() {
   const [tokens, setTokens] = useState<WalletToken[]>(() => getTokens());
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TokenForm>(emptyForm);
+  const [error, setError] = useState("");
 
   const projectedValue = useMemo(() => {
     const price = Number(form.price);
@@ -59,6 +61,7 @@ export function TokensManager() {
   }, [form.balance, form.price]);
 
   const handleChange = (field: keyof TokenForm, value: string) => {
+    setError("");
     setForm((current) => ({
       ...current,
       [field]: value,
@@ -66,6 +69,7 @@ export function TokensManager() {
   };
 
   const handleEdit = (token: WalletToken) => {
+    setError("");
     setForm(mapTokenToForm(token));
     setOpen(true);
   };
@@ -93,11 +97,16 @@ export function TokensManager() {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const symbol = form.symbol.trim().toUpperCase();
+    if (isRetiredWalletTokenSymbol(symbol)) {
+      setError(`${symbol} is no longer supported.`);
+      return;
+    }
 
     const token = saveToken({
       id: form.id,
       name: form.name.trim(),
-      symbol: form.symbol.trim().toUpperCase(),
+      symbol,
       price: Number(form.price),
       balance: Number(form.balance),
       change24h: Number(form.change24h),
@@ -117,6 +126,7 @@ export function TokensManager() {
 
     setOpen(false);
     setForm(emptyForm);
+    setError("");
   };
 
   return (
@@ -131,6 +141,7 @@ export function TokensManager() {
           </div>
           <Button
             onClick={() => {
+              setError("");
               setForm(emptyForm);
               setOpen(true);
             }}
@@ -213,7 +224,10 @@ export function TokensManager() {
         title={form.id ? "Edit Token" : "Add Token"}
         description="Demo-only token configuration. No real blockchain contracts are created."
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          setError("");
+        }}
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -314,8 +328,10 @@ export function TokensManager() {
             Calculated token value: <strong className="text-[var(--foreground)]">{formatCurrency(projectedValue)}</strong>
           </p>
 
+          {error ? <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
+
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" onClick={() => { setOpen(false); setError(""); }}>
               Cancel
             </Button>
             <Button type="submit">Save Token</Button>

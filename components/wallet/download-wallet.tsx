@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 
-import { canonicalWalletTokens, liveMarketSymbols } from "@/config/tokens";
+import { canonicalWalletTokens, isRetiredWalletTokenSymbol, liveMarketSymbols } from "@/config/tokens";
 import type { WalletActivity, WalletToken } from "@/lib/types";
 import { useLivePrices } from "@/components/wallet/use-live-prices";
 import { CameraQrScanner } from "@/components/wallet/camera-qr-scanner";
@@ -232,7 +232,6 @@ const tokenVisuals: Record<string, { background: string; mark: string; foregroun
   BTC: { background: "#f5a623", mark: "₿" },
   ETH: { background: "#f1f3f6", mark: "◆", foreground: "#252a35" },
   SOL: { background: "#050607", mark: "≡" },
-  BFS: { background: "radial-gradient(circle at 35% 30%, #ffe65b 0%, #f7a52b 48%, #eb4b39 69%, #2ab4ca 100%)", mark: "BFS" },
   USDT: { background: "#20b486", mark: "₮" },
   USDC: { background: "#2775ca", mark: "$" },
   SUI: { background: "#4b98f5", mark: "S", foreground: "white" },
@@ -334,37 +333,23 @@ const referenceSolanaToken: WalletToken = {
   updatedAt: "",
 };
 
-const referenceBfsToken: WalletToken = {
-  id: "bfs-reference",
-  name: "BFS",
-  symbol: "BFS",
-  balance: 176.12138,
-  price: 0.05 / 176.12138,
-  change24h: 0.01,
-  image: "",
-  updatedAt: "",
-};
-
 function referenceHomeTokens(tokens: WalletToken[]) {
   const storedSolana = tokens.find((token) => token.symbol === "SOL");
-  const storedBfs = tokens.find((token) => token.symbol === "BFS");
 
   return [
     storedSolana
       ? { ...referenceSolanaToken, ...storedSolana, id: storedSolana.id }
       : referenceSolanaToken,
-    storedBfs
-      ? { ...referenceBfsToken, ...storedBfs, id: storedBfs.id }
-      : referenceBfsToken,
   ];
 }
 
 function mergeLiveTokenCatalogue(tokens: WalletToken[]) {
   const known = new Map<string, WalletToken>();
-  for (const token of [...liveTokenCatalogue, referenceSolanaToken, referenceBfsToken]) {
+  for (const token of [...liveTokenCatalogue, referenceSolanaToken]) {
     known.set(token.symbol, token);
   }
   for (const token of tokens) {
+    if (isRetiredWalletTokenSymbol(token.symbol)) continue;
     const isEmptyCatalogueToken =
       token.id.startsWith("market-") && token.balance === 0 && token.price === 0;
     if (!isEmptyCatalogueToken) known.set(token.symbol, token);
@@ -383,9 +368,6 @@ function migrateLegacyReferenceHoldings(tokens: WalletToken[]) {
     if (token.symbol === "SOL") return saveToken({ ...token, balance: 0.09413 });
     return token;
   });
-  if (!migrated.some((token) => token.symbol === "BFS")) {
-    migrated.push(saveToken(referenceBfsToken));
-  }
   return migrated;
 }
 
@@ -418,7 +400,7 @@ function TokenIcon({ token, size = "normal" }: { token: WalletToken; size?: "sma
       style={{ background: visual.background, color: visual.foreground ?? "white" }}
     >
       <TokenGlyph token={token} />
-      {token.image && token.symbol !== "BFS" ? <Image src={token.image} alt={`${token.name} logo`} fill unoptimized sizes="80px" className="z-10 object-contain" /> : null}
+      {token.image ? <Image src={token.image} alt={`${token.name} logo`} fill unoptimized sizes="80px" className="z-10 object-contain" /> : null}
       {token.symbol === "USDT" ? <span className="absolute bottom-0 right-0 z-20 grid h-4 w-4 place-items-center rounded-full bg-white text-[9px] text-black">▤</span> : null}
     </span>
   );
@@ -433,10 +415,6 @@ function TokenGlyph({ token }: { token: WalletToken }) {
         <span className="h-[0.16em] w-[1.1em] rounded-sm bg-gradient-to-r from-[#55f6c7] via-[#5e8cff] to-[#b537f2]" />
       </span>
     );
-  }
-
-  if (token.symbol === "BFS") {
-    return <Image src="/bfs-coin.svg" alt="" fill unoptimized sizes="80px" className="z-10 object-contain" />;
   }
 
   return <span className="relative z-0">{tokenMark(token)}</span>;
@@ -641,7 +619,7 @@ function HomeView({
   const displayTokens = useMemo(
     () => sortTokens([
       ...referenceTokens,
-      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS"),
+      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && !isRetiredWalletTokenSymbol(token.symbol)),
     ]),
     [referenceTokens, tokens],
   );
@@ -818,7 +796,7 @@ function TokensScreen({ tokens, onBack, onToken }: { tokens: WalletToken[]; onBa
   const portfolioTokens = useMemo(
     () => sortTokens([
       ...referenceHomeTokens(tokens),
-      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && token.symbol !== "BFS"),
+      ...tokens.filter((token) => token.balance > 0 && token.symbol !== "SOL" && !isRetiredWalletTokenSymbol(token.symbol)),
     ]),
     [tokens],
   );
@@ -877,7 +855,7 @@ function WatchlistScreen({ tokens, watchlistSymbols, onBack, onToken, onToggle }
   const filteredTokens = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return [...tokens]
-      .filter((token) => token.symbol !== "BFS")
+      .filter((token) => !isRetiredWalletTokenSymbol(token.symbol))
       .filter((token) => !normalizedQuery || token.name.toLowerCase().includes(normalizedQuery) || token.symbol.toLowerCase().includes(normalizedQuery))
       .sort((a, b) => {
         const aWatched = watchlistSymbols.includes(a.symbol);
@@ -943,7 +921,7 @@ function TradeView({ tokens, cashBalance, perpPositions, onToken, onExecuteTrade
   const [sortMode, setSortMode] = useState("rank");
   const [currencyType, setCurrencyType] = useState("all");
   const [period, setPeriod] = useState<"1h" | "24h" | "7d">("24h");
-  const tradable = useMemo(() => [...tokens].filter((token) => token.symbol !== "BFS" && token.price > 0), [tokens]);
+  const tradable = useMemo(() => [...tokens].filter((token) => !isRetiredWalletTokenSymbol(token.symbol) && token.price > 0), [tokens]);
   const payToken = payAsset === "CASH" ? null : tokens.find((token) => token.symbol === payAsset) ?? null;
   const receiveToken = receiveAsset === "CASH" ? null : tokens.find((token) => token.symbol === receiveAsset) ?? null;
   const payPrice = payAsset === "CASH" ? 1 : payToken?.price ?? 0;
@@ -1190,7 +1168,7 @@ function PerpsSection({ tokens, positions, onOpen }: { tokens: WalletToken[]; po
 function TokenRow({ token, animationDelay, onClick }: { token: WalletToken; animationDelay?: number; onClick: () => void }) {
   const value = token.balance * token.price;
   const changeValue = value * (token.change24h / 100);
-  const changeLabel = token.symbol === "BFS" ? "+<$0.01" : value === 0 ? formatMoney(0) : formatSignedMoney(changeValue);
+  const changeLabel = value === 0 ? formatMoney(0) : formatSignedMoney(changeValue);
   const changeClass = token.change24h < 0 ? "text-[#f21b3f]" : value === 0 ? "text-white/55" : "text-[#00e676]";
 
   return (
@@ -1945,7 +1923,9 @@ function TokenEditor({ token, onClose, onSave }: { token: WalletToken | null; on
     const balance = Number(form.balance);
     const change24h = Number(form.change24h);
     if (!form.name.trim() || !form.symbol.trim() || ![price, balance, change24h].every(Number.isFinite) || price < 0 || balance < 0) { setError("Enter a name, symbol, and valid numeric values."); return; }
-    onSave({ ...form, name: form.name.trim(), symbol: form.symbol.trim().toUpperCase(), price: String(price), balance: String(balance), change24h: String(change24h) });
+    const symbol = form.symbol.trim().toUpperCase();
+    if (isRetiredWalletTokenSymbol(symbol)) { setError(`${symbol} is no longer supported.`); return; }
+    onSave({ ...form, name: form.name.trim(), symbol, price: String(price), balance: String(balance), change24h: String(change24h) });
   };
   return <div className="absolute inset-0 z-[60] flex items-end justify-center bg-black/75 px-3 pb-3 backdrop-blur-sm sm:items-center"><section className="max-h-[92svh] w-full max-w-[510px] overflow-y-auto rounded-[2rem] bg-[#1d1d1f] p-6" aria-label={token ? `Edit ${token.name}` : "Add token"}><div className="flex items-center justify-between"><div><h2 className="text-[22px] font-semibold">{token ? `Edit ${token.name}` : "Add Token"}</h2><p className="mt-1 text-sm text-white/45">Portfolio data is stored for this wallet.</p></div><button type="button" onClick={onClose} aria-label="Close token editor"><X className="h-6 w-6" /></button></div><form onSubmit={submit} className="mt-7 space-y-3">{(["name", "symbol", "price", "balance", "change24h", "image"] as (keyof TokenForm)[]).map((field) => <label key={field} className="block rounded-2xl bg-[#29292b] px-4 py-3 text-sm text-white/55"><span>{field === "change24h" ? "24h %" : field === "image" ? "Image URL" : field[0].toUpperCase() + field.slice(1)}</span><input type={field === "price" || field === "balance" || field === "change24h" ? "number" : field === "image" ? "url" : "text"} inputMode={field === "price" || field === "balance" || field === "change24h" ? "decimal" : undefined} value={form[field] ?? ""} onChange={(event) => update(field, event.target.value)} className="mt-1 block w-full bg-transparent text-[17px] text-white outline-none" /></label>)}{error ? <p className="rounded-xl bg-[#f21b3f]/15 px-4 py-3 text-sm text-[#ff91a2]">{error}</p> : null}<div className="flex gap-3 pt-3"><button type="button" onClick={onClose} className="flex-1 rounded-full bg-[#29292b] px-4 py-4 text-[17px] text-white/70">Cancel</button><button type="submit" className="flex-1 rounded-full bg-[#a295f3] px-4 py-4 text-[17px] font-medium text-black">Save Token</button></div></form></section></div>;
 }

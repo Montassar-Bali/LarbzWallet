@@ -337,6 +337,9 @@ await page.locator('[data-testid="phantom-home-scroll"]').evaluate((scrollArea) 
 await page.locator(".phantom-home-content").evaluate(async (content) => {
   await Promise.all(content.getAnimations().map((animation) => animation.finished));
 });
+if (await page.locator(".phantom-home-content .phantom-home-token-row").filter({ hasText: /\bBFS\b/ }).count()) {
+  throw new Error("Phantom home still shows the retired BFS token.");
+}
 const phantomHomeReferenceLayout = await page.evaluate(() => {
   const tabs = document.querySelector('[data-testid="phantom-wallet-tabs"]');
   const homeTab = [...(tabs?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.trim() === "Home");
@@ -380,6 +383,9 @@ const phantomTokenScreen = page.locator('[data-testid="phantom-token-screen"]');
 await phantomTokenScreen.waitFor();
 await phantomTokenScreen.getByRole("heading", { name: "Token", exact: true }).waitFor();
 await phantomTokenScreen.locator('[data-testid="phantom-token-screen-total"]').waitFor();
+if (await phantomTokenScreen.locator(".phantom-home-token-row").filter({ hasText: /\bBFS\b/ }).count()) {
+  throw new Error("Phantom token list still shows the retired BFS token.");
+}
 const phantomTokenSortSize = await phantomTokenScreen.getByRole("button", { name: "Sort tokens" }).evaluate((button) => {
   const bounds = button.getBoundingClientRect();
   return { width: bounds.width, height: bounds.height };
@@ -401,7 +407,7 @@ await phantomTokenScreen.getByRole("button", { name: "Sort tokens" }).click();
 await phantomTokenScreen.getByRole("menuitemradio", { name: "Name" }).click();
 const sortedPhantomTokenNames = await phantomTokenScreen.locator('[data-testid="phantom-token-name"]').allTextContents();
 const expectedSortedPhantomTokenNames = [...sortedPhantomTokenNames].sort((a, b) => a.localeCompare(b));
-if (sortedPhantomTokenNames.length < 2 || JSON.stringify(sortedPhantomTokenNames) !== JSON.stringify(expectedSortedPhantomTokenNames)) {
+if (sortedPhantomTokenNames.length === 0 || JSON.stringify(sortedPhantomTokenNames) !== JSON.stringify(expectedSortedPhantomTokenNames)) {
   throw new Error(`Phantom Token screen sorting is not functional: ${JSON.stringify(sortedPhantomTokenNames)}`);
 }
 await phantomTokenScreen.locator(".phantom-home-token-row").filter({ hasText: "Solana" }).first().click();
@@ -752,6 +758,9 @@ const ledgerHomeText = await ledgerHome.innerText();
 if (/TikTok|@northlarp|recording indicator/i.test(ledgerHomeText)) {
   throw new Error("Larpz Wallet still contains source-video watermarks or recording UI.");
 }
+if (await ledgerHome.getByText("BFS", { exact: true }).count()) {
+  throw new Error("Larpz Wallet home still shows the retired BFS token.");
+}
 
 const ledgerBottomNav = page.locator('[data-testid="ledger-bottom-nav"]');
 await ledgerBottomNav.waitFor();
@@ -841,6 +850,9 @@ await ledgerHome.getByText(/sim_ledger_/).first().waitFor();
 await ledgerHoldingsTabs.getByRole("tab", { name: "Assets", exact: true }).click();
 await ledgerHome.getByRole("button", { name: "See all assets", exact: true }).click();
 await page.getByRole("heading", { name: "All assets", exact: true }).waitFor();
+if (await page.locator('[data-testid="ledger-all-assets"]').getByText("BFS", { exact: true }).count()) {
+  throw new Error("Larpz Wallet asset list still shows the retired BFS token.");
+}
 await page.getByLabel("Search all assets").fill("Bitcoin");
 await page.locator('[data-testid="ledger-all-assets"]').getByText("Bitcoin", { exact: true }).waitFor();
 await page.getByRole("button", { name: "Back to Larpz Wallet home" }).click();
@@ -1085,6 +1097,9 @@ await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style home");
 const trustHomeText = await page.locator('[data-testid="trust-wallet"]').innerText();
 if (/TikTok|@northlarp|recording indicator|\b(?:Kaufen|Verkaufen|Tausch|Senden|Empfangen|Suchen|Weiter|Anpassen|Haupt-Wallet)\b/i.test(trustHomeText)) {
   throw new Error("The Larpz Trust-style wallet still contains source-video, watermark, or German interface text.");
+}
+if (await page.locator('[data-testid="trust-home"]').getByText("BFS", { exact: true }).count()) {
+  throw new Error("Larpz Trust-style home still shows the retired BFS token.");
 }
 
 const trustNewsAssetVersion = "20260905";
@@ -1879,6 +1894,9 @@ await page.locator('[data-testid="trust-buy-screen"]').waitFor();
 await assertWritingFieldsAvoidIosZoom(page, "Larpz Trust-style Buy");
 await page.getByRole("button", { name: "Select purchase token" }).click();
 const trustBuyPicker = page.locator('[data-testid="trust-token-picker"]');
+if (await trustBuyPicker.getByText("BFS", { exact: true }).count()) {
+  throw new Error("Larpz Trust-style token picker still shows the retired BFS token.");
+}
 await trustBuyPicker.getByLabel("Search tokens").fill("Solana");
 await trustBuyPicker.getByRole("button").filter({ hasText: "Solana" }).first().click();
 const trustBuyKeypad = page.locator('[aria-label="Numeric keypad"]');

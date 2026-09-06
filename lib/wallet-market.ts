@@ -1,4 +1,4 @@
-import { canonicalWalletTokens } from "@/config/tokens";
+import { canonicalWalletTokens, isRetiredWalletTokenSymbol } from "@/config/tokens";
 import type { WalletToken } from "@/lib/types";
 
 export type LiveMarketSnapshot = {
@@ -22,7 +22,8 @@ export const emptyLiveMarketSnapshot: LiveMarketSnapshot = {
 };
 
 export function mergeCanonicalWalletCatalogue(tokens: WalletToken[]) {
-  const existingBySymbol = new Map(tokens.map((token) => [token.symbol.toUpperCase(), token]));
+  const activeTokens = tokens.filter((token) => !isRetiredWalletTokenSymbol(token.symbol));
+  const existingBySymbol = new Map(activeTokens.map((token) => [token.symbol.toUpperCase(), token]));
   const canonicalSymbols = new Set(canonicalWalletTokens.map((token) => token.symbol));
   const canonical = canonicalWalletTokens.map<WalletToken>((seed) => {
     const existing = existingBySymbol.get(seed.symbol);
@@ -41,12 +42,12 @@ export function mergeCanonicalWalletCatalogue(tokens: WalletToken[]) {
       updatedAt: existing?.updatedAt ?? "",
     };
   });
-  const custom = tokens.filter((token) => !canonicalSymbols.has(token.symbol.toUpperCase()));
+  const custom = activeTokens.filter((token) => !canonicalSymbols.has(token.symbol.toUpperCase()));
   return [...canonical, ...custom];
 }
 
 export function applyLiveMarketSnapshot(tokens: WalletToken[], snapshot: LiveMarketSnapshot) {
-  return tokens.map((token) => ({
+  return tokens.filter((token) => !isRetiredWalletTokenSymbol(token.symbol)).map((token) => ({
     ...token,
     price: snapshot.prices[token.symbol] ?? token.price,
     change24h: snapshot.changes[token.symbol] ?? token.change24h,

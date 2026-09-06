@@ -8,6 +8,12 @@ export type TokenSeed = {
   image: string;
 };
 
+const retiredWalletTokenSymbols = new Set(["BFS"]);
+
+export function isRetiredWalletTokenSymbol(symbol: string) {
+  return retiredWalletTokenSymbols.has(symbol.trim().toUpperCase());
+}
+
 export const defaultTokens: TokenSeed[] = [
   {
     id: "usdt",
@@ -26,15 +32,6 @@ export const defaultTokens: TokenSeed[] = [
     balance: 0.09413,
     change24h: -2.55,
     image: "https://assets.coingecko.com/coins/images/4128/large/solana.png",
-  },
-  {
-    id: "bfs",
-    name: "BFS",
-    symbol: "BFS",
-    price: 0.05 / 176.12138,
-    balance: 176.12138,
-    change24h: 0.01,
-    image: "/bfs-coin.svg",
   },
   {
     id: "eth",
@@ -156,7 +153,6 @@ export const liveTokenNames: Record<string, string> = {
   XMR: "Monero",
   PEPE: "Pepe",
   WIF: "dogwifhat",
-  BFS: "BFS",
 };
 
 export const tokenLogoFallbacks: Record<string, string> = {
@@ -189,12 +185,11 @@ export const tokenLogoFallbacks: Record<string, string> = {
   XMR: "https://coin-images.coingecko.com/coins/images/69/large/monero_logo.png",
   PEPE: "https://coin-images.coingecko.com/coins/images/29850/large/pepe-token.jpeg",
   WIF: "https://coin-images.coingecko.com/coins/images/33566/large/dogwifhat.jpg",
-  BFS: "/bfs-coin.svg",
 };
 
 const defaultTokenBySymbol = new Map(defaultTokens.map((token) => [token.symbol, token]));
 
-export const walletMarketSymbols = [...new Set([...liveMarketSymbols, "BFS"])];
+export const walletMarketSymbols = [...new Set(liveMarketSymbols)];
 
 export const canonicalWalletTokens: TokenSeed[] = walletMarketSymbols.map((symbol) => {
   const seed = defaultTokenBySymbol.get(symbol);

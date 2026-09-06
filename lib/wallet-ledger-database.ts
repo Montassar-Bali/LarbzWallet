@@ -2,6 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { isRetiredWalletTokenSymbol } from "@/config/tokens";
 import type { WalletThemeId } from "@/config/wallets";
 import type { WalletActivity } from "@/lib/types";
 import {
@@ -252,6 +253,9 @@ function normalizedBalancesPatch(value: unknown) {
   const balances: Record<string, number> = {};
   for (const [rawSymbol, rawBalance] of entries) {
     const symbol = rawSymbol.toUpperCase();
+    if (isRetiredWalletTokenSymbol(symbol)) {
+      throw new RemoteWalletError("UNSUPPORTED_ASSET", `${symbol} is no longer supported.`);
+    }
     if (
       !/^[A-Z0-9]{2,12}$/.test(symbol)
       || Object.hasOwn(balances, symbol)
@@ -284,7 +288,9 @@ function normalizedAccount(value: unknown) {
   const balances: Record<string, number> = {};
   for (const [rawSymbol, rawBalance] of Object.entries(account.balances).slice(0, 100)) {
     const symbol = rawSymbol.toUpperCase();
-    if (/^[A-Z0-9]{2,12}$/.test(symbol) && Number.isFinite(rawBalance) && rawBalance >= 0) balances[symbol] = rawBalance;
+    if (!isRetiredWalletTokenSymbol(symbol) && /^[A-Z0-9]{2,12}$/.test(symbol) && Number.isFinite(rawBalance) && rawBalance >= 0) {
+      balances[symbol] = rawBalance;
+    }
   }
   return {
     id: account.id.slice(0, 180),
@@ -332,6 +338,11 @@ async function ensureSchema() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (owner_id, account_id)
         )
+      `,
+      sql`
+        UPDATE larpz_wallet_accounts
+        SET balances = balances - 'BFS', updated_at = NOW()
+        WHERE balances ? 'BFS'
       `,
       sql`
         CREATE TABLE IF NOT EXISTS larpz_wallet_transfers (
@@ -387,13 +398,17 @@ function parsedBalances(value: DatabaseAccountRow["balances"]) {
 }
 
 function accountFromRow(row: DatabaseAccountRow): RemoteWalletAccount {
+  const balances = Object.fromEntries(
+    Object.entries(parsedBalances(row.balances))
+      .filter(([symbol]) => !isRetiredWalletTokenSymbol(symbol)),
+  );
   return {
     ownerId: row.owner_id,
     id: row.account_id,
     walletId: row.wallet_id,
     name: row.name,
     address: row.address,
-    balances: parsedBalances(row.balances),
+    balances,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -869,7 +884,6 @@ const networkBySymbol: Record<string, string> = {
   USDT: "Ethereum",
   USDC: "Ethereum",
   SOL: "Solana",
-  BFS: "Solana",
   SUI: "Sui",
   MATIC: "Polygon",
   HYPE: "HyperEVM",

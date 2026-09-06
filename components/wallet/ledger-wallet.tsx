@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent }
 
 import { LedgerMarketChart } from "@/components/wallet/ledger-market-chart";
 import { LedgerPortfolioChart } from "@/components/wallet/ledger-portfolio-chart";
-import { liveMarketSymbols, walletMarketSymbols } from "@/config/tokens";
+import { isRetiredWalletTokenSymbol, liveMarketSymbols, walletMarketSymbols } from "@/config/tokens";
 import {
   defaultLedgerWalletSettings,
   ledgerCurrencies,
@@ -752,6 +752,7 @@ function SettingsScreen({ settings, tokens, onSave, onSecurity, onAccounts, onCl
     if (addressError) return setError(addressError);
     if (!tokenName.trim()) return setError("Enter the token name.");
     if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return setError("Use a 2–10 character token symbol.");
+    if (isRetiredWalletTokenSymbol(symbol)) return setError(`${symbol} is no longer supported.`);
     if (portfolioSymbols.includes(symbol)) return setError(`${symbol} is already included in the built-in asset catalogue.`);
     if (!Number.isFinite(price) || price < 0) return setError("Enter a valid non-negative display price.");
     if (draft.customTokens.some((token) => {
